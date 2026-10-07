@@ -15,7 +15,7 @@ of collection mechanics, not an implementation of the controller.
 | Initial device | TRMNL OG (2-bit), firmware `1.8.17`, reported by the user |
 | API version | `v1alpha1`; all public resources namespaced |
 | Verified collection environment | Kubernetes `v1.36.2`; PVC collection experiment only |
-| Minimum supported Kubernetes | Not yet determined; an open Phase 0 deliverable |
+| Minimum supported Kubernetes | Settled in [Phase 1](002-PHASE1.md#kubernetes-support-floor): `v1.36.0` within minor 1.36; other minors unverified |
 | Initial dependency baseline | Go `1.26`, controller-runtime `v0.24.1`, `k8s.io/*` `v0.36.0` |
 | Serving / scheduling | One active controller replica; PVC deployment uses `Recreate` |
 | Initial image target | `800 × 480`, semantic palette `gray4`, PNG |
@@ -26,10 +26,11 @@ requires Go 1.26 and Kubernetes libraries 0.36.0. Phase 1 must use a pinned
 Go 1.26 build container or provision the required toolchain.
 No compiler or controller scaffolding has been installed in Phase 0. These are
 build / client-library versions, not evidence of a minimum API-server version.
-The collection experiment verifies its behavior on `v1.36.2`; the controller
-itself has not yet been implemented or tested on any Kubernetes version. Determine
-the support floor from required Kubernetes APIs / features and compatibility
-checks. Older Kubernetes minors are unverified, not declared unsupported.
+At the time of Phase 0, the collection experiment verified its behavior on
+`v1.36.2`; the controller itself had not been implemented or tested. Phase 1
+now establishes the support floor through required APIs, the matching client
+dependency baseline and compatibility checks. Older Kubernetes minors remain
+unverified, not declared inherently incompatible.
 
 ## Protocol evidence and compatibility boundary
 
@@ -418,10 +419,11 @@ against the production Go controller and the selected storage driver.
 
 The language, group, resource scope, storage topology, field defaults, firmware
 responses, unknown-target policy and initial-image policy are settled here.
-The minimum supported Kubernetes version remains an open Phase 0 deliverable;
-settle it with API / feature requirements and compatibility evidence before
-declaring all Phase 0 deliverables complete. Phase 0 adds no production controller
-or CRD.
+The minimum supported Kubernetes version was an open Phase 0 deliverable at the
+time of this record. [Phase 1](002-PHASE1.md#kubernetes-support-floor) resolves it
+as `v1.36.0` within minor 1.36, with generated-CRD / controller API integration
+checks on `v1.36.0` and `v1.36.2`, and local-cluster deployment on `v1.36.2`.
+Phase 0 itself adds no production controller or CRD.
 
 Phase 2 must verify pairing, prefix-preserving / prefix-stripping proxy paths,
 authenticated display image fetch, anonymous setup logo, grayscale and indexed

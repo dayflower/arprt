@@ -2,14 +2,15 @@
 
 ## Purpose and baseline
 
-Implement the architecture in [DESIGN.md](DESIGN.md) through independently verifiable phases. The repository has no production implementation, build system, or deployment manifests. Phase 0 contracts and collection experiments are recorded below.
+Implement the architecture in [DESIGN.md](DESIGN.md) through independently verifiable phases. The repository now contains the Phase 1 project foundation, CRDs, build system, and deployment manifests; rendering and BYOS delivery begin in Phase 2. Phase 0 contracts and collection experiments are recorded below.
 
 ## Phase status
 
 - **Phase 0 contracts and collection experiment completed (2026-10-07):** [decisions and contracts](001-PHASE0.md), [sanitized protocol fixtures](../testdata/phase0/README.md), and [documented PVC collection results](001-PHASE0.md#collection-experiment-results).
 - Confirmed: Go + controller-runtime, one namespace, PVC, API group `arprt.dayflower.github.io`, TRMNL OG (2-bit) firmware 1.8.17.
-- The PVC collection experiment was verified on Kubernetes `v1.36.2`. The minimum supported Kubernetes version remains an open Phase 0 deliverable; this experiment alone does not establish that lower bound.
-- Phase 1 has not started. Real-device protocol acceptance remains a Phase 2 requirement; the Phase 0 firmware verification is source-based.
+- The PVC collection experiment was verified on Kubernetes `v1.36.2`. Phase 1 establishes the initial support floor as Kubernetes `v1.36.0` within minor 1.36, using API integration checks on `v1.36.0` / `v1.36.2` and the matching controller-runtime dependency baseline. Other minors remain unverified.
+- **Phase 1 completed (2026-10-07):** [implementation and validation](002-PHASE1.md), Go/controller-runtime foundation, generated CRDs, Render Context, internal PVC repository, deployment and CI checks. Local-cluster installation, samples, probes, namespace RBAC and restart passed on `v1.36.2`.
+- Real-device protocol acceptance remains a Phase 2 requirement; the Phase 0 firmware verification is source-based. Phase 1 explicitly reports delivery and later rendering/assignment paths as unavailable.
 
 The first usable milestone is a controller that serves a single explicitly assigned HTTP GET screen to a real TRMNL device. Subsequent phases add device-aware HTTP rendering, asynchronous Job rendering, playlists, automatic discovery, and operational hardening.
 

@@ -1,0 +1,45 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: photo
+spec:
+  source:
+    http:
+      url: http://photo-renderer.trmnl.svc/render?theme=light
+---
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: device-status
+spec:
+  source:
+    http:
+      method: POST
+      url: http://status-renderer.trmnl.svc/render
+---
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: weather
+spec:
+  refreshInterval: 30m
+  source:
+    job:
+      renderer:
+        image: example/weather-renderer:v1
+        command: [weather]
+        args: [--context, /input/context.json, --output, /work/weather.png]
+        env:
+          - name: TZ
+            value: Asia/Tokyo
+        envFrom:
+          - configMapRef:
+              name: weather-config
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+      contextPath: /input/context.json
+      imagePath: /work/weather.png

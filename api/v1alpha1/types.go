@@ -1,0 +1,181 @@
+package v1alpha1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// LocalReference always refers to a resource in the object's namespace.
+type LocalReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Name string `json:"name"`
+}
+
+type HTTPSource struct {
+	// URL is operator-controlled; credentials and redirects are not supported.
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^https?://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?([/?]([^%#\x00-\x20\x7F]|%[0-9A-Fa-f]{2})*)?$`
+	// +kubebuilder:validation:XValidation:rule="isURL(self)",message="renderer URL must be a valid absolute HTTP URL"
+	// +kubebuilder:validation:XValidation:rule="!self.matches('[?].*;')",message="query semicolons must be percent-encoded"
+	URL string `json:"url"`
+	// +kubebuilder:default=GET
+	// +kubebuilder:validation:Enum=GET;POST
+	Method string `json:"method,omitempty"`
+}
+
+// RendererContainer deliberately exposes only the reusable container interface.
+type RendererContainer struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^\S+$`
+	Image string `json:"image"`
+	// +kubebuilder:validation:MaxItems=128
+	Command []string `json:"command,omitempty"`
+	// +kubebuilder:validation:MaxItems=128
+	Args []string `json:"args,omitempty"`
+	// +kubebuilder:validation:MaxItems=128
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// +kubebuilder:validation:MaxItems=128
+	EnvFrom   []corev1.EnvFromSource      `json:"envFrom,omitempty"`
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
+// JobSource paths designate files. Output's parent is a dedicated writable mount.
+// +kubebuilder:validation:XValidation:rule="self.contextPath != self.imagePath && !self.contextPath.startsWith(self.imagePath + '/') && !self.imagePath.startsWith(self.contextPath + '/')",message="context and image must be distinct files and neither may be an ancestor of the other"
+// +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/[^/]+$')",message="output parent must not be the filesystem root"
+// +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(proc|sys|dev|etc|bin|sbin|usr)(/|$).*')",message="output mount must not hide a system directory"
+// +kubebuilder:validation:XValidation:rule="!self.contextPath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/[^/]+$') && !self.imagePath.matches('^/var/lib/[^/]+$')",message="paths must not overlap the reserved artifact root /var/lib/arprt"
+// +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(var/run|run)/secrets(/|$).*') && !self.imagePath.matches('^/(var/run|run)/[^/]+$')",message="output mount must not hide the ServiceAccount secret tree"
+type JobSource struct {
+	Renderer RendererContainer `json:"renderer"`
+	// +kubebuilder:default="/trmnl/context.json"
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
+	ContextPath string `json:"contextPath,omitempty"`
+	// +kubebuilder:default="/trmnl/output.png"
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
+	ImagePath string `json:"imagePath,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.http) != has(self.job)",message="exactly one of http or job is required"
+type ScreenSource struct {
+	HTTP *HTTPSource `json:"http,omitempty"`
+	Job  *JobSource  `json:"job,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
+type TrmnlScreenSpec struct {
+	Source ScreenSource `json:"source"`
+	// RefreshInterval controls artifact freshness, not device polling. Effective
+	// defaults are 5m for GET and 30m for Job; POST has no interval.
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=`^([0-9]+[hms])+$`
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('24h')",message="interval must be between 1s and 24h in whole seconds"
+	RefreshInterval string `json:"refreshInterval,omitempty"`
+}
+
+type TrmnlScreenStatus struct {
+	// +kubebuilder:validation:Minimum=0
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=tscreen
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+type TrmnlScreen struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              TrmnlScreenSpec   `json:"spec"`
+	Status            TrmnlScreenStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type TrmnlScreenList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []TrmnlScreen `json:"items"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!(has(self.screenRef) && has(self.playlistRef))",message="at most one of screenRef and playlistRef is permitted"
+type TrmnlDeviceSpec struct {
+	// HardwareID is an immutable canonical uppercase MAC address.
+	// +kubebuilder:validation:MaxLength=17
+	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="hardwareID is immutable; replace the device to change identity"
+	HardwareID    string          `json:"hardwareID"`
+	AuthSecretRef LocalReference  `json:"authSecretRef"`
+	ScreenRef     *LocalReference `json:"screenRef,omitempty"`
+	// PlaylistRef is reserved; Phase 1 reports it as UnsupportedFeature.
+	PlaylistRef *LocalReference `json:"playlistRef,omitempty"`
+}
+
+type DisplayStatus struct {
+	// +kubebuilder:validation:Minimum=1
+	Width int32 `json:"width"`
+	// +kubebuilder:validation:Minimum=1
+	Height int32 `json:"height"`
+	// +kubebuilder:validation:Enum=bw;gray4;gray16;bwry
+	Palette string `json:"palette"`
+}
+
+type DeviceInfoStatus struct {
+	Model           string `json:"model,omitempty"`
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+}
+
+type BatteryStatus struct {
+	// +kubebuilder:validation:Minimum=0
+	Voltage *float64 `json:"voltage,omitempty"`
+	// Percent is present only when measured, never inferred from OG voltage.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	Percent *int32 `json:"percent,omitempty"`
+}
+
+type NetworkStatus struct {
+	RSSI *int32 `json:"rssi,omitempty"`
+}
+
+type TrmnlDeviceStatus struct {
+	// +kubebuilder:validation:Minimum=0
+	ObservedGeneration int64             `json:"observedGeneration,omitempty"`
+	Display            *DisplayStatus    `json:"display,omitempty"`
+	Device             *DeviceInfoStatus `json:"device,omitempty"`
+	Battery            *BatteryStatus    `json:"battery,omitempty"`
+	Network            *NetworkStatus    `json:"network,omitempty"`
+	LastSeenAt         *metav1.Time      `json:"lastSeenAt,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=tdevice
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+type TrmnlDevice struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              TrmnlDeviceSpec   `json:"spec"`
+	Status            TrmnlDeviceStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type TrmnlDeviceList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []TrmnlDevice `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&TrmnlScreen{}, &TrmnlScreenList{}, &TrmnlDevice{}, &TrmnlDeviceList{})
+}
