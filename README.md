@@ -1,112 +1,222 @@
 # arprt
 
-A TRMNL BYOS Kubernetes controller. **Phase 1 is the project foundation:** the
-controller validates and reconciles declarative resources, but does not serve
-TRMNL endpoints or render images yet. See [the phased plan](notes/000-PLAN.md),
-[contracts](notes/001-PHASE0.md), and [Phase 1 implementation](notes/002-PHASE1.md).
+A TRMNL BYOS Kubernetes controller with explicit HTTP GET and POST screen delivery,
+Secret authentication and persistent PNG artifacts. Initial device support is
+**TRMNL OG (2-bit), firmware 1.8.17, 800 × 480 / gray4**. Phase 2 software and
+physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHASE2.md),
+[the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
+Device-aware POST implementation and validation are recorded in [Phase 3](notes/004-PHASE3.md).
 
 ## Build and checks
 
-Use Go 1.26.8 (the Makefile provisions that exact toolchain through Go's
-toolchain selection), a C compiler for race tests, Make, and Docker for images.
-Dependencies are pinned in `go.mod` / `go.sum`; controller-gen is v0.21.0.
+Use Go 1.26.8 (selected by the Makefile), a C compiler for race tests, Make,
+and Docker for images. Dependencies and generator versions are pinned.
 
 ```sh
-make manifests  # structural CRDs and deepcopy methods
-make fmt vet test build
-make verify    # generated-file drift, module tidiness, formatting, vet, race, build
+make verify
 make integration ENVTEST_K8S_VERSION=1.36.0
 make integration ENVTEST_K8S_VERSION=1.36.2
 make docker-build IMAGE=arprt:dev
 ```
 
-Integration tests start a disposable etcd/API server and install the generated
-CRDs; they do not modify your kubeconfig's cluster. Binaries are downloaded to
-the ignored `bin/` directory. Tests check schema rejection/defaulting, status
-subresources, immutable identity, sample manifests, namespace boundaries,
-reference changes, duplicate hardware IDs and graceful manager shutdown.
-
-To check Deployment/PVC/probes/RBAC/restart on a local cluster with no existing
-arprt CRDs, run `python3 hack/cluster-smoke.py --image <image>:<tag>` after making
-that image available to the cluster. The script uses an isolated namespace and
-removes its resources afterward; it refuses to overwrite pre-existing CRDs.
-
-## Installation
-
-The initial support baseline is **Kubernetes 1.36.0 or newer within the 1.36
-minor**, Linux, one active controller and a POSIX PVC supporting concurrent
-same-node `ReadWriteOnce` mounts, atomic rename and fsync. Other Kubernetes minors
-are unverified. `ReadWriteOncePod`, multiple active replicas and multi-node
-storage failover are outside the supported topology.
-
-Build/push an image to a registry accessible by your cluster, then change the
-image in `config/default/deployment.yaml` (or use a Kustomize overlay). A default
-StorageClass must provision the PVC; otherwise set `storageClassName` or bind a
-suitable pre-provisioned volume. The supplied configuration uses namespace
-`trmnl`, a single replica, `Recreate` rollout, namespace-only Role/RoleBinding,
-non-root UID/GID 1000, and an artifact volume at `/var/lib/arprt`.
+Envtest checks use disposable API servers and never touch your configured
+cluster. For a full local-cluster check with a cluster-accessible image:
 
 ```sh
-kubectl apply --validate=strict -k config/default
-kubectl -n trmnl rollout status deployment/arprt
-kubectl -n trmnl apply --validate=strict -f config/samples/screens.yaml
-kubectl -n trmnl apply --validate=strict -f config/samples/device.yaml
-kubectl -n trmnl get trmnlscreens,trmnldevices
+python3 hack/cluster-smoke.py --image <registry>/arprt:<tag>
 ```
 
-CRD installation needs cluster-level privileges; runtime RBAC is namespace-only.
-Use strict field validation on API writes to reject unknown source keys and
-namespace overrides in references. Kubernetes otherwise prunes unknown CRD
-fields. Validation uses structural schemas and CEL, with no admission webhook.
+This script refuses to overwrite existing arprt CRDs. It creates an isolated
+namespace, tests pairing, display, both proxy path modes, image authentication,
+PVC restart, renderer outage, initial-image responses and scoped RBAC, then
+removes its resources. It does not configure a physical TRMNL or public ingress.
 
-The sample device references an operator-supplied `living-room-auth` Secret.
-Before Phase 2 pairing, create that Secret with a random URL-safe `apiKey` encoding
-at least 32 random bytes. Phase 1 never reads Secrets or enables pairing.
-Renderer `envFrom` examples also refer to operator-supplied configuration.
+## Installation and pairing
 
-For local controller development after installing the CRDs:
+The initial Kubernetes baseline is **1.36.0 or newer within minor 1.36**, Linux,
+one active controller, and a POSIX PVC supporting same-node ReadWriteOnce,
+atomic rename and fsync. Other minors, multiple replicas, ReadWriteOncePod and
+multi-node storage failover are unverified. The supplied Deployment runs as
+UID/GID 1000 with Recreate rollout and namespace-only RBAC.
+
+1. Build/push the controller image. Create a private Kustomize overlay outside
+   this repository that references `config/default`, and set the image there.
+   Configure the PVC's StorageClass if your cluster has no default.
+2. In that overlay, patch ConfigMap `arprt-config`'s `publicBaseURL` to your public
+   URL, including the external prefix, for example `https://byos.example.com/trmnl`.
+   Expose Service `arprt:8080` through your proxy. Preserve the prefix by default;
+   if your proxy strips exactly `/trmnl`, add `--proxy-strips-prefix=true`.
+   Keep actual hostnames, registry addresses and other private settings in the
+   private overlay. The [Envoy Gateway example](config/overlays/envoy-gateway/README.md)
+   shows the required configuration with placeholder values.
+3. Install the controller using your private overlay and the example renderer
+   below. Replace `/path/to/private-overlay` with your overlay's directory:
+
+   ```sh
+   kubectl apply --validate=strict -k /path/to/private-overlay
+   kubectl -n trmnl rollout status deployment/arprt
+   kubectl apply --validate=strict -k examples/http-get
+   kubectl -n trmnl rollout status deployment/example-renderer
+   ```
+
+4. Create the auth Secret without putting its value on the command line:
+
+   ```sh
+   python3 - <<'PY' | kubectl -n trmnl apply -f -
+   import base64, json, secrets
+   key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('=')
+   print(json.dumps({'apiVersion': 'v1', 'kind': 'Secret',
+                    'metadata': {'name': 'living-room-auth'},
+                    'stringData': {'apiKey': key}}))
+   PY
+   ```
+
+5. Copy the sample device manifest outside the repository:
+
+   ```sh
+   mkdir -p "$HOME/.config/arprt"
+   cp config/samples/device.yaml "$HOME/.config/arprt/device.yaml"
+   ```
+
+   Edit that private copy to set the actual uppercase MAC, then apply it:
+
+   ```sh
+   kubectl -n trmnl apply --validate=strict -f "$HOME/.config/arprt/device.yaml"
+   ```
+
+   The default Role allows `get` only on `living-room-auth`. For other auth
+   Secrets, explicitly add their names to that rule's `resourceNames`. Secret
+   listing/watching is unnecessary; credentials are read directly on requests.
+6. On a trusted network, temporarily add `--enable-setup=true` to the controller
+   args and wait for rollout. Set the TRMNL's **Custom Server URL** to:
+
+   ```text
+   https://byos.example.com/trmnl/devices/trmnl/living-room
+   ```
+
+   The firmware appends `/api/setup` and `/api/display`. Setup returns the
+   pre-registered key and an anonymous bundled calibration PNG. Once pairing
+   completes, remove `--enable-setup=true` and wait for rollout. Setup defaults
+   to disabled. Credential rotation requires re-pairing.
+7. Confirm the four gray bands on the device and inspect status:
+
+   ```sh
+   kubectl -n trmnl get trmnldevices,trmnlscreens
+   kubectl -n trmnl get trmnldevice living-room -o yaml
+   ```
+
+Use TLS outside a trusted LAN. Preserve `ID` / `Access-Token` headers and avoid
+logging them or setup response bodies. Absolute image URLs always come from
+`publicBaseURL`; forwarded headers never change their origin. Images live below
+the exact device base URL to match firmware 1.8.17's authentication prefix test.
+Image routes do not redirect or compress; they return exact Content-Length.
+
+## Renderer contract
+
+The [minimal Python renderer](examples/http-get/renderer.py) uses only the
+standard library. Its Kubernetes example renders four gray bands, accepts
+`width=800&height=480&palette=gray4`, and can return indexed PNG by appending
+`?encoding=indexed` to the screen URL. It requires no Kubernetes API access.
+For a standalone run: `python3 examples/http-get/renderer.py --port 8000`.
+
+GET receives `Accept: image/png` and target query parameters only. Existing
+non-target query values, including repeated values, are preserved; all lowercase
+`width`, `height`, `palette` values are replaced. No device identity, headers,
+tokens, cookies or telemetry are forwarded. Redirects are rejected. Rendering
+has a 10-second deadline and eight execution slots shared by GET and POST.
+
+POST receives the same target query parameters, `Accept: image/png`,
+`Content-Type: application/json`, and the complete [Render Context v1](testdata/phase0/render-context-v1.json)
+body. Query and JSON targets match exactly. Context includes device name,
+model/firmware and available battery/network measurements, with current
+authenticated request telemetry overlaid on known valid state without waiting
+for the Kubernetes informer cache. Missing optional values are omitted; hardware
+ID, credentials, Secret references and arbitrary inbound headers are excluded.
+
+The [device-status renderer](examples/http-post/renderer.py) displays those fields
+using only Python's standard library. Install and assign it to a paired device:
+
+```sh
+kubectl apply --validate=strict -k examples/http-post
+kubectl -n trmnl rollout status deployment/device-status-renderer
+kubectl -n trmnl patch trmnldevice living-room --type=merge \
+  -p '{"spec":{"screenRef":{"name":"device-status"}}}'
+```
+
+Run it outside Kubernetes as an HTTP service with
+`python3 examples/http-post/renderer.py --port 8000`, or consume the shared context
+fixture directly:
+
+```sh
+python3 examples/http-post/renderer.py \
+  --context testdata/phase0/render-context-v1.json --output /tmp/device-status.png
+```
+
+The renderer ignores unknown context fields and shows UNKNOWN for absent
+measurements. It does not infer battery percentage from voltage.
+
+Return HTTP 200, Content-Type `image/png`, and **less than 90,000 bytes** of
+800 × 480 noninterlaced 2-bit PNG. Accepted color types are grayscale (0), or
+indexed (3) with exactly four RGB palette entries `(0,0,0)`, `(85,85,85)`,
+`(170,170,170)`, `(255,255,255)`. Alpha/transparency, APNG, truecolor, other bit
+depths, bad CRCs, partial images and wrong dimensions are rejected. The controller
+validates the complete bounded pixel stream and performs no image conversion.
+
+`refreshInterval` controls GET artifact freshness (default 5m), independently of
+device polling (`--device-refresh-seconds`, default 300). Equal screen UIDs,
+definition revisions, generations and targets share fresh results. Concurrent
+requests for a rendering unit coalesce. Each receiving device UID is separately
+issued access to its image. Editing the screen forces a refresh; failures may
+serve prior output only for the same screen UID and exact current target.
+
+POST renders every authenticated display request; it has no fresh cache reuse
+or request coalescing. Omit `refreshInterval` (the CRD rejects it for POST).
+Artifacts belong to a screen/device UID pair and exact target, with an internal
+context digest and ordered attempts. A failed render may serve that pair's
+compatible prior success, including an older screen definition. A newer attempt
+supersedes earlier in-flight responses, and changed assignments, UIDs or targets
+cannot publish obsolete output or borrow another device's fallback.
+
+Future Job rendering will use a context snapshot taken at scheduling time,
+refresh asynchronously at `refreshInterval` (default 30m), and serve completed
+output without waiting for a Job on each display request. Job execution is not
+implemented yet; its telemetry will reflect the scheduled snapshot.
+
+Immutable URLs and short firmware filenames survive restart. Issued URLs remain
+fetchable even after reassignment; a recreated device UID never inherits access.
+This phase retains artifacts and issuance records indefinitely, exceeding the
+24-hour minimum; bounded retention/GC is deferred to later phases.
+
+## Runtime and conditions
+
+For local development after CRD installation:
 
 ```sh
 mkdir -p /tmp/arprt-data
-bin/arprt --namespace=trmnl --artifact-root=/tmp/arprt-data
+bin/arprt --namespace=trmnl --artifact-root=/tmp/arprt-data \
+  --public-base-url=http://localhost:8080/trmnl
 ```
 
-`WATCH_NAMESPACE` is the fallback for `--namespace`; when `POD_NAMESPACE` is
-present it must match. `/healthz` and `/readyz` listen on port 8081; readiness
-waits for namespace cache synchronization. SIGINT/SIGTERM stops the manager with
-a 20-second shutdown deadline (the Pod grants 30 seconds). Metrics are disabled
-until operational instrumentation is implemented.
+`WATCH_NAMESPACE` is the fallback for `--namespace`; `POD_NAMESPACE`, when set,
+must match. `PUBLIC_BASE_URL` is the fallback for `--public-base-url`.
+BYOS listens on `:8080`; probes listen on `:8081`. SIGINT/SIGTERM stops serving
+and the manager within its 20-second shutdown budget. Metrics remain disabled.
 
-## Current behavior and contracts
+Device conditions report `IdentityUnique`, `AuthenticationReady`,
+`AssignmentReady`, `TargetKnown`, `TelemetryValid`, `RenderReady` and `Ready`.
+Screen `Ready` reports the last requested render outcome for its current
+revision; it does not attest renderer availability before the first request.
+A stale image can keep device `Ready=True` with `StaleImageAvailable`, while
+`RenderReady=False` and screen `Ready=False` expose rendering failure.
 
-`TrmnlScreen` supports exactly one HTTP or Job declaration. HTTP defaults to GET,
-only GET/POST are allowed, and URLs must be absolute HTTP(S) without userinfo or
-fragments. `refreshInterval` uses whole seconds/minutes/hours from 1s to 24h;
-effective defaults are 5m for GET and 30m for Job. Explicit intervals on POST are
-rejected. Job declarations expose `image`, `command`, `args`, `env`, `envFrom`,
-and `resources`; clean absolute file paths default to `/trmnl/context.json` and
-`/trmnl/output.png`. The writable output mount must use a dedicated directory.
+Unknown or contradictory capabilities produce no renderer call. A missing
+assignment, missing screen, unsupported source or unavailable initial image
+returns **HTTP 200 with JSON `status: 202`**, without image fields. This preserves
+the device's current e-paper content and uses the firmware's fast-poll backoff.
+Successful display returns JSON `status: 0`; renderer failures never return the
+firmware's reset-triggering JSON `status: 500`.
 
-`TrmnlDevice` requires an immutable uppercase MAC and same-namespace auth Secret
-reference. It may use either `screenRef` or `playlistRef`, or neither. Telemetry,
-capabilities, last-seen time and conditions are status fields.
-
-All screens/devices remain `Ready=False`: HTTP GET execution belongs to Phase 2,
-POST to Phase 3 and Job to Phase 4. Playlist/discovery declarations report
-`UnsupportedFeature` until Phase 5. An explicit existing screen can have
-`AssignmentReady=True` while device delivery remains unavailable. A missing
-screen produces `ReferenceNotFound`; duplicate hardware IDs produce
-`IdentityUnique=False`. The controller does not invent display capabilities.
-
-Render Context v1 uses a transport-independent model and an explicit status
-allowlist. Optional objects/measurements are omitted when absent, actual zero is
-preserved, and credentials/MACs/metadata cannot be exported. Additive optional
-fields preserve v1; consumers ignore unknown fields. Shared fixtures live in
-[`testdata/phase0`](testdata/phase0).
-
-The internal PVC repository stores immutable digest-addressed images, stable
-short firmware filenames, success metadata, and issuance records scoped to
-device UID. Publication fsyncs bytes/metadata before atomically changing the
-latest-success pointer. Invalid/obsolete publications preserve prior success.
-PNG/protocol validation, serving, Job scheduling and garbage collection belong
-to subsequent phases; the repository assumes validated images from its caller.
+Job execution, playlists and automatic discovery remain
+unavailable and report actionable conditions. Public declaration/default and
+Render Context v1 contracts from Phase 1 remain unchanged. Use strict Kubernetes
+field validation; structural CRDs otherwise prune unknown source/reference keys.
