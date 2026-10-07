@@ -1,0 +1,19 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: arprt
+spec:
+  parentRefs:
+    - name: public
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - byos.example.test
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /trmnl
+      backendRefs:
+        - name: arprt
+          port: 8080
