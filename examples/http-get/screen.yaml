@@ -1,0 +1,10 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: photo
+spec:
+  source:
+    http:
+      url: http://example-renderer:8000/render
+      method: GET
+  refreshInterval: 5m

@@ -11,7 +11,9 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/controller"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,10 +31,17 @@ func main() {
 }
 
 func run() error {
-	var namespace, root, probes string
+	var namespace, root, probes, listen, publicURL string
+	var enableSetup, strips bool
+	var refresh int
 	flag.StringVar(&namespace, "namespace", os.Getenv("WATCH_NAMESPACE"), "Required namespace to watch (controller must run in it)")
 	flag.StringVar(&root, "artifact-root", "/var/lib/arprt", "PVC artifact repository root")
 	flag.StringVar(&probes, "health-probe-bind-address", ":8081", "Health and readiness listener")
+	flag.StringVar(&listen, "byos-bind-address", ":8080", "BYOS listener")
+	flag.StringVar(&publicURL, "public-base-url", os.Getenv("PUBLIC_BASE_URL"), "Required absolute public HTTP(S) URL including external path prefix")
+	flag.BoolVar(&enableSetup, "enable-setup", false, "Enable credential pairing on a trusted network")
+	flag.BoolVar(&strips, "proxy-strips-prefix", false, "Proxy strips the configured public URL path prefix")
+	flag.IntVar(&refresh, "device-refresh-seconds", 300, "Device polling interval, independent of screen freshness")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -43,11 +52,15 @@ func run() error {
 	if podNamespace := os.Getenv("POD_NAMESPACE"); podNamespace != "" && podNamespace != namespace {
 		return fmt.Errorf("controller must run in the watched namespace to share its PVC")
 	}
-	if _, err := artifact.NewPVC(root); err != nil {
+	repo, err := artifact.NewPVC(root)
+	if err != nil {
 		return fmt.Errorf("initialize artifact repository: %w", err)
 	}
 	scheme := runtime.NewScheme()
 	if err := api.AddToScheme(scheme); err != nil {
+		return err
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
 		return err
 	}
 	shutdown := 20 * time.Second
@@ -61,10 +74,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := (&controller.ScreenReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.ScreenReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
 		return err
 	}
-	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Resolver: assignment.Explicit{Reader: mgr.GetClient()}}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}}).SetupWithManager(mgr); err != nil {
+		return err
+	}
+	server, err := byos.NewServer(byos.Config{Namespace: namespace, PublicBaseURL: publicURL, ProxyStripsPrefix: strips, EnableSetup: enableSetup, RefreshSeconds: refresh}, mgr.GetAPIReader(), mgr.GetClient(), repo)
+	if err != nil {
+		return err
+	}
+	if err := mgr.Add(&byos.Listener{Address: listen, Handler: server}); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -80,6 +100,6 @@ func run() error {
 	}); err != nil {
 		return err
 	}
-	ctrl.Log.Info("Starting Phase 1 controller", "namespace", namespace, "deliveryAvailable", false)
+	ctrl.Log.Info("Starting HTTP GET BYOS controller", "namespace", namespace, "setupEnabled", enableSetup)
 	return mgr.Start(ctrl.SetupSignalHandler())
 }

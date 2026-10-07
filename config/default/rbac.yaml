@@ -8,6 +8,10 @@ kind: Role
 metadata:
   name: arprt
 rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [living-room-auth]
+    verbs: [get]
   - apiGroups: [arprt.dayflower.github.io]
     resources: [trmnlscreens, trmnldevices]
     verbs: [get, list, watch]

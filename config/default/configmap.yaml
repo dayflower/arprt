@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arprt-config
+data:
+  # Replace before pairing; include the path prefix exposed by your proxy.
+  publicBaseURL: https://byos.example.test/trmnl

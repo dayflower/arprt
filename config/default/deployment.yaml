@@ -29,11 +29,18 @@ spec:
           imagePullPolicy: IfNotPresent
           args: [--namespace=$(POD_NAMESPACE)]
           env:
+            - name: PUBLIC_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: arprt-config
+                  key: publicBaseURL
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
           ports:
+            - name: byos
+              containerPort: 8080
             - name: probes
               containerPort: 8081
           livenessProbe:

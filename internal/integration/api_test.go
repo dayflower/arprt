@@ -211,10 +211,10 @@ func TestAPIAndController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (&controller.ScreenReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.ScreenReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Resolver: assignment.Explicit{Reader: mgr.GetClient()}}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -316,6 +316,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 		return reason(job.Status.Conditions, controller.ConditionReady) == controller.ReasonUnsupportedFeature
 	})
+	verifyDelivery(t, c)
 }
 
 func reason(conditions []metav1.Condition, kind string) string {
