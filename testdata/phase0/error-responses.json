@@ -1,0 +1,11 @@
+[
+  {"case": "unknown-device", "httpStatus": 404, "body": {"status": 404, "message": "Device not registered"}},
+  {"case": "hardware-id-mismatch", "httpStatus": 403, "body": {"status": 403, "message": "Device identity mismatch"}},
+  {"case": "invalid-token", "httpStatus": 401, "body": {"status": 401, "message": "Authentication required"}},
+  {"case": "setup-disabled", "httpStatus": 403, "body": {"status": 403, "message": "Setup disabled"}},
+  {"case": "missing-assignment", "httpStatus": 200, "body": {"status": 202}},
+  {"case": "missing-screen-reference", "httpStatus": 200, "body": {"status": 202}},
+  {"case": "unknown-target", "httpStatus": 200, "body": {"status": 202}},
+  {"case": "initial-image-pending", "httpStatus": 200, "body": {"status": 202}},
+  {"case": "render-failed-without-compatible-image", "httpStatus": 200, "body": {"status": 202}}
+]

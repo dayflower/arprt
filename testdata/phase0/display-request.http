@@ -1,0 +1,17 @@
+GET /trmnl/devices/trmnl/living-room/api/display HTTP/1.1
+Host: byos.example.test
+ID: 02:00:00:00:00:01
+Access-Token: synthetic-fixture-key-never-use-for-authentication
+Content-Type: application/json
+Update-Source: timer
+Refresh-Rate: 300
+Battery-Voltage: 3.91
+FW-Version: 1.8.17
+Model: og
+Image-Cached: false
+Wake-Time: 12
+RSSI: -48
+Temperature-Profile: true
+Width: 800
+Height: 480
+

@@ -6,7 +6,7 @@ Implement the architecture in [DESIGN.md](DESIGN.md) through independently verif
 
 ## Phase status
 
-- **Phase 0 contracts and collection experiment completed (2026-10-07):** [decisions and contracts](001-PHASE0.md), [sanitized protocol fixtures](../testdata/phase0/README.md), and [real-PVC collection evidence](phase0/collection-result.json).
+- **Phase 0 contracts and collection experiment completed (2026-10-07):** [decisions and contracts](001-PHASE0.md), [sanitized protocol fixtures](../testdata/phase0/README.md), and [documented PVC collection results](001-PHASE0.md#collection-experiment-results).
 - Confirmed: Go + controller-runtime, one namespace, PVC, API group `arprt.dayflower.github.io`, TRMNL OG (2-bit) firmware 1.8.17.
 - The PVC collection experiment was verified on Kubernetes `v1.36.2`. The minimum supported Kubernetes version remains an open Phase 0 deliverable; this experiment alone does not establish that lower bound.
 - Phase 1 has not started. Real-device protocol acceptance remains a Phase 2 requirement; the Phase 0 firmware verification is source-based.

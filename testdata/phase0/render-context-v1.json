@@ -1,0 +1,11 @@
+{
+  "version": "v1",
+  "renderTarget": {"width": 800, "height": 480, "palette": "gray4"},
+  "device": {
+    "name": "living-room",
+    "model": "og",
+    "battery": {"voltage": 3.91},
+    "network": {"rssi": -48},
+    "firmware": {"version": "1.8.17"}
+  }
+}
