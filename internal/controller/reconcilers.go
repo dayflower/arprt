@@ -57,11 +57,9 @@ func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return client.IgnoreNotFound(err)
 		}
 		before := screen.DeepCopy()
-		reason, message := "AwaitingRender", "HTTP GET renders on the next authenticated display request"
+		reason, message := "AwaitingRender", "HTTP renders on the next authenticated display request"
 		if screen.Spec.Source.Job != nil {
 			reason, message = ReasonUnsupportedFeature, "Job execution requires Phase 4"
-		} else if screen.Spec.Source.HTTP != nil && screen.Spec.Source.HTTP.Method == "POST" {
-			reason, message = ReasonUnsupportedFeature, "HTTP POST execution requires Phase 3"
 		}
 		screen.Status.ObservedGeneration = screen.Generation
 		existing := meta.FindStatusCondition(screen.Status.Conditions, ConditionReady)
@@ -117,10 +115,10 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		resolved, err := r.Resolver.Resolve(ctx, &device)
 		switch {
 		case err == nil:
-			if resolved.Spec.Source.HTTP == nil || (resolved.Spec.Source.HTTP.Method != "" && resolved.Spec.Source.HTTP.Method != "GET") {
-				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Assign HTTP GET; POST and Job require later phases")
+			if resolved.Spec.Source.HTTP == nil || (resolved.Spec.Source.HTTP.Method != "" && resolved.Spec.Source.HTTP.Method != "GET" && resolved.Spec.Source.HTTP.Method != "POST") {
+				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Assign HTTP GET or POST; Job execution requires Phase 4")
 			} else {
-				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionTrue, ReasonAssignmentResolved, "Same-namespace HTTP GET screen resolved")
+				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionTrue, ReasonAssignmentResolved, "Same-namespace HTTP screen resolved")
 			}
 		case errors.Is(err, assignment.ErrPlaylistDeferred), errors.Is(err, assignment.ErrDiscoveryDeferred):
 			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Playlists and automatic discovery require Phase 5")

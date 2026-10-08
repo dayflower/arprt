@@ -210,7 +210,7 @@ must redact tokens, setup response bodies and arbitrary firmware log messages.
 | GET interval set | Maximum reuse age since last successful render; not a device polling instruction |
 | Job interval omitted | Effective 30m; initial render once target / assignment is ready, then periodic renders |
 | Job interval set | Due time = last successful render + interval; failures use bounded retry backoff, not a tight loop on overdue time |
-| POST interval | Omit it; reject an explicit `refreshInterval` for POST rather than accept an ineffective setting |
+| POST interval | Render each authenticated display request synchronously; no fresh artifact reuse or context coalescing. Omit `refreshInterval`; reject an explicit value rather than accept an ineffective setting |
 | `job.contextPath` | Default `/trmnl/context.json`; absolute clean POSIX file path |
 | `job.imagePath` | Default `/trmnl/output.png`; absolute clean POSIX file path; output is PNG regardless of filename |
 | `job.renderer` | Required nonempty `image`; Kubernetes-style `command`, `args`, `env`, `envFrom`, `resources`; no arbitrary Pod spec |

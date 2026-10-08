@@ -1,7 +1,9 @@
 package render
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -16,6 +18,13 @@ const HTTPTimeout = 10 * time.Second
 
 // HTTPGET never copies device headers or context into the renderer request.
 type HTTPGET struct {
+	URL    string
+	Client *http.Client
+}
+
+// HTTPPOST sends only the versioned, allowlisted context; it never forwards
+// inbound device headers. Both transports use the same bounded PNG execution.
+type HTTPPOST struct {
 	URL    string
 	Client *http.Client
 }
@@ -43,20 +52,38 @@ func (h HTTPGET) Execute(ctx context.Context, input Request) (Output, error) {
 	if input.Context != nil {
 		return Output{}, errors.New("GET cannot receive device context")
 	}
-	raw, err := TargetURL(h.URL, input.Target)
+	return executeHTTP(ctx, h.URL, h.Client, http.MethodGet, input, nil)
+}
+
+func (h HTTPPOST) Execute(ctx context.Context, input Request) (Output, error) {
+	if input.Context == nil || input.Context.Version != "v1" || input.Context.Device.Name == "" || input.Context.RenderTarget != input.Target {
+		return Output{}, errors.New("POST requires Render Context v1 with the same target as the query")
+	}
+	body, err := json.Marshal(input.Context)
+	if err != nil {
+		return Output{}, errors.New("invalid renderer context")
+	}
+	return executeHTTP(ctx, h.URL, h.Client, http.MethodPost, input, body)
+}
+
+func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, method string, input Request, body []byte) (Output, error) {
+	raw, err := TargetURL(rawURL, input.Target)
 	if err != nil {
 		return Output{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, HTTPTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	req, err := http.NewRequestWithContext(ctx, method, raw, bytes.NewReader(body))
 	if err != nil {
 		return Output{}, errors.New("invalid renderer request")
 	}
 	req.Header.Set("Accept", "image/png")
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	c := http.Client{Timeout: HTTPTimeout}
-	if h.Client != nil {
-		c = *h.Client
+	if supplied != nil {
+		c = *supplied
 	}
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := c.Do(req)

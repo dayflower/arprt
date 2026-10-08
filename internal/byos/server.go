@@ -23,6 +23,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/controller"
 	"github.com/dayflower/arprt/internal/delivery"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -45,6 +46,7 @@ type Server struct {
 	Client     client.Client
 	Repository artifact.Repository
 	GET        *delivery.GET
+	POST       *delivery.POST
 	base       *url.URL
 	gates      sync.Map
 }
@@ -63,7 +65,8 @@ func NewServer(c Config, reader client.Reader, writer client.Client, repo artifa
 	if c.RefreshSeconds < 1 || c.RefreshSeconds > 86400 {
 		return nil, errors.New("device refresh must be 1..86400 seconds")
 	}
-	return &Server{Config: c, Reader: reader, Client: writer, Repository: repo, GET: delivery.NewGET(repo, reader), base: base}, nil
+	get := delivery.NewGET(repo, reader)
+	return &Server{Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), base: base}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -340,12 +343,24 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	if assigned.Spec.Source.HTTP == nil || (assigned.Spec.Source.HTTP.Method != "" && assigned.Spec.Source.HTTP.Method != "GET") {
-		s.outcome(ctx, d, now, boolPtr(false), false, "UnsupportedFeature", "Assign an HTTP GET screen; POST and Job require later phases")
+	if assigned.Spec.Source.HTTP == nil || (assigned.Spec.Source.HTTP.Method != "" && assigned.Spec.Source.HTTP.Method != "GET" && assigned.Spec.Source.HTTP.Method != "POST") {
+		s.outcome(ctx, d, now, boolPtr(false), false, "UnsupportedFeature", "Assign an HTTP GET or POST screen; Job execution requires Phase 4")
 		reply(w, 200, 202)
 		return
 	}
-	m, renderErr := s.GET.Image(ctx, assigned, target)
+	var m artifact.Metadata
+	var renderErr error
+	if assigned.Spec.Source.HTTP.Method == "POST" {
+		var snapshot render.Context
+		// mutate returned the direct status snapshot, and this explicit overlay
+		// keeps current request telemetry independent of informer propagation.
+		snapshot, renderErr = render.Build(d.Name, target, controller.Observation(d.Status), render.Observation{Model: o.Model, FirmwareVersion: o.Firmware, Voltage: o.Voltage, RSSI: o.RSSI})
+		if renderErr == nil {
+			m, renderErr = s.POST.Image(ctx, assigned, d, snapshot)
+		}
+	} else {
+		m, renderErr = s.GET.Image(ctx, assigned, target)
+	}
 	// Recheck identity, assignment, definition and target after the asynchronous
 	// network call. Never issue an image selected for a superseded assignment.
 	var current api.TrmnlDevice
@@ -367,9 +382,9 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	reason, message := "ImageReady", "Validated HTTP GET image available"
+	reason, message := "ImageReady", "Validated HTTP image available"
 	if renderErr != nil {
-		reason, message = "RenderFailed", "HTTP GET rendering failed; check renderer availability and the PNG contract"
+		reason, message = "RenderFailed", "HTTP rendering failed; check renderer availability and the PNG contract"
 	}
 	s.screenOutcome(ctx, assigned, renderErr == nil, reason, message)
 	if m.ImageDigest == "" {
@@ -394,7 +409,7 @@ func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Ti
 			return
 		}
 		if assigned != nil {
-			condition(current, "AssignmentReady", *assigned, "AssignmentResolved", "Same-namespace HTTP GET screen resolved")
+			condition(current, "AssignmentReady", *assigned, "AssignmentResolved", "Same-namespace HTTP screen resolved")
 			if !*assigned {
 				condition(current, "AssignmentReady", false, reason, message)
 			}

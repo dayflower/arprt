@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-status-renderer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: device-status-renderer
+  template:
+    metadata:
+      labels:
+        app: device-status-renderer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: renderer
+          image: python:3.13-alpine
+          command: [python3, /app/renderer.py]
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: device-status-renderer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-status-renderer
+spec:
+  selector:
+    app: device-status-renderer
+  ports:
+    - port: 8000
+      targetPort: 8000

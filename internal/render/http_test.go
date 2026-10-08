@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"hash/crc32"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,34 +86,94 @@ func TestHTTPGETContract(t *testing.T) {
 	if err != nil || !bytes.Equal(out.PNG, b) {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"redirect", "status", "type", "large", "slow"} {
-		t.Run(mode, func(t *testing.T) {
-			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch mode {
-				case "redirect":
-					http.Redirect(w, r, server.URL, 302)
-				case "status":
-					w.WriteHeader(500)
-				case "type":
-					w.Header().Set("Content-Type", "text/plain")
-					_, _ = w.Write(b)
-				case "large":
-					w.Header().Set("Content-Type", "image/png")
-					_, _ = w.Write(bytes.Repeat([]byte{0}, 90000))
-				case "slow":
-					<-r.Context().Done()
+}
+
+func TestHTTPFailures(t *testing.T) {
+	b := fixture(t)
+	for _, method := range []string{"GET", "POST"} {
+		for _, mode := range []string{"redirect", "status", "type", "large", "slow", "malformed"} {
+			t.Run(method+"/"+mode, func(t *testing.T) {
+				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch mode {
+					case "redirect":
+						http.Redirect(w, r, "/redirected", 302)
+					case "status":
+						w.WriteHeader(500)
+					case "type":
+						w.Header().Set("Content-Type", "text/plain")
+						_, _ = w.Write(b)
+					case "large":
+						w.Header().Set("Content-Type", "image/png")
+						_, _ = w.Write(bytes.Repeat([]byte{0}, 90000))
+					case "slow":
+						_, _ = io.Copy(io.Discard, r.Body)
+						<-r.Context().Done()
+					case "malformed":
+						w.Header().Set("Content-Type", "image/png")
+						_, _ = w.Write(b[:40])
+					}
+				}))
+				defer s.Close()
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				defer cancel()
+				var executor Executor = HTTPGET{URL: s.URL + "?secret=operator-value"}
+				input := Request{Target: og}
+				if method == "POST" {
+					executor = HTTPPOST{URL: s.URL + "?secret=operator-value"}
+					input.Context = &Context{Version: "v1", RenderTarget: og, Device: Device{Name: "test"}}
 				}
-			}))
-			defer s.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-			defer cancel()
-			_, err := (HTTPGET{URL: s.URL + "?secret=operator-value"}).Execute(ctx, Request{Target: og})
-			if err == nil {
-				t.Fatal("invalid response accepted")
-			}
-			if strings.Contains(err.Error(), "operator-value") {
-				t.Fatal("URL leaked through error")
-			}
-		})
+				_, err := executor.Execute(ctx, input)
+				if err == nil {
+					t.Fatal("invalid response accepted")
+				}
+				if strings.Contains(err.Error(), "operator-value") {
+					t.Fatal("URL leaked through error")
+				}
+			})
+		}
+	}
+}
+
+func TestHTTPPOSTContextContract(t *testing.T) {
+	b := fixture(t)
+	contextJSON, err := os.ReadFile("../../testdata/phase0/render-context-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot Context
+	if err := json.Unmarshal(contextJSON, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var got Context
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+		}
+		encoded, _ := json.Marshal(got)
+		expected, _ := json.Marshal(snapshot)
+		if !bytes.Equal(encoded, expected) || r.Method != "POST" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("Accept") != "image/png" {
+			t.Error("POST did not send complete context and content negotiation")
+		}
+		q := r.URL.Query()
+		if q.Get("width") != "800" || len(q["width"]) != 1 || q.Get("height") != "480" || q.Get("palette") != "gray4" || len(q["key"]) != 2 {
+			t.Error("query target diverged from context or removed custom values")
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
+	}))
+	defer s.Close()
+	executor := HTTPPOST{URL: s.URL + "?width=1&width=2&height=3&palette=bw&key=a&key=b"}
+	if _, err := executor.Execute(context.Background(), Request{Target: og, Context: &snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []Request{{Target: og}, {Target: Target{Width: 799, Height: 480, Palette: "gray4"}, Context: &snapshot}, {Target: og, Context: &Context{Version: "v2", RenderTarget: og, Device: Device{Name: "device"}}}} {
+		if _, err := executor.Execute(context.Background(), invalid); err == nil {
+			t.Fatal("invalid POST context accepted")
+		}
+	}
+	if calls != 1 {
+		t.Fatal("invalid context reached renderer")
 	}
 }

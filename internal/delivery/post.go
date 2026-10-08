@@ -1,0 +1,124 @@
+package delivery
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"sync"
+	"time"
+
+	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/render"
+	"github.com/dayflower/arprt/internal/screen"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+type pair struct{ namespace, screenUID, deviceUID string }
+
+// POST renders each request independently. Attempts are ordered per pair across
+// targets, so a late response cannot publish after a newer request starts.
+type POST struct {
+	Repository  artifact.Repository
+	Reader      client.Reader
+	NewExecutor func(string) render.Executor
+	mu          sync.Mutex
+	attempts    map[pair]uint64
+	slots       chan struct{}
+}
+
+// NewPOST shares GET's repository, direct reader and HTTP concurrency budget.
+func NewPOST(get *GET) *POST {
+	return &POST{Repository: get.Repository, Reader: get.Reader, slots: get.slots, attempts: map[pair]uint64{}, NewExecutor: func(raw string) render.Executor { return render.HTTPPOST{URL: raw} }}
+}
+
+// Image returns this pair's compatible prior success on failure, never another
+// device's output. There is no fresh cache reuse or context coalescing for POST.
+func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice, input render.Context) (artifact.Metadata, error) {
+	s, d = s.DeepCopy(), d.DeepCopy()
+	if s.Spec.Source.HTTP == nil || s.Spec.Source.HTTP.Method != "POST" || d.UID == "" || d.Namespace != s.Namespace || input.Version != "v1" || input.Device.Name != d.Name {
+		return artifact.Metadata{}, errors.New("POST requires a screen/device pair and Render Context v1")
+	}
+	if err := input.RenderTarget.Validate(); err != nil {
+		return artifact.Metadata{}, err
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		return artifact.Metadata{}, err
+	}
+	// Own the snapshot, including optional pointers, for the whole attempt.
+	var snapshot render.Context
+	if err := json.Unmarshal(body, &snapshot); err != nil {
+		return artifact.Metadata{}, err
+	}
+	input = snapshot
+	digest := sha256.Sum256(body)
+	revision, err := screen.InputRevision(s.Spec)
+	if err != nil {
+		return artifact.Metadata{}, err
+	}
+	u := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: input.RenderTarget}
+	key := pair{u.Namespace, u.ScreenUID, u.DeviceUID}
+	p.mu.Lock()
+	old, err := p.Repository.Latest(ctx, u)
+	if err != nil && !errors.Is(err, artifact.ErrNotFound) {
+		p.mu.Unlock()
+		return artifact.Metadata{}, err
+	}
+	if p.attempts[key] < old.Sequence {
+		p.attempts[key] = old.Sequence
+	}
+	p.attempts[key]++
+	sequence := p.attempts[key]
+	p.mu.Unlock()
+
+	work, cancel := context.WithTimeout(ctx, render.HTTPTimeout)
+	defer cancel()
+	select {
+	case p.slots <- struct{}{}:
+		defer func() { <-p.slots }()
+	case <-work.Done():
+		p.mu.Lock()
+		current := p.attempts[key] == sequence
+		p.mu.Unlock()
+		if !current {
+			return artifact.Metadata{}, artifact.ErrObsolete
+		}
+		return old, errors.New("render concurrency wait timed out")
+	}
+	out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Context: &input})
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.attempts[key] != sequence {
+		return artifact.Metadata{}, artifact.ErrObsolete
+	}
+	if renderErr != nil {
+		return old, renderErr
+	}
+	// Re-read both desired state and observed target without informer delay.
+	var currentScreen api.TrmnlScreen
+	var currentDevice api.TrmnlDevice
+	if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
+		return artifact.Metadata{}, artifact.ErrObsolete
+	}
+	if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Spec.PlaylistRef != nil || currentDevice.Spec.ScreenRef == nil || currentDevice.Spec.ScreenRef.Name != s.Name || currentDevice.Status.Display == nil || *currentDevice.Status.Display != (api.DisplayStatus{Width: u.Target.Width, Height: u.Target.Height, Palette: u.Target.Palette}) {
+		return artifact.Metadata{}, artifact.ErrObsolete
+	}
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return old, err
+	}
+	m := artifact.Metadata{Unit: u, ScreenGeneration: s.Generation, InputRevision: revision, AttemptID: hex.EncodeToString(id[:]), Sequence: sequence, ContextDigest: hex.EncodeToString(digest[:]), RenderedAt: time.Now().UTC()}
+	m, err = p.Repository.Publish(work, m, out.PNG)
+	if err != nil {
+		if errors.Is(err, artifact.ErrObsolete) {
+			return artifact.Metadata{}, err
+		}
+		return old, err
+	}
+	return m, nil
+}

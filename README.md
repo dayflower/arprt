@@ -5,7 +5,7 @@ Secret authentication and persistent PNG artifacts. Initial device support is
 **TRMNL OG (2-bit), firmware 1.8.17, 800 × 480 / gray4**. Phase 2 software and
 physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHASE2.md),
 [the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
-Device-aware POST implementation and validation are recorded in [Phase 3](notes/004-PHASE3.md).
+Device-aware POST implementation, validation and real-device delivery are recorded in [Phase 3](notes/004-PHASE3.md).
 
 ## Build and checks
 

@@ -387,7 +387,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 	if request(s, "GET", strings.TrimPrefix(first.ImageURL, "https://byos.example.test"), auth(), nil).Code != 200 {
 		t.Fatal("immutable image lost after malformed refresh")
 	}
-	for _, mode := range []string{"missing", "post", "job", "unassigned", "playlist"} {
+	for _, mode := range []string{"missing", "job", "unassigned", "playlist"} {
 		t.Run(mode, func(t *testing.T) {
 			d := loadDevice(t, c)
 			if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &screen); err != nil {
@@ -397,12 +397,6 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 			switch mode {
 			case "missing":
 				d.Spec.ScreenRef = &api.LocalReference{Name: "missing"}
-			case "post":
-				screen.Spec.RefreshInterval = ""
-				screen.Spec.Source.HTTP.Method = "POST"
-				screen.Generation++
-				_ = c.Update(context.Background(), &screen)
-				d.Spec.ScreenRef = &api.LocalReference{Name: "screen"}
 			case "job":
 				screen.Spec.Source = api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "example:v1"}}}
 				screen.Generation++

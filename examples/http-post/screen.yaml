@@ -1,0 +1,9 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: device-status
+spec:
+  source:
+    http:
+      url: http://device-status-renderer:8000/render
+      method: POST

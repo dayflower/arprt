@@ -125,7 +125,7 @@ type Request struct {
 }
 
 // Output contains validated PNG bytes; executors must validate before returning.
-// HTTP execution and asynchronous Job collection implement this in later phases.
+// HTTP execution and future asynchronous Job collection share this contract.
 type Output struct{ PNG []byte }
 type Executor interface {
 	Execute(context.Context, Request) (Output, error)

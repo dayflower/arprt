@@ -576,6 +576,12 @@ POST therefore means:
 
 POST rendering is normally performed synchronously with the device request and may therefore use telemetry received in that request.
 
+The initial implementation renders every authenticated display request with
+the current telemetry overlaid on known valid state. POST has no fresh artifact
+reuse or context coalescing; `refreshInterval` must be omitted. A failed attempt
+may serve the same screen/device UID pair's previous successful image only when
+the current assignment and exact render target remain compatible.
+
 ---
 
 ## 12. Job Rendering
