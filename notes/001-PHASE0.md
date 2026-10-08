@@ -138,17 +138,17 @@ log ingestion and device special-function workflows are outside the first milest
 
 ## Canonical routes and authentication
 
-Require a configured absolute public base URL, e.g. `https://byos.example.test/trmnl`.
+Require a configured absolute public base URL, e.g. `https://byos.example.test/arprt`.
 Normalize its trailing slash, reject query / fragment / userinfo, and never derive
 absolute URLs from `Host`, `Forwarded` or `X-Forwarded-*`. Configure `externalPathPrefix`
-from its path (`/trmnl`) and explicitly choose `proxyStripsPrefix` (default false).
+from its path (`/arprt`) and explicitly choose `proxyStripsPrefix` (default false).
 The proxy must either preserve that path or strip exactly that configured prefix;
 do not autodetect rewriting. Generated URLs always contain the external prefix.
 
-For namespace `trmnl` and device `living-room`, the Custom Server URL is:
+For namespace `arprt` and device `living-room`, the Custom Server URL is:
 
 ```text
-https://byos.example.test/trmnl/devices/trmnl/living-room
+https://byos.example.test/arprt/devices/arprt/living-room
 ```
 
 Append `/api/setup`, `/api/display`, `/api/log`,

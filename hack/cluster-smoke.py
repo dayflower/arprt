@@ -121,7 +121,7 @@ def main():
                 {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': values}]))
             for deployment in ['renderer', 'arprt']:
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + deployment, '--timeout=180s')
-            prefix = '/trmnl/devices/' + namespace + '/living-room'
+            prefix = '/arprt/devices/' + namespace + '/living-room'
             headers = {'ID': '02:00:00:00:00:01', 'Model': 'og', 'FW-Version': '1.8.17',
                        'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91', 'RSSI': '-48'}
 
@@ -221,9 +221,9 @@ def main():
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
             patch_args(['--namespace=$(POD_NAMESPACE)', '--proxy-strips-prefix=true'])
             kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
-            stripped = prefix.removeprefix('/trmnl')
+            stripped = prefix.removeprefix('/arprt')
             with forwarded(namespace, 8080, directory) as base:
-                if fetch(base, image_path.removeprefix('/trmnl'))[2] != image:
+                if fetch(base, image_path.removeprefix('/arprt'))[2] != image:
                     raise RuntimeError('image or issuance lost on restart')
                 if display(base, stripped) != first:
                     raise RuntimeError('outage failed to preserve the last compatible image')

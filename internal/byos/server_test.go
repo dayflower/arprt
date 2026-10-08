@@ -28,22 +28,22 @@ import (
 )
 
 const token = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-const devicePath = "/trmnl/devices/trmnl/living-room"
+const devicePath = "/arprt/devices/arprt/living-room"
 
 func newTestServer(t *testing.T, renderer string) (*Server, client.Client, string) {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	_ = api.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "auth"}, ScreenRef: &api.LocalReference{Name: "screen"}}}
-	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "screen", UID: "screen-1", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer, Method: "GET"}}}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(d, screen).WithObjects(d, screen, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "auth"}, Data: map[string][]byte{"apiKey": []byte(token)}}).Build()
+	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "auth"}, ScreenRef: &api.LocalReference{Name: "screen"}}}
+	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "screen", UID: "screen-1", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer, Method: "GET"}}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(d, screen).WithObjects(d, screen, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "auth"}, Data: map[string][]byte{"apiKey": []byte(token)}}).Build()
 	root := t.TempDir()
 	repo, err := artifact.NewPVC(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewServer(Config{Namespace: "trmnl", PublicBaseURL: "https://byos.example.test/trmnl", EnableSetup: true}, c, c, repo)
+	s, err := NewServer(Config{Namespace: "arprt", PublicBaseURL: "https://byos.example.test/arprt", EnableSetup: true}, c, c, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func decodeDisplay(t *testing.T, w *httptest.ResponseRecorder) DisplayResponse {
 func loadDevice(t *testing.T, c client.Client) *api.TrmnlDevice {
 	t.Helper()
 	var d api.TrmnlDevice
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "living-room"}, &d); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "living-room"}, &d); err != nil {
 		t.Fatal(err)
 	}
 	return &d
@@ -144,7 +144,7 @@ func TestSetupDisplayPersistenceOutage(t *testing.T) {
 		t.Fatal("issuance lost on restart")
 	}
 	var screen api.TrmnlScreen
-	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &screen)
+	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen)
 	screen.Spec.RefreshInterval = "1s"
 	screen.Generation++
 	_ = c.Update(context.Background(), &screen)
@@ -178,10 +178,10 @@ func TestAuthenticationRoutingAndPending(t *testing.T) {
 		"wrong-token":      {devicePath + "/api/display", map[string]string{"ID": before.Spec.HardwareID, "Access-Token": "wrong"}, 401},
 		"mismatch":         {devicePath + "/api/setup", map[string]string{"ID": "02:00:00:00:00:02"}, 403},
 		"aliases-conflict": {devicePath + "/api/display", map[string]string{"ID": before.Spec.HardwareID, "Access-Token": token, "ACCESS_TOKEN": token}, 400},
-		"namespace":        {strings.Replace(devicePath, "devices/trmnl", "devices/other", 1) + "/api/setup", auth(), 404},
+		"namespace":        {strings.Replace(devicePath, "devices/arprt", "devices/other", 1) + "/api/setup", auth(), 404},
 		"unknown":          {strings.Replace(devicePath, "living-room", "missing", 1) + "/api/setup", auth(), 404},
 		"escaped":          {devicePath + "%2fapi/display", auth(), 404}, "dot": {devicePath + "/../living-room/api/display", auth(), 404},
-		"double": {devicePath + "//api/display", auth(), 404}, "prefix": {strings.TrimPrefix(devicePath, "/trmnl") + "/api/display", auth(), 404},
+		"double": {devicePath + "//api/display", auth(), 404}, "prefix": {strings.TrimPrefix(devicePath, "/arprt") + "/api/display", auth(), 404},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := request(s, "GET", test.path, test.headers, nil)
@@ -218,8 +218,8 @@ func TestAuthenticationRoutingAndPending(t *testing.T) {
 	// Prefix stripping still generates the configured external URL.
 	s.Config.ProxyStripsPrefix = true
 	s.Config.EnableSetup = true
-	w = request(s, "GET", strings.TrimPrefix(devicePath, "/trmnl")+"/api/setup", auth(), nil)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://byos.example.test/trmnl/devices/") {
+	w = request(s, "GET", strings.TrimPrefix(devicePath, "/arprt")+"/api/setup", auth(), nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "https://byos.example.test/arprt/devices/") {
 		t.Fatal("stripped prefix broken")
 	}
 }
@@ -249,7 +249,7 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 		})
 	}
 	var sc api.TrmnlScreen
-	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &sc)
+	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &sc)
 	target := render.Target{Width: 800, Height: 480, Palette: "gray4"}
 	var wg sync.WaitGroup
 	for i := 0; i < 12; i++ {
@@ -359,7 +359,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 	headers["ID"] = second.Spec.HardwareID
 	headers["Battery-Voltage"] = "3.12"
 	headers["RSSI"] = "-80"
-	path := "/trmnl/devices/trmnl/second"
+	path := "/arprt/devices/arprt/second"
 	if request(s, "GET", path+"/images/"+digest+".png", headers, nil).Code != 404 {
 		t.Fatal("unissued shared image accessible")
 	}
@@ -371,7 +371,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 		t.Fatal("shared image not issued")
 	}
 	var screen api.TrmnlScreen
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &screen); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 		t.Fatal(err)
 	}
 	screen.Generation++
@@ -390,7 +390,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 	for _, mode := range []string{"missing", "job", "unassigned", "playlist"} {
 		t.Run(mode, func(t *testing.T) {
 			d := loadDevice(t, c)
-			if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &screen); err != nil {
+			if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 				t.Fatal(err)
 			}
 			d.Generation++
@@ -433,7 +433,7 @@ func TestCredentialRotation(t *testing.T) {
 	first := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil))
 	path := strings.TrimPrefix(first.ImageURL, "https://byos.example.test")
 	var secret corev1.Secret
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret); err != nil {
 		t.Fatal(err)
 	}
 	rotated := "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"

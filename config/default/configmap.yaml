@@ -4,4 +4,4 @@ metadata:
   name: arprt-config
 data:
   # Replace before pairing; include the path prefix exposed by your proxy.
-  publicBaseURL: https://byos.example.test/trmnl
+  publicBaseURL: https://byos.example.test/arprt

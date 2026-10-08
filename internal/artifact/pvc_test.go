@@ -23,7 +23,7 @@ func TestPublicationRecoveryOwnershipAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u := Unit{Namespace: "trmnl", ScreenUID: "screen-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	u := Unit{Namespace: "arprt", ScreenUID: "screen-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
 	m := Metadata{Unit: u, ScreenGeneration: 1, InputRevision: strings.Repeat("a", 64), AttemptID: "attempt-1", Sequence: 1, RenderedAt: time.Now()}
 	published, err := s.Publish(ctx, m, png)
 	if err != nil {
@@ -116,7 +116,7 @@ func TestDeviceAwareIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u := Unit{Namespace: "trmnl", ScreenUID: "screen-1", DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	u := Unit{Namespace: "arprt", ScreenUID: "screen-1", DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
 	m := Metadata{Unit: u, InputRevision: strings.Repeat("a", 64), ContextDigest: strings.Repeat("b", 64), Sequence: 1, AttemptID: "attempt-1", RenderedAt: time.Now()}
 	if _, err := s.Publish(context.Background(), m, png); err != nil {
 		t.Fatal(err)

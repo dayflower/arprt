@@ -5,6 +5,7 @@ official TRMNL firmware `v1.8.17`, commit
 `9acd348270a493ca5f1c627ac91a9469543267ae`; they are not device captures.
 The `02:00:00:00:00:01` MAC, `.test` host, friendly ID and API key are fabricated.
 The API key is a readable fixture marker, not production-strength key material.
+The public URL prefix and namespace in these fixtures both use `arprt`.
 See [the contract and source links](../../notes/001-PHASE0.md).
 
 Firmware sources establish the request headers, response handling and image

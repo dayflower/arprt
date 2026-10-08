@@ -24,8 +24,8 @@ func fixture(t *testing.T) (client.Client, *api.TrmnlDevice) {
 	scheme := runtime.NewScheme()
 	_ = api.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}}}
-	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "auth", Labels: map[string]string{"keep": "label"}}, Data: map[string][]byte{"other": []byte("preserve")}}
+	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}}}
+	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "auth", Labels: map[string]string{"keep": "label"}}, Data: map[string][]byte{"other": []byte("preserve")}}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, s).Build(), d
 }
 
@@ -62,7 +62,7 @@ func TestConcurrentProvisioningAndReuse(t *testing.T) {
 		}
 	}
 	var secret corev1.Secret
-	if err := c.Get(ctx, client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret); err != nil {
 		t.Fatal(err)
 	}
 	if string(secret.Data["other"]) != "preserve" || secret.Labels["keep"] != "label" {
@@ -90,7 +90,7 @@ func TestProvisioningFailuresDoNotRepairOrOverwrite(t *testing.T) {
 			c, d := fixture(t)
 			ctx := context.Background()
 			var secret corev1.Secret
-			_ = c.Get(ctx, client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret)
+			_ = c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret)
 			writer := client.Client(c)
 			want := ErrUnavailable
 			switch mode {
@@ -129,7 +129,7 @@ func TestExistingKeysArePreserved(t *testing.T) {
 		c, d := fixture(t)
 		ctx := context.Background()
 		var secret corev1.Secret
-		_ = c.Get(ctx, client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret)
+		_ = c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret)
 		secret.Data["apiKey"] = []byte(key)
 		_ = c.Update(ctx, &secret)
 		if got, err := Ensure(ctx, c, deniedPatch{c}, d); err != nil || got != key {

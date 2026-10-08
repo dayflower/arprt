@@ -25,7 +25,7 @@ import (
 func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	t.Helper()
 	ctx := context.Background()
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "automatic-key", Namespace: "trmnl"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "automatic-key"}}}
+	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "automatic-key", Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "automatic-key"}}}
 	if err := c.Create(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -38,14 +38,14 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := byos.NewServer(byos.Config{Namespace: "trmnl", PublicBaseURL: "https://byos.example.test/trmnl", EnableSetup: true}, c, c, repo)
+	server, err := byos.NewServer(byos.Config{Namespace: "arprt", PublicBaseURL: "https://byos.example.test/arprt", EnableSetup: true}, c, c, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	setup := func() (int, string) {
-		req, _ := http.NewRequest("GET", httpServer.URL+"/trmnl/devices/trmnl/automatic-key/api/setup", nil)
+		req, _ := http.NewRequest("GET", httpServer.URL+"/arprt/devices/arprt/automatic-key/api/setup", nil)
 		req.Header.Set("ID", "02:00:00:00:00:50")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -97,7 +97,7 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	}
 	// API server rejection of a write must not claim registration succeeded.
 	immutable := true
-	locked := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "immutable-auth"}, Immutable: &immutable}
+	locked := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "immutable-auth"}, Immutable: &immutable}
 	if err := c.Create(ctx, locked); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 		t.Fatal("failed provisioning changed immutable Secret", err)
 	}
 	// Existing valid immutable keys are usable without write permissions.
-	operator := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: "immutable-operator-auth"}, Immutable: &immutable, Data: map[string][]byte{"apiKey": []byte(strings.Repeat("A", 43))}}
+	operator := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "immutable-operator-auth"}, Immutable: &immutable, Data: map[string][]byte{"apiKey": []byte(strings.Repeat("A", 43))}}
 	if err := c.Create(ctx, operator); err != nil {
 		t.Fatal(err)
 	}

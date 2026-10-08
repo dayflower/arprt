@@ -2,6 +2,6 @@
   "status": 200,
   "api_key": "synthetic-fixture-key-never-use-for-authentication",
   "friendly_id": "living-room",
-  "image_url": "https://byos.example.test/trmnl/devices/trmnl/living-room/setup-logo.png",
+  "image_url": "https://byos.example.test/arprt/devices/arprt/living-room/setup-logo.png",
   "message": "Device registered with arprt"
 }

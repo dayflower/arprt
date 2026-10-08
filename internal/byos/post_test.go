@@ -28,7 +28,7 @@ import (
 func postScreen(t *testing.T, c client.Client) *api.TrmnlScreen {
 	t.Helper()
 	var s api.TrmnlScreen
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "screen"}, &s); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &s); err != nil {
 		t.Fatal(err)
 	}
 	s.Spec.Source.HTTP.Method = "POST"
@@ -119,7 +119,7 @@ func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 		t.Error("latest request or known-state context was lost", contexts)
 	}
 	mu.Unlock()
-	unit := artifact.Unit{Namespace: "trmnl", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
 	before, err := s.Repository.Latest(context.Background(), unit)
 	if err != nil || before.Sequence != 3 || len(before.ContextDigest) != 64 {
 		t.Fatal("POST context metadata not persisted", before, err)
@@ -285,7 +285,7 @@ func TestPOSTChangedInputsCannotPublish(t *testing.T) {
 			if err := <-done; !errors.Is(err, artifact.ErrObsolete) {
 				t.Fatal("obsolete input published", err)
 			}
-			_, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: "trmnl", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: snapshot.RenderTarget})
+			_, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: snapshot.RenderTarget})
 			if !errors.Is(err, artifact.ErrNotFound) {
 				t.Fatal("obsolete success changed pointer", err)
 			}

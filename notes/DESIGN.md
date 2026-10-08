@@ -39,7 +39,7 @@ The custom server URL may contain a path prefix.
 For example:
 
 ```text
-http://192.168.0.2:2300/devices/trmnl/living-room
+http://192.168.0.2:2300/devices/arprt/living-room
 ```
 
 The TRMNL firmware appends its API paths to this base URL.
@@ -47,8 +47,8 @@ The TRMNL firmware appends its API paths to this base URL.
 The resulting requests therefore look like:
 
 ```text
-/devices/trmnl/living-room/api/setup
-/devices/trmnl/living-room/api/display
+/devices/arprt/living-room/api/setup
+/devices/arprt/living-room/api/display
 ```
 
 A trailing slash should not be included in the configured custom server URL.
@@ -56,10 +56,10 @@ A trailing slash should not be included in the configured custom server URL.
 This path-based structure provides a straightforward mapping between a physical device and a Kubernetes resource:
 
 ```text
-/devices/trmnl/living-room/api/display
+/devices/arprt/living-room/api/display
               │
               ▼
-namespace trmnl / TrmnlDevice living-room
+namespace arprt / TrmnlDevice living-room
 ```
 
 TRMNL devices may also send a device identity through HTTP headers or other protocol fields.
@@ -1122,7 +1122,7 @@ status:
 The corresponding device may use:
 
 ```text
-http://controller:2300/devices/trmnl/living-room
+http://controller:2300/devices/arprt/living-room
 ```
 
 as its TRMNL Custom Server URL.

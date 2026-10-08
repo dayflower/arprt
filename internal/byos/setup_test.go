@@ -20,7 +20,7 @@ import (
 func emptyAuth(t *testing.T, c client.Client) {
 	t.Helper()
 	var secret corev1.Secret
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret); err != nil {
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret); err != nil {
 		t.Fatal(err)
 	}
 	delete(secret.Data, "apiKey")
@@ -71,7 +71,7 @@ func TestGeneratedKeysForAllIdentityAndDeliveryModes(t *testing.T) {
 					t.Fatal("ordinary routes accepted missing credentials")
 				}
 				var unprovisioned corev1.Secret
-				_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &unprovisioned)
+				_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &unprovisioned)
 				if _, present := unprovisioned.Data["apiKey"]; present {
 					t.Fatal("ordinary authentication provisioned a key")
 				}
@@ -152,7 +152,7 @@ func TestRejectedSetupDoesNotProvisionCredentials(t *testing.T) {
 			case "invalid-source":
 				d = identityMode(t, c, "secret")
 				var secret corev1.Secret
-				_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "identity"}, &secret)
+				_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "identity"}, &secret)
 				_ = c.Delete(context.Background(), &secret)
 				want = 503
 			}
@@ -161,7 +161,7 @@ func TestRejectedSetupDoesNotProvisionCredentials(t *testing.T) {
 				t.Fatal("unexpected rejection", got)
 			}
 			var secret corev1.Secret
-			_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret)
+			_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret)
 			if _, present := secret.Data["apiKey"]; present || loadDevice(t, c).Status.HardwareID != "" {
 				t.Fatal("rejected setup provisioned credentials or identity")
 			}
@@ -196,7 +196,7 @@ func TestSetupRecoversUnacknowledgedKeyAndStatusWrites(t *testing.T) {
 				t.Fatal("incomplete setup succeeded", w.Code)
 			}
 			var secret corev1.Secret
-			_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret)
+			_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret)
 			key := string(secret.Data["apiKey"])
 			if key == "" || strings.Contains(w.Body.String(), key) {
 				t.Fatal("incomplete setup lost or exposed a key")

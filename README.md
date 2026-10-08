@@ -39,13 +39,17 @@ atomic rename and fsync. Other minors, multiple replicas, ReadWriteOncePod and
 multi-node storage failover are unverified. The supplied Deployment runs as
 UID/GID 1000 with Recreate rollout and namespace-only RBAC.
 
+Examples use `arprt` for both the namespace and the public URL prefix. These
+are independent settings: device URLs are
+`<publicBaseURL>/devices/<namespace>/<device-name>`.
+
 1. Build/push the controller image. Create a private Kustomize overlay outside
    this repository that references `config/default`, and set the image there.
    Configure the PVC's StorageClass if your cluster has no default.
 2. In that overlay, patch ConfigMap `arprt-config`'s `publicBaseURL` to your public
-   URL, including the external prefix, for example `https://byos.example.com/trmnl`.
+   URL, including the external prefix, for example `https://byos.example.com/arprt`.
    Expose Service `arprt:8080` through your proxy. Preserve the prefix by default;
-   if your proxy strips exactly `/trmnl`, add `--proxy-strips-prefix=true`.
+   if your proxy strips exactly `/arprt`, add `--proxy-strips-prefix=true`.
    Keep actual hostnames, registry addresses and other private settings in the
    private overlay. The [Envoy Gateway example](config/overlays/envoy-gateway/README.md)
    shows the required configuration with placeholder values.
@@ -54,9 +58,9 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
 
    ```sh
    kubectl apply --validate=strict -k /path/to/private-overlay
-   kubectl -n trmnl rollout status deployment/arprt
+   kubectl -n arprt rollout status deployment/arprt
    kubectl apply --validate=strict -k examples/http-get
-   kubectl -n trmnl rollout status deployment/example-renderer
+   kubectl -n arprt rollout status deployment/example-renderer
    ```
 
 4. The default base declares `living-room-auth` without key data. The first setup
@@ -70,7 +74,7 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
    the MAC and learns it during successful setup:
 
    ```sh
-   kubectl -n trmnl apply --validate=strict -f config/samples/device.yaml
+   kubectl -n arprt apply --validate=strict -f config/samples/device.yaml
    ```
 
    Alternatively use `device-inline.yaml` for a direct MAC or `device-secret.yaml`
@@ -86,7 +90,7 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
 6. Set the TRMNL's **Custom Server URL** to:
 
    ```text
-   https://byos.example.com/trmnl/devices/trmnl/living-room
+   https://byos.example.com/arprt/devices/arprt/living-room
    ```
 
    The firmware appends `/api/setup` and `/api/display`. Setup returns the
@@ -97,8 +101,8 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
 7. Confirm the four gray bands on the device and inspect status:
 
    ```sh
-   kubectl -n trmnl get trmnldevices,trmnlscreens
-   kubectl -n trmnl get trmnldevice living-room -o yaml
+   kubectl -n arprt get trmnldevices,trmnlscreens
+   kubectl -n arprt get trmnldevice living-room -o yaml
    ```
 
 Use TLS outside a trusted LAN. Preserve `ID` / `Access-Token` headers and avoid
@@ -199,8 +203,8 @@ using only Python's standard library. Install and assign it to a paired device:
 
 ```sh
 kubectl apply --validate=strict -k examples/http-post
-kubectl -n trmnl rollout status deployment/device-status-renderer
-kubectl -n trmnl patch trmnldevice living-room --type=merge \
+kubectl -n arprt rollout status deployment/device-status-renderer
+kubectl -n arprt patch trmnldevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"device-status"}}}'
 ```
 
@@ -254,8 +258,8 @@ For local development after CRD installation:
 
 ```sh
 mkdir -p /tmp/arprt-data
-bin/arprt --namespace=trmnl --artifact-root=/tmp/arprt-data \
-  --public-base-url=http://localhost:8080/trmnl
+bin/arprt --namespace=arprt --artifact-root=/tmp/arprt-data \
+  --public-base-url=http://localhost:8080/arprt
 ```
 
 `WATCH_NAMESPACE` is the fallback for `--namespace`; `POD_NAMESPACE`, when set,

@@ -90,7 +90,7 @@ Passed on 2026-10-08:
 ## Real-device POST delivery
 
 Verified on 2026-10-08 using the existing Kubernetes `v1.36.2` deployment, POSIX
-ReadWriteOnce PVC, HTTPS Gateway with preserved `/trmnl` prefix, and the actual
+ReadWriteOnce PVC, HTTPS Gateway with its configured path prefix preserved, and the actual
 OG / firmware `1.8.17`:
 
 - Re-ran `make verify`, built the production Dockerfile and pushed the Phase 3

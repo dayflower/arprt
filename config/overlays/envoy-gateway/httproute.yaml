@@ -13,7 +13,7 @@ spec:
     - matches:
         - path:
             type: PathPrefix
-            value: /trmnl
+            value: /arprt
       backendRefs:
         - name: arprt
           port: 8080

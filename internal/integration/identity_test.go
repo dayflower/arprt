@@ -27,7 +27,7 @@ func verifyIdentityAPI(t *testing.T, c client.Client) {
 	ctx := context.Background()
 	for _, mode := range []string{"inline", "secret", "auto"} {
 		t.Run("identity-schema-"+mode, func(t *testing.T) {
-			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "identity-schema-" + mode, Namespace: "trmnl"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "credentials"}}}
+			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "identity-schema-" + mode, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "credentials"}}}
 			if mode == "inline" {
 				d.Spec.HardwareID = "02:00:00:00:00:20"
 			}
@@ -84,7 +84,7 @@ func verifyIdentityAPI(t *testing.T, c client.Client) {
 		{"hardwareIDSecretRef": map[string]any{"name": "identity", "key": "mac", "namespace": "other"}},
 	} {
 		source["authSecretRef"] = map[string]any{"name": "credentials"}
-		obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": api.GroupVersion.String(), "kind": "TrmnlDevice", "metadata": map[string]any{"name": fmt.Sprintf("invalid-identity-%d", i), "namespace": "trmnl"}, "spec": source}}
+		obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": api.GroupVersion.String(), "kind": "TrmnlDevice", "metadata": map[string]any{"name": fmt.Sprintf("invalid-identity-%d", i), "namespace": "arprt"}, "spec": source}}
 		if err := c.Create(ctx, obj, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
 			t.Fatal("invalid identity source accepted", i)
 		}
@@ -99,7 +99,7 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := byos.NewServer(byos.Config{Namespace: "trmnl", PublicBaseURL: "https://byos.example.test/trmnl", EnableSetup: true}, c, c, repo)
+	server, err := byos.NewServer(byos.Config{Namespace: "arprt", PublicBaseURL: "https://byos.example.test/arprt", EnableSetup: true}, c, c, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,14 +109,14 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 		t.Run("identity-registration-"+mode, func(t *testing.T) {
 			id := fmt.Sprintf("02:00:00:00:00:%02X", 0x30+i)
 			name := "identity-registration-" + mode
-			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "trmnl"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: name}}}
+			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: name}}}
 			if mode == "inline" {
 				d.Spec.HardwareID = id
 			}
 			if mode == "secret" {
 				d.Spec.HardwareIDSecretRef = &api.HardwareIDSecretReference{Name: name, Key: "mac"}
 			}
-			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "trmnl"}, Data: map[string][]byte{"mac": []byte(id), "apiKey": []byte(token)}}
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Data: map[string][]byte{"mac": []byte(id), "apiKey": []byte(token)}}
 			for _, obj := range []client.Object{secret, d} {
 				if err := c.Create(ctx, obj); err != nil {
 					t.Fatal(err)
@@ -124,7 +124,7 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 			}
 			original := d.DeepCopy()
 			setup := func(mac string) int {
-				req, _ := http.NewRequest("GET", httpServer.URL+"/trmnl/devices/trmnl/"+name+"/api/setup", nil)
+				req, _ := http.NewRequest("GET", httpServer.URL+"/arprt/devices/arprt/"+name+"/api/setup", nil)
 				req.Header.Set("ID", mac)
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {

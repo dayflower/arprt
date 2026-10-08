@@ -121,7 +121,7 @@ or establish physical-device compatibility.
 
 On 2026-10-07, DNS/TLS verification, route Accepted/ResolvedRefs, authenticated
 display and image fetching passed through an Envoy Gateway HTTPS listener with
-a preserved `/trmnl` prefix.
+the configured path prefix preserved.
 
 The [generic deployment example](../config/overlays/envoy-gateway/README.md)
 uses reserved example hostnames and configurable Gateway/image references.
@@ -130,7 +130,7 @@ not recorded in the repository.
 
 Initial physical checks passed on 2026-10-07:
 
-- The actual device paired through the configured HTTPS URL with `/trmnl` prefix.
+- The actual device paired through the configured HTTPS URL and path prefix.
 - Authenticated display reported model `og` and firmware `1.8.17`. The reviewed
   target passed validation, with device `Ready=True`, `RenderReady=True` and
   `ImageReady`.
@@ -146,7 +146,7 @@ confirmed by the user on 2026-10-08. Phase 2 physical-device acceptance is compl
 
 For future regression checks, follow README pairing instructions using the
 actual OG / 1.8.17 and a URL such as
-`https://<your-host>/trmnl/devices/trmnl/living-room`, then repeat:
+`https://<your-host>/arprt/devices/arprt/living-room`, then repeat:
 
 1. Enable setup temporarily, pair the registered MAC and retrieve the setup PNG;
    disable setup again and confirm continued authenticated display/image fetch.

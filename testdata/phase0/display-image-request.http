@@ -1,4 +1,4 @@
-GET /trmnl/devices/trmnl/living-room/images/795ae9c71626902f0cbecce9c379a2b5d36f9ca25bc7d14e48ceb2511c73d90f.png HTTP/1.1
+GET /arprt/devices/arprt/living-room/images/795ae9c71626902f0cbecce9c379a2b5d36f9ca25bc7d14e48ceb2511c73d90f.png HTTP/1.1
 Host: byos.example.test
 ID: 02:00:00:00:00:01
 Access-Token: synthetic-fixture-key-never-use-for-authentication

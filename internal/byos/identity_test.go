@@ -172,7 +172,7 @@ func TestIdentitySecretChangesAndPendingDevices(t *testing.T) {
 	d := identityMode(t, c, "secret")
 	var secret corev1.Secret
 	for _, value := range []string{"", "02:aa:00:00:00:01", auth()["ID"] + "\n"} {
-		_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "identity"}, &secret)
+		_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "identity"}, &secret)
 		secret.Data["mac"] = []byte(value)
 		_ = c.Update(context.Background(), &secret)
 		if request(s, "GET", devicePath+"/api/setup", auth(), nil).Code != 503 {
@@ -248,7 +248,7 @@ func TestConcurrentAutoRegistrationAndMixedDuplicates(t *testing.T) {
 	if err := c.Create(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Create(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "identity", Namespace: "trmnl"}, Data: map[string][]byte{"mac": []byte(first.Spec.HardwareID)}}); err != nil {
+	if err := c.Create(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "identity", Namespace: "arprt"}, Data: map[string][]byte{"mac": []byte(first.Spec.HardwareID)}}); err != nil {
 		t.Fatal(err)
 	}
 	if request(s, "GET", devicePath+"/api/setup", auth(), nil).Code != 503 {
@@ -279,7 +279,7 @@ func TestRegistrationStatusFailureAndInvalidCredentials(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	d := identityMode(t, c, "auto")
 	var secret corev1.Secret
-	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: "auth"}, &secret)
+	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "auth"}, &secret)
 	secret.Data["apiKey"] = []byte("invalid")
 	_ = c.Update(context.Background(), &secret)
 	if request(s, "GET", devicePath+"/api/setup", auth(), nil).Code != 401 {
@@ -374,7 +374,7 @@ func TestSecretChangesDuringRenderPreventIssuance(t *testing.T) {
 					t.Fatal("renderer did not start")
 				}
 				var secret corev1.Secret
-				if err := c.Get(context.Background(), client.ObjectKey{Namespace: "trmnl", Name: source}, &secret); err != nil {
+				if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: source}, &secret); err != nil {
 					t.Fatal(err)
 				}
 				want := 403

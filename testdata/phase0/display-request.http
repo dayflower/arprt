@@ -1,4 +1,4 @@
-GET /trmnl/devices/trmnl/living-room/api/display HTTP/1.1
+GET /arprt/devices/arprt/living-room/api/display HTTP/1.1
 Host: byos.example.test
 ID: 02:00:00:00:00:01
 Access-Token: synthetic-fixture-key-never-use-for-authentication

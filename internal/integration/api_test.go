@@ -55,16 +55,16 @@ func TestAPIAndController(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for _, name := range []string{"trmnl", "other"} {
+	for _, name := range []string{"arprt", "other"} {
 		if err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	validScreen := func(name string) *api.TrmnlScreen {
-		return &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "trmnl"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render?key=a&key=b"}}}}
+		return &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render?key=a&key=b"}}}}
 	}
 	validDevice := func(name string) *api.TrmnlDevice {
-		return &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "trmnl"}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "device-auth"}, ScreenRef: &api.LocalReference{Name: "photo"}}}
+		return &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "device-auth"}, ScreenRef: &api.LocalReference{Name: "photo"}}}
 	}
 	for i, mutation := range []struct {
 		name   string
@@ -130,8 +130,8 @@ func TestAPIAndController(t *testing.T) {
 	// Unknown source keys cannot survive strict API writes. CRDs normally prune
 	// unknown fields, so every installation/example command uses validation=strict.
 	for _, raw := range []string{
-		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlScreen","metadata":{"name":"unknown-source","namespace":"trmnl"},"spec":{"source":{"http":{"url":"http://host/render"},"unknown":{}}}}`,
-		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlDevice","metadata":{"name":"cross-namespace","namespace":"trmnl"},"spec":{"hardwareID":"02:00:00:00:00:01","authSecretRef":{"name":"key","namespace":"other"}}}`,
+		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlScreen","metadata":{"name":"unknown-source","namespace":"arprt"},"spec":{"source":{"http":{"url":"http://host/render"},"unknown":{}}}}`,
+		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlDevice","metadata":{"name":"cross-namespace","namespace":"arprt"},"spec":{"hardwareID":"02:00:00:00:00:01","authSecretRef":{"name":"key","namespace":"other"}}}`,
 	} {
 		var obj unstructured.Unstructured
 		if err := json.Unmarshal([]byte(raw), &obj.Object); err != nil {
@@ -180,7 +180,7 @@ func TestAPIAndController(t *testing.T) {
 			if err := yaml.Unmarshal(doc, &obj.Object); err != nil {
 				t.Fatal(err)
 			}
-			obj.SetNamespace("trmnl")
+			obj.SetNamespace("arprt")
 			obj.SetName(fmt.Sprintf("sample-%s-%d", file[:len(file)-5], i))
 			if err := c.Create(ctx, &obj, client.FieldValidation(metav1.FieldValidationStrict)); err != nil {
 				t.Fatal("sample rejected", err)
@@ -207,7 +207,7 @@ func TestAPIAndController(t *testing.T) {
 	}
 	// Start the real reconcilers with the same namespace-only cache as production.
 	shutdown := 5 * time.Second
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{"trmnl": {}}}, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0", GracefulShutdownTimeout: &shutdown})
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme, Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{"arprt": {}}}, Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0", GracefulShutdownTimeout: &shutdown})
 	if err != nil {
 		t.Fatal(err)
 	}

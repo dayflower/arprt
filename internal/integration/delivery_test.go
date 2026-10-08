@@ -57,14 +57,14 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 		_, _ = w.Write(b)
 	}))
 	defer renderer.Close()
-	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: name}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: method}}}}
+	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: method}}}}
 	hardwareID := "02:00:00:00:00:04"
 	if method == "POST" {
 		hardwareID = "02:00:00:00:00:05"
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: name}, Spec: api.TrmnlDeviceSpec{HardwareID: hardwareID, AuthSecretRef: api.LocalReference{Name: "delivery-auth-" + strings.ToLower(method)}, ScreenRef: &api.LocalReference{Name: name}}}
+	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.TrmnlDeviceSpec{HardwareID: hardwareID, AuthSecretRef: api.LocalReference{Name: "delivery-auth-" + strings.ToLower(method)}, ScreenRef: &api.LocalReference{Name: name}}}
 	token := strings.Repeat("A", 43)
-	for _, obj := range []client.Object{screen, d, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "trmnl", Name: d.Spec.AuthSecretRef.Name}, Data: map[string][]byte{"apiKey": []byte(token)}}} {
+	for _, obj := range []client.Object{screen, d, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: d.Spec.AuthSecretRef.Name}, Data: map[string][]byte{"apiKey": []byte(token)}}} {
 		if err := c.Create(ctx, obj); err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := byos.NewServer(byos.Config{Namespace: "trmnl", PublicBaseURL: "https://byos.example.test/trmnl"}, c, c, repo)
+	server, err := byos.NewServer(byos.Config{Namespace: "arprt", PublicBaseURL: "https://byos.example.test/arprt"}, c, c, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Go(func() {
-			req, _ := http.NewRequest("GET", httpServer.URL+"/trmnl/devices/trmnl/"+name+"/api/display", nil)
+			req, _ := http.NewRequest("GET", httpServer.URL+"/arprt/devices/arprt/"+name+"/api/display", nil)
 			for key, value := range map[string]string{"ID": d.Spec.HardwareID, "Access-Token": token, "Model": "og", "FW-Version": "1.8.17", "Battery-Voltage": "3.92", "RSSI": "-49"} {
 				req.Header.Set(key, value)
 			}
