@@ -146,10 +146,10 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			} else {
 				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionTrue, ReasonAssignmentResolved, "Same-namespace screen resolved")
 			}
-		case errors.Is(err, assignment.ErrPlaylistDeferred), errors.Is(err, assignment.ErrDiscoveryDeferred):
-			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Playlists and automatic discovery require Phase 5")
+		case errors.Is(err, assignment.ErrEmpty):
+			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, "NoEligibleScreens", "Assignment contains no existing screens in this namespace")
 		case apierrors.IsNotFound(err):
-			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonReferenceNotFound, "Referenced screen does not exist in this namespace")
+			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonReferenceNotFound, "Referenced resource does not exist in this namespace")
 		default:
 			return err
 		}
@@ -214,5 +214,6 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return oldOK && newOK && (oldDevice.Generation != newDevice.Generation || oldDevice.Status.HardwareID != newDevice.Status.HardwareID)
 			},
 		})).
-		Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+		Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&api.TrmnlPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }

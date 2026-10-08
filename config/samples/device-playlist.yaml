@@ -1,0 +1,9 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlDevice
+metadata:
+  name: living-room
+spec:
+  authSecretRef:
+    name: living-room-auth
+  playlistRef:
+    name: living-room

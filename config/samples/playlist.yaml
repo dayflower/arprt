@@ -1,0 +1,9 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlPlaylist
+metadata:
+  name: living-room
+spec:
+  screens:
+    - name: photo
+    - name: device-status
+    - name: weather

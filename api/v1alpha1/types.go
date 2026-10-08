@@ -105,6 +105,43 @@ type TrmnlScreenList struct {
 	Items           []TrmnlScreen `json:"items"`
 }
 
+// TrmnlPlaylistSpec defines a bounded, explicitly ordered screen cycle.
+type TrmnlPlaylistSpec struct {
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
+	// +listType=atomic
+	// +kubebuilder:validation:XValidation:rule="self.all(s, self.filter(other, other.name == s.name).size() == 1)",message="playlist screen names must be distinct"
+	Screens []LocalReference `json:"screens"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=tplaylist
+type TrmnlPlaylist struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              TrmnlPlaylistSpec `json:"spec"`
+	Status            TrmnlScreenStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+type TrmnlPlaylistList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []TrmnlPlaylist `json:"items"`
+}
+
+// ScreenCycleStatus persists the last successful screen-cycle display response.
+type ScreenCycleStatus struct {
+	Assignment    string           `json:"assignment"`
+	ScreenUID     string           `json:"screenUID"`
+	InputRevision string           `json:"inputRevision"`
+	Target        DisplayStatus    `json:"target"`
+	ImageDigest   string           `json:"imageDigest"`
+	Filename      string           `json:"filename"`
+	ServedAt      metav1.MicroTime `json:"servedAt"`
+}
+
 // HardwareIDSecretReference selects a required key in a same-namespace Secret.
 type HardwareIDSecretReference struct {
 	// +kubebuilder:validation:MinLength=1
@@ -130,7 +167,7 @@ type TrmnlDeviceSpec struct {
 	HardwareIDSecretRef *HardwareIDSecretReference `json:"hardwareIDSecretRef,omitempty"`
 	AuthSecretRef       LocalReference             `json:"authSecretRef"`
 	ScreenRef           *LocalReference            `json:"screenRef,omitempty"`
-	// PlaylistRef is reserved; Phase 1 reports it as UnsupportedFeature.
+	// PlaylistRef selects an ordered same-namespace screen cycle.
 	PlaylistRef *LocalReference `json:"playlistRef,omitempty"`
 }
 
@@ -162,6 +199,7 @@ type NetworkStatus struct {
 }
 
 type TrmnlDeviceStatus struct {
+	ScreenCycle *ScreenCycleStatus `json:"screenCycle,omitempty"`
 	// HardwareID mirrors the durable registration for this device UID.
 	// +kubebuilder:validation:MaxLength=17
 	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`
@@ -197,5 +235,5 @@ type TrmnlDeviceList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&TrmnlScreen{}, &TrmnlScreenList{}, &TrmnlDevice{}, &TrmnlDeviceList{})
+	SchemeBuilder.Register(&TrmnlScreen{}, &TrmnlScreenList{}, &TrmnlDevice{}, &TrmnlDeviceList{}, &TrmnlPlaylist{}, &TrmnlPlaylistList{})
 }

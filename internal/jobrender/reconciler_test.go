@@ -59,7 +59,7 @@ func step(t *testing.T, r *Reconciler, d *api.TrmnlDevice) ctrl.Result {
 
 func load(t *testing.T, r *Reconciler, d *api.TrmnlDevice) *state {
 	t.Helper()
-	st, err := r.Store.load(d.Namespace, d.Name)
+	st, err := r.Store.load(d.Namespace, d.Name, "screen")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestReplacementAssignmentAndTargetRejectOldJobs(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "assignment":
-				d.Spec.ScreenRef = nil
+				d.Spec.ScreenRef = &api.LocalReference{Name: "missing"}
 				d.Generation++
 				if err := r.Client.Update(ctx, d); err != nil {
 					t.Fatal(err)

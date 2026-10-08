@@ -96,7 +96,7 @@ def main():
             apply({'apiVersion': 'arprt.dayflower.github.io/v1alpha1', 'kind': 'TrmnlDevice',
                 'metadata': {'name': 'living-room'}, 'spec': {'authSecretRef': {'name': 'living-room-auth'},
                     'screenRef': {'name': 'screen'}}})
-            state_file = hashlib.sha256((namespace + '/living-room').encode()).hexdigest() + '.json'
+            state_file = hashlib.sha256((namespace + '/living-room/screen').encode()).hexdigest() + '.json'
 
             def read(path):
                 result = kubectl('-n', namespace, 'exec', 'observer', '--', 'cat', '/data/' + path, check=False)
@@ -184,7 +184,7 @@ def main():
                 apply(screen('sleep 15; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'))
                 wait(lambda: state().get('active'), 30)
                 obsolete = state()['active']['id']
-                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': None}}))
+                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': {'name': 'missing'}}}))
                 wait(lambda: not state(), 60)
                 wait(lambda: all(j['metadata']['name'] != 'arprt-render-' + obsolete for j in jobs()), 60)
                 if latest().get('attemptID') == obsolete or display(base) != {'status': 202}:

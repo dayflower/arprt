@@ -170,7 +170,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 	}
 	// Apply every checked-in sample, preserving native Kubernetes container fields.
-	for _, file := range []string{"screens.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml"} {
+	for _, file := range []string{"screens.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "config", "samples", file))
 		if err != nil {
 			t.Fatal(err)
@@ -212,6 +212,9 @@ func TestAPIAndController(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := (&controller.ScreenReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&controller.PlaylistReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
 	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}}).SetupWithManager(mgr); err != nil {
@@ -307,7 +310,10 @@ func TestAPIAndController(t *testing.T) {
 			if c.Get(ctx, client.ObjectKeyFromObject(x), x) != nil {
 				return false
 			}
-			return reason(x.Status.Conditions, controller.ConditionAssignmentReady) == controller.ReasonUnsupportedFeature
+			if playlist {
+				return reason(x.Status.Conditions, controller.ConditionAssignmentReady) == controller.ReasonReferenceNotFound
+			}
+			return meta.IsStatusConditionTrue(x.Status.Conditions, controller.ConditionAssignmentReady)
 		})
 	}
 	eventually(t, func() bool {
@@ -316,6 +322,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 		return reason(job.Status.Conditions, controller.ConditionReady) == "JobSchedulingDisabled"
 	})
+	verifyPlaylistAPI(t, c)
 	verifyDelivery(t, c)
 	verifyIdentityAPI(t, c)
 	verifyIdentityRegistration(t, c)

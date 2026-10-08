@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-CRDS = ['trmnlscreens.arprt.dayflower.github.io', 'trmnldevices.arprt.dayflower.github.io']
+CRDS = ['trmnlscreens.arprt.dayflower.github.io', 'trmnldevices.arprt.dayflower.github.io', 'trmnlplaylists.arprt.dayflower.github.io']
 
 
 def kubectl(*args, check=True):

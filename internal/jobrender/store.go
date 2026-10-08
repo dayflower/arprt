@@ -56,15 +56,40 @@ func NewStore(root string) (*Store, error) {
 	if err := syncDirectory(root); err != nil {
 		return nil, err
 	}
-	return &Store{Root: root}, nil
+	store := &Store{Root: root}
+	// Migrate Phase 4's one-record-per-device layout without losing active work.
+	records, err := store.records()
+	if err != nil {
+		return nil, err
+	}
+	for _, st := range records {
+		old := store.path(st.Namespace, st.DeviceName)
+		if _, err := os.Stat(old); err == nil {
+			dest := store.path(st.Namespace, st.DeviceName, st.ScreenName)
+			if _, err := os.Stat(dest); !errors.Is(err, os.ErrNotExist) {
+				return nil, errors.New("conflicting scheduler migration records")
+			}
+			if err := os.Rename(old, dest); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := syncDirectory(filepath.Join(root, "jobs")); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 func hash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
-func (s *Store) path(namespace, name string) string {
-	return filepath.Join(s.Root, "jobs", hash([]byte(namespace+"/"+name))+".json")
+func (s *Store) path(namespace, name string, screenName ...string) string {
+	key := namespace + "/" + name
+	if len(screenName) > 0 {
+		key += "/" + screenName[0]
+	}
+	return filepath.Join(s.Root, "jobs", hash([]byte(key))+".json")
 }
-func (s *Store) load(namespace, name string) (*state, error) {
-	b, err := os.ReadFile(s.path(namespace, name))
+func (s *Store) load(namespace, name string, screenName ...string) (*state, error) {
+	b, err := os.ReadFile(s.path(namespace, name, screenName...))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -75,7 +100,7 @@ func (s *Store) load(namespace, name string) (*state, error) {
 	if err = json.Unmarshal(b, &st); err != nil {
 		return nil, err
 	}
-	if st.Namespace != namespace || st.DeviceName != name || (st.Active != nil && !validID(st.Active.ID)) {
+	if st.Namespace != namespace || st.DeviceName != name || (len(screenName) > 0 && st.ScreenName != screenName[0]) || (st.Active != nil && !validID(st.Active.ID)) {
 		return nil, errors.New("invalid scheduler record")
 	}
 	return &st, nil
@@ -85,7 +110,7 @@ func validID(id string) bool {
 	return err == nil && len(b) == 16 && id == hex.EncodeToString(b)
 }
 func (s *Store) save(st *state) error {
-	return artifact.WriteJSONAtomic(s.path(st.Namespace, st.DeviceName), st)
+	return artifact.WriteJSONAtomic(s.path(st.Namespace, st.DeviceName, st.ScreenName), st)
 }
 func (s *Store) run(id string) string { return filepath.Join(s.Root, "runs", id) }
 func (s *Store) prepare(a *attempt, snapshot []byte) error {
@@ -156,4 +181,27 @@ func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
 		return nil, err
 	}
 	return b, nil
+}
+
+func (s *Store) records() ([]state, error) {
+	entries, err := os.ReadDir(filepath.Join(s.Root, "jobs"))
+	if err != nil {
+		return nil, err
+	}
+	var records []state
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(s.Root, "jobs", e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		var st state
+		if err := json.Unmarshal(b, &st); err != nil {
+			return nil, err
+		}
+		records = append(records, st)
+	}
+	return records, nil
 }

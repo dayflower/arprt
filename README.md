@@ -1,11 +1,54 @@
 # arprt
 
-A TRMNL BYOS Kubernetes controller with explicit HTTP GET, POST and asynchronous Job screen delivery,
+A TRMNL BYOS Kubernetes controller with HTTP GET, POST and asynchronous Job delivery, ordered playlists and automatic screen discovery,
 Secret authentication with setup-generated keys and persistent PNG artifacts. Initial device support is
 **TRMNL OG (2-bit), firmware 1.8.17, 800 × 480 / gray4**. Phase 2 software and
 physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHASE2.md),
 [the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
 Device-aware POST implementation, validation and real-device delivery are recorded in [Phase 3](notes/004-PHASE3.md). Job scheduling, collection and recovery are recorded in [Phase 4](notes/007-PHASE4.md).
+Playlist and discovery semantics and validation are recorded in [Phase 5](notes/008-PHASE5.md).
+
+## Playlists and automatic discovery
+
+Use `screenRef` for one screen, `playlistRef` for an ordered list, or omit both
+for discovery. These choices are mutually exclusive. For example:
+
+```yaml
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlPlaylist
+metadata:
+  name: living-room
+spec:
+  screens:
+    - name: photo
+    - name: device-status
+    - name: weather
+```
+
+Set the device's `spec.playlistRef.name` to `living-room` and remove `screenRef`.
+See [playlist](config/samples/playlist.yaml), [playlist device](config/samples/device-playlist.yaml)
+and [discovery device](config/samples/device-discovery.yaml) samples. GET, POST
+and Job screens can be mixed. Playlists accept 1–64 distinct names and preserve
+list order. Discovery uses the first 64 nondeleting screens sorted by name,
+within the device namespace. Missing playlist entries are skipped. An absent
+playlist or no eligible screens produces the initial-pending response.
+
+Screen cycling moves to the next screen only after recording a successful image
+response, including a compatible stale image belonging to that screen. A
+selected screen without any valid image holds its turn and returns pending.
+Every eligible Job pair is prepared in advance, with global active execution
+bounded by `--job-concurrency` (default 4). Removing eligibility cancels active
+work and stops new attempts; completed Jobs follow the existing retention policy.
+
+BYOS provides no verified unique request identifier. For devices with screen cycling,
+responses within `--device-refresh-seconds` (default 300) replay the same image
+and filename. This includes early manual polls. Telemetry is still observed;
+POST receives current request telemetry on the next new turn. Device `status.screenCycle`
+persists the last turn and replay window across controller restarts. Membership
+or order edits reset to the first eligible screen; definition changes invalidate
+replay, and changed targets cannot reuse incompatible output. A device using
+`screenRef` keeps the existing per-request POST behavior. Phase 4 scheduler
+records migrate automatically to per-pair records without replacing active Jobs.
 
 ## Build and checks
 
@@ -25,6 +68,7 @@ cluster. For a full local-cluster check with a cluster-accessible image:
 ```sh
 python3 hack/cluster-smoke.py --image <registry>/arprt:<tag>
 python3 hack/job-smoke.py --image <registry>/arprt:<tag>
+python3 hack/playlist-smoke.py --image <registry>/arprt:<tag>
 ```
 
 The scripts reuse identical installed CRDs and refuse to change mismatched schemas. The HTTP check creates an isolated
@@ -32,7 +76,8 @@ namespace, tests pairing, display, both proxy path modes, image authentication,
 key generation/reuse, GitOps re-apply, PVC restart, renderer outage, initial-image responses and scoped RBAC, then
 removes its resources. The Job check covers default/custom paths, interval refresh,
 controller restart, failures, timeout, obsolete assignments and same-node RWO mounts.
-Neither configures a physical TRMNL or public ingress.
+The playlist check covers mixed sources, Job preparation before selection, screen-cycle retries/restart, edits/deletion, empty discovery and scoped playlist RBAC.
+These checks do not configure a physical TRMNL or public ingress.
 
 ## Installation and pairing
 
@@ -320,17 +365,21 @@ revision; it does not attest readiness of every assigned device pair.
 A stale image can keep device `Ready=True` with `StaleImageAvailable`, while
 `RenderReady=False` and screen `Ready=False` expose rendering failure.
 
-Unknown or contradictory capabilities produce no renderer call. A missing
-assignment, missing screen, unsupported source or unavailable initial image
+Unknown or contradictory capabilities produce no renderer call. An empty
+assignment, missing reference, unsupported source or unavailable initial image
 returns **HTTP 200 with JSON `status: 202`**, without image fields. This preserves
 the device's current e-paper content and uses the firmware's fast-poll backoff.
 Successful display returns JSON `status: 0`; renderer failures never return the
 firmware's reset-triggering JSON `status: 500`.
 
-Playlists and automatic discovery remain unavailable and report actionable conditions.
+`TrmnlPlaylist` references exist only in the device namespace. Its `Ready`
+condition validates references; it does not promise a rendered image. Missing
+screens are skipped, and an empty eligible set reports `NoEligibleScreens`.
+For devices with screen cycling, Job outcomes are reported on their screen and Job; the
+single device `RenderReady` condition is not an aggregate across Job pairs.
 Job render conditions include `JobPending`, `JobFailed`, `JobTimedOut`,
-`JobCreationFailed`, `JobLost`, `RunUnavailable`, `CollectionFailed` and `ImageReady`. Job display polls preserve
-the reconciler's failure reason; finished Job status/logs remain available for diagnosis.
-Public declaration/default and
-Render Context v1 contracts from Phase 1 remain unchanged. Use strict Kubernetes
+`JobCreationFailed`, `JobLost`, `RunUnavailable`, `CollectionFailed` and `ImageReady`.
+For explicit Job assignments, display polls preserve the reconciler's failure
+reason; finished Job status/logs remain available for diagnosis.
+Renderer defaults and Render Context v1 remain unchanged. Use strict Kubernetes
 field validation; structural CRDs otherwise prune unknown source/reference keys.

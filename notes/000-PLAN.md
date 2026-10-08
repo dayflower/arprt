@@ -2,7 +2,7 @@
 
 ## Purpose and baseline
 
-Implement the architecture in [DESIGN.md](DESIGN.md) through independently verifiable phases. The repository now contains the project foundation, CRDs, build system, deployment manifests, completed Phase 2 HTTP GET rendering/BYOS delivery and physical-device acceptance, Phase 3 device-aware synchronous HTTP POST, and Phase 4 asynchronous Job rendering. Phase 0 contracts and collection experiments are recorded below.
+Implement the architecture in [DESIGN.md](DESIGN.md) through independently verifiable phases. The repository now contains the project foundation, CRDs, build system, deployment manifests, completed Phase 2 HTTP GET rendering/BYOS delivery and physical-device acceptance, Phase 3 device-aware synchronous HTTP POST, Phase 4 asynchronous Job rendering, and Phase 5 playlists/automatic discovery. Phase 0 contracts and collection experiments are recorded below.
 
 ## Phase status
 
@@ -12,7 +12,8 @@ Implement the architecture in [DESIGN.md](DESIGN.md) through independently verif
 - **Phase 1 completed (2026-10-07):** [implementation and validation](002-PHASE1.md), Go/controller-runtime foundation, generated CRDs, Render Context, internal PVC repository, deployment and CI checks. Local-cluster installation, samples, probes, namespace RBAC and restart passed on `v1.36.2`.
 - **Phase 2 completed (2026-10-07):** [implementation, validation and acceptance record](003-PHASE2.md). HTTP GET delivery, pairing/authentication, strict PNG validation, persistent artifacts, target reuse and stale fallback are available. Local-cluster setup/display/image fetching, both prefix modes, PVC restart and renderer outage passed on `v1.36.2`. The actual OG / 1.8.17 paired and displayed grayscale bands through a configured HTTPS Gateway with its configured path prefix; authenticated display continued after controller restart. On 2026-10-08, the user confirmed the remaining physical-device acceptance checks, including indexed output and outage/initial-pending behavior, were also completed on 2026-10-07.
 - **Phase 3 completed (2026-10-08):** [implementation and validation](004-PHASE3.md). Synchronous POST receives current request telemetry in Render Context v1, uses pair-owned artifacts and ordered publication, and preserves compatible prior output on failure. Race tests, API integration on `v1.36.0` / `v1.36.2`, and standalone fixture/HTTP rendering passed. The Phase 3 controller and POST renderer were deployed on `v1.36.2`; actual-device request telemetry matched the persisted context digest and pair ownership, authenticated image fetching passed through the existing HTTPS Gateway, and the user confirmed the device-status screen was displayed. Job rendering and later assignment phases remained unavailable at this milestone.
-- **Phase 4 completed (2026-10-08):** [implementation and validation](007-PHASE4.md). Explicit Job pairs render asynchronously from immutable contexts, with durable scheduling/retries, same-node RWO mounts, bounded collection, obsolete-result rejection and retention. Race/build checks and API integration on `v1.36.0` / `v1.36.2` passed. Disposable-cluster validation on `v1.36.4` passed for default/custom paths, interval refresh, independent polling, active restart, offline completed-job recovery, failures/timeouts, stale output, reassignment and scoped RBAC; HTTP regression also passed. The existing device deployment was not changed. Playlists/discovery and operational hardening remain later phases.
+- **Phase 4 completed (2026-10-08):** [implementation and validation](007-PHASE4.md). Explicit Job pairs render asynchronously from immutable contexts, with durable scheduling/retries, same-node RWO mounts, bounded collection, obsolete-result rejection and retention. Race/build checks and API integration on `v1.36.0` / `v1.36.2` passed. Disposable-cluster validation on `v1.36.4` passed for default/custom paths, interval refresh, independent polling, active restart, offline completed-job recovery, failures/timeouts, stale output, reassignment and scoped RBAC; HTTP regression also passed. The existing device deployment was not changed. Playlists/discovery and operational hardening remained later phases at this milestone.
+- **Phase 5 completed (2026-10-08):** [implementation and validation](008-PHASE5.md). Ordered `TrmnlPlaylist` assignments and deterministic same-namespace discovery support GET, POST and Job screens. Durable per-device screen-cycle state replays retries across restart; missing references are skipped and screens without compatible output hold their turn. All eligible Job pairs are prepared under a 64-screen fan-out bound and the global Job concurrency limit, with safe removal, retention and Phase 4 state migration. Race/build/generation checks and API integration on `v1.36.0` / `v1.36.2` passed, including server-side apply ordering and dynamic Job watches. Disposable `v1.36.4` cluster checks passed for mixed screen cycling, retries/restart, edits/deletion, empty discovery, authentication and namespace RBAC, plus the full HTTP/Job regressions. The Phase 5 controller was also deployed on the existing `v1.36.2` cluster: actual-device playlist delivery, name-ordered discovery, Job preparation before selection, authenticated Gateway image fetching and screen-cycle persistence across restart passed. The user confirmed all three playlist screens on the OG / 1.8.17. The original single-screen assignment and 300-second polling were restored, and test resources were removed. Operational hardening and release acceptance remain Phase 6.
 
 The first usable milestone is a controller that serves a single explicitly assigned HTTP GET screen to a real TRMNL device. Subsequent phases add device-aware HTTP rendering, asynchronous Job rendering, playlists, automatic discovery, and operational hardening.
 
@@ -24,7 +25,7 @@ This plan describes implementation work; it does not introduce additional public
 
 - Public resources express user intent: `TrmnlScreen`, `TrmnlDevice`, and, when implemented, `TrmnlPlaylist`.
 - Resources are namespaced. Reference scope and device URL mapping must be settled before API implementation.
-- A device may specify at most one of `screenRef` and `playlistRef`. Leaving both unset is valid and ultimately enables automatic screen discovery.
+- A device may specify at most one of `screenRef` and `playlistRef`. Leaving both unset enables deterministic same-namespace automatic screen discovery.
 - Device capabilities and telemetry are observed state in `status`, not desired configuration in `spec`.
 - Render Target contains `width`, `height`, and a semantic `palette`; device model alone does not distinguish equivalent targets.
 - HTTP GET receives only target query parameters. HTTP POST receives the same parameters and Render Context v1. Job rendering receives the same context schema as a JSON file.
@@ -220,7 +221,7 @@ Keep protocol and Render Context models independent of Kubernetes client objects
 1. Define playlist advancement semantics before implementing them: advancement trigger, ordering, retry behavior, state persistence, and missing/unready screen handling. Keep new public fields out of the API unless an explicit requirement demands them.
 2. Implement `TrmnlPlaylist`, reference validation, ordered resolution, and device `playlistRef` support.
 3. Implement deterministic automatic discovery when both device references are absent, scoped according to Phase 0. Define empty-set and screen-addition/deletion behavior.
-4. Maintain rotation state per device and make it survive restart if the chosen advancement policy requires persistence. Avoid advancing twice for a retried display request when protocol identity allows detecting a retry.
+4. Maintain screen-cycle state per device and make it survive restart if the chosen advancement policy requires persistence. Avoid advancing twice for a retried display request when protocol identity allows detecting a retry.
 5. Extend required Job render pairs to every eligible playlist/discovered Job screen, so images can be prepared before their turn. Bound fan-out and concurrent Job execution.
 6. Define selection when the next screen has no valid artifact or its render fails. Preserve per-screen artifact ownership and do not silently present an image as belonging to another screen.
 7. Document explicit ordering, discovery ordering, and unavailable-screen behavior.
@@ -278,7 +279,7 @@ The following items are outside the initial release unless Phase 0 identifies a 
 - Target-only deduplication hints for Job renderers.
 - Automatic device discovery/provisioning from unknown incoming identities.
 - Additional rendering sources, renderer Kubernetes API integrations, and arbitrary user-supplied Pod specifications.
-- Advanced playlist scheduling, weighted rotation, or per-screen timing fields.
+- Advanced playlist scheduling, weighted screen cycling, or per-screen timing fields.
 - Multiple active controller replicas and multiple storage backends.
 - General-purpose image conversion and support for unverified image formats/palettes.
 

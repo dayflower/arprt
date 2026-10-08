@@ -107,6 +107,9 @@ func run() error {
 	if err := (&controller.ScreenReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), JobEnabled: jobConfig.PVC != ""}).SetupWithManager(mgr); err != nil {
 		return err
 	}
+	if err := (&controller.PlaylistReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
+		return err
+	}
 	server, err := byos.NewServer(byos.Config{Namespace: namespace, PublicBaseURL: publicURL, ProxyStripsPrefix: strips, EnableSetup: enableSetup, RefreshSeconds: refresh}, mgr.GetAPIReader(), mgr.GetClient(), repo)
 	if err != nil {
 		return err

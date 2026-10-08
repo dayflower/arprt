@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - bases/arprt.dayflower.github.io_trmnlscreens.yaml
   - bases/arprt.dayflower.github.io_trmnldevices.yaml
+  - bases/arprt.dayflower.github.io_trmnlplaylists.yaml

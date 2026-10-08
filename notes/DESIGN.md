@@ -201,7 +201,10 @@ spec:
     name: living-room
 ```
 
-If neither is specified, the controller may automatically discover available `TrmnlScreen` resources and rotate through them.
+If neither is specified, the controller may automatically discover available `TrmnlScreen` resources and cycle through them.
+
+The ordering, durable advancement, retry window, unavailable-screen policy and
+bounded Job preparation contract are defined in [Phase 5](008-PHASE5.md).
 
 This provides a simple default experience:
 

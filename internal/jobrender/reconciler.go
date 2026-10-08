@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +28,10 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -50,7 +53,7 @@ func (r *Reconciler) now() time.Time {
 	return time.Now().UTC()
 }
 
-func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey) (*api.TrmnlDevice, *api.TrmnlScreen, *state, error) {
+func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenName ...string) (*api.TrmnlDevice, *api.TrmnlScreen, *state, error) {
 	var d api.TrmnlDevice
 	if err := r.Reader.Get(ctx, key, &d); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -61,12 +64,25 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey) (*api.Tr
 	if !d.DeletionTimestamp.IsZero() || d.Status.Display == nil {
 		return &d, nil, nil, nil
 	}
-	s, err := (assignment.Explicit{Reader: r.Reader}).Resolve(ctx, &d)
-	if apierrors.IsNotFound(err) || errors.Is(err, assignment.ErrPlaylistDeferred) || errors.Is(err, assignment.ErrDiscoveryDeferred) {
+	eligible, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, &d)
+	if apierrors.IsNotFound(err) || errors.Is(err, assignment.ErrEmpty) {
 		return &d, nil, nil, nil
 	}
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	s := eligible.Screens[0]
+	if len(screenName) > 0 {
+		s = nil
+		for _, candidate := range eligible.Screens {
+			if candidate.Name == screenName[0] {
+				s = candidate
+				break
+			}
+		}
+		if s == nil {
+			return &d, nil, nil, nil
+		}
 	}
 	if s.Spec.Source.Job == nil || !s.DeletionTimestamp.IsZero() {
 		return &d, s, nil, nil
@@ -89,11 +105,71 @@ func same(a, b *state) bool {
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d, s, wanted, err := r.desired(ctx, req.NamespacedName)
+	// Process eligible and previously scheduled pairs, including removals.
+	names := map[string]bool{}
+	var d api.TrmnlDevice
+	if err := r.Reader.Get(ctx, req.NamespacedName, &d); err != nil && !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	} else if err == nil {
+		set, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, &d)
+		if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
+			return ctrl.Result{}, err
+		}
+		for _, s := range set.Screens {
+			if s.Spec.Source.Job != nil {
+				names[s.Name] = true
+			}
+		}
+	}
+	records, err := r.Store.records()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	st, err := r.Store.load(req.Namespace, req.Name)
+	for _, st := range records {
+		if st.Namespace == req.Namespace && st.DeviceName == req.Name {
+			names[st.ScreenName] = true
+		}
+	}
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	recordsByName := map[string]state{}
+	for _, st := range records {
+		if st.Namespace == req.Namespace && st.DeviceName == req.Name {
+			recordsByName[st.ScreenName] = st
+		}
+	}
+	// Recover/collect active attempts first, then prefer the oldest due work.
+	sort.Slice(ordered, func(i, j int) bool {
+		a, b := recordsByName[ordered[i]], recordsByName[ordered[j]]
+		if (a.Active != nil) != (b.Active != nil) {
+			return a.Active != nil
+		}
+		if !a.Due.Equal(b.Due) {
+			return a.Due.Before(b.Due)
+		}
+		return ordered[i] < ordered[j]
+	})
+	result := ctrl.Result{}
+	for _, name := range ordered {
+		next, err := r.reconcilePair(ctx, req, name)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if next.RequeueAfter > 0 && (result.RequeueAfter == 0 || next.RequeueAfter < result.RequeueAfter) {
+			result.RequeueAfter = next.RequeueAfter
+		}
+	}
+	return result, nil
+}
+
+func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screenName string) (ctrl.Result, error) {
+	d, s, wanted, err := r.desired(ctx, req.NamespacedName, screenName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	st, err := r.Store.load(req.Namespace, req.Name, screenName)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -109,7 +185,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		if wanted == nil {
 			if st != nil {
-				if err := os.Remove(r.Store.path(req.Namespace, req.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if err := os.Remove(r.Store.path(req.Namespace, req.Name, screenName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return ctrl.Result{}, err
 				}
 			}
@@ -140,6 +216,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	if remaining := st.Due.Sub(r.now()); remaining > 0 {
 		return ctrl.Result{RequeueAfter: remaining}, nil
+	}
+	// Do not allocate durable attempts/run directories while the global queue is full.
+	var jobs batchv1.JobList
+	if err := r.Reader.List(ctx, &jobs, client.InNamespace(r.Config.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
+		return ctrl.Result{}, err
+	}
+	active := 0
+	for i := range jobs.Items {
+		complete, failed := terminal(&jobs.Items[i])
+		if !complete && !failed {
+			active++
+		}
+	}
+	if active >= r.Config.MaxActive {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	source, err := normalize(*s.Spec.Source.Job)
 	if err != nil {
@@ -333,7 +424,7 @@ func (r *Reconciler) advance(ctx context.Context, d *api.TrmnlDevice, s *api.Trm
 	}
 	// Use direct API reads again after collection; status events never override
 	// UID, assignment, definition, target, or durable attempt ordering.
-	_, _, current, err := r.desired(ctx, client.ObjectKeyFromObject(d))
+	_, _, current, err := r.desired(ctx, client.ObjectKeyFromObject(d), st.ScreenName)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -415,7 +506,11 @@ func (r *Reconciler) report(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 	if ready {
 		message = "Validated Job image available"
 	}
-	for _, obj := range []client.Object{d, s} {
+	objects := []client.Object{s}
+	if d.Spec.ScreenRef != nil {
+		objects = append(objects, d)
+	}
+	for _, obj := range objects {
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			current := obj.DeepCopyObject().(client.Object)
 			if err := r.Reader.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
@@ -454,13 +549,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		var requests []reconcile.Request
 		for _, d := range devices.Items {
-			if d.Spec.ScreenRef != nil && d.Spec.ScreenRef.Name == obj.GetName() {
-				requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&d)})
-			}
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&d)})
 		}
 		return requests
 	})
-	return ctrl.NewControllerManagedBy(mgr).Named("job-renderer").For(&api.TrmnlDevice{}).Owns(&batchv1.Job{}).Watches(&api.TrmnlScreen{}, enqueue).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).Named("job-renderer").For(&api.TrmnlDevice{}).Owns(&batchv1.Job{}).Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Watches(&api.TrmnlPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }
 
 func (r *Reconciler) NeedLeaderElection() bool { return false }
@@ -499,7 +592,7 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		if err = json.Unmarshal(b, &st); err != nil {
 			return err
 		}
-		_, _, desired, err := r.desired(ctx, client.ObjectKey{Namespace: st.Namespace, Name: st.DeviceName})
+		_, _, desired, err := r.desired(ctx, client.ObjectKey{Namespace: st.Namespace, Name: st.DeviceName}, st.ScreenName)
 		if err != nil {
 			return err
 		}
@@ -514,7 +607,7 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 					continue
 				}
 			}
-			if err = os.Remove(r.Store.path(st.Namespace, st.DeviceName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err = os.Remove(filepath.Join(r.Store.Root, "jobs", entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 		} else if st.Active != nil {
@@ -567,20 +660,8 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 	}
 	if repository, ok := r.Repository.(*artifact.PVC); ok {
 		var devices api.TrmnlDeviceList
-		var screens api.TrmnlScreenList
 		if err := r.Reader.List(ctx, &devices, client.InNamespace(r.Config.Namespace)); err != nil {
 			return err
-		}
-		if err := r.Reader.List(ctx, &screens, client.InNamespace(r.Config.Namespace)); err != nil {
-			return err
-		}
-		screenUIDs := map[string]string{}
-		pairOwned := map[string]bool{}
-		for _, s := range screens.Items {
-			if s.DeletionTimestamp.IsZero() {
-				screenUIDs[s.Name] = string(s.UID)
-				pairOwned[s.Name] = s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST")
-			}
 		}
 		deviceUIDs := map[string]bool{}
 		units := map[artifact.Unit]bool{}
@@ -589,18 +670,20 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 				continue
 			}
 			deviceUIDs[string(d.UID)] = true
-			if d.Spec.ScreenRef == nil || d.Status.Display == nil {
+			if d.Status.Display == nil {
 				continue
 			}
-			screenUID := screenUIDs[d.Spec.ScreenRef.Name]
-			if screenUID == "" {
-				continue
+			eligible, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, &d)
+			if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
+				return err
 			}
-			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: screenUID, Target: render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}}
-			if pairOwned[d.Spec.ScreenRef.Name] {
-				u.DeviceUID = string(d.UID)
+			for _, s := range eligible.Screens {
+				u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}}
+				if s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST") {
+					u.DeviceUID = string(d.UID)
+				}
+				units[u] = true
 			}
-			units[u] = true
 		}
 		return repository.Collect(ctx, func(u artifact.Unit) bool { return units[u] }, deviceUIDs, r.now())
 	}

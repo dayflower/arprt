@@ -344,11 +344,11 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	assigned, err := (assignment.Explicit{Reader: s.Reader}).Resolve(ctx, d)
+	eligible, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, d)
 	if err != nil {
 		reason, msg := "ReferenceNotFound", "Referenced screen does not exist in this namespace"
-		if errors.Is(err, assignment.ErrDiscoveryDeferred) || errors.Is(err, assignment.ErrPlaylistDeferred) {
-			reason, msg = "UnsupportedFeature", "Playlists and automatic discovery require Phase 5"
+		if errors.Is(err, assignment.ErrEmpty) {
+			reason, msg = "NoEligibleScreens", "Assignment contains no existing screens in this namespace"
 		} else if !apierrors.IsNotFound(err) {
 			reply(w, 503, 503)
 			return
@@ -357,6 +357,11 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
+	assigned, replay := eligible.Select(d, time.Now().UTC(), time.Duration(s.Config.RefreshSeconds)*time.Second)
+	revision, _ := screen.InputRevision(assigned.Spec)
+	if replay && d.Status.ScreenCycle.InputRevision != revision {
+		replay = false
+	}
 	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
 		s.outcome(ctx, d, now, boolPtr(false), false, "UnsupportedFeature", "Assign an HTTP or Job screen")
 		reply(w, 200, 202)
@@ -364,7 +369,14 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 	}
 	var m artifact.Metadata
 	var renderErr error
-	if assigned.Spec.Source.Job != nil {
+	if replay {
+		last := d.Status.ScreenCycle
+		if _, err := s.Repository.Read(ctx, last.ImageDigest); err != nil {
+			reply(w, 503, 503)
+			return
+		}
+		m = artifact.Metadata{ImageDigest: last.ImageDigest, Filename: last.Filename}
+	} else if assigned.Spec.Source.Job != nil {
 		// Polling only reads completed output. Scheduling belongs to reconciliation.
 		m, renderErr = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target})
 		if errors.Is(renderErr, artifact.ErrNotFound) {
@@ -374,8 +386,11 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		if m.ImageDigest != "" && (m.InputRevision != revision || m.ScreenGeneration != assigned.Generation) {
 			renderErr = errors.New("Job update pending")
 		}
-		if c := meta.FindStatusCondition(d.Status.Conditions, "RenderReady"); c != nil && c.Status == metav1.ConditionFalse {
+		if c := meta.FindStatusCondition(d.Status.Conditions, "RenderReady"); !eligible.Cycling && c != nil && c.Status == metav1.ConditionFalse {
 			renderErr = errors.New("Job output pending or failed")
+		}
+		if interval, _ := screen.EffectiveInterval(assigned.Spec); eligible.Cycling && m.ImageDigest != "" && time.Since(m.RenderedAt) >= interval {
+			renderErr = errors.New("Job refresh pending")
 		}
 	} else if assigned.Spec.Source.HTTP.Method == "POST" {
 		var snapshot render.Context
@@ -397,6 +412,11 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		return
 	}
 	if s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen) != nil || currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
+		reply(w, 200, 202)
+		return
+	}
+	currentSet, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, &current)
+	if err != nil || currentSet.Fingerprint != eligible.Fingerprint {
 		reply(w, 200, 202)
 		return
 	}
@@ -425,8 +445,13 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		if renderErr != nil {
 			reason, message = "JobPending", "Job output is pending or failed; check RenderReady and Job status"
 		}
-	} else {
+	} else if !replay {
 		s.screenOutcome(ctx, assigned, renderErr == nil, reason, message)
+	}
+	if replay {
+		if prior := meta.FindStatusCondition(d.Status.Conditions, "Ready"); prior != nil {
+			reason, message = prior.Reason, prior.Message
+		}
 	}
 	if m.ImageDigest == "" {
 		s.outcome(ctx, d, now, boolPtr(true), false, reason, message, assigned.Spec.Source.Job != nil)
@@ -443,7 +468,15 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 			message = "Job output pending or failed; serving the previous compatible image"
 		}
 	}
-	s.outcome(ctx, d, now, boolPtr(true), true, reason, message, assigned.Spec.Source.Job != nil)
+	if eligible.Cycling && !replay {
+		if err := s.mutate(ctx, d, func(current *api.TrmnlDevice) {
+			current.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: eligible.Fingerprint, ScreenUID: string(assigned.UID), InputRevision: revision, Target: *current.Status.Display, ImageDigest: m.ImageDigest, Filename: m.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC())}
+		}); err != nil {
+			reply(w, 503, 503)
+			return
+		}
+	}
+	s.outcome(ctx, d, now, boolPtr(true), true, reason, message, assigned.Spec.Source.Job != nil || replay)
 	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + m.ImageDigest + ".png", Filename: m.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
 }
 func boolPtr(b bool) *bool { return &b }

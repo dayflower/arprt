@@ -19,6 +19,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -160,4 +161,56 @@ func TestJobWatchAndRestart(t *testing.T) {
 	if _, err = repo.Read(ctx, m.ImageDigest); err != nil {
 		t.Fatal(err)
 	}
+	// Screen creation must wake discovery devices without another display poll.
+	editAssignment := func(fn func(*api.TrmnlDevice)) {
+		t.Helper()
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
+				return err
+			}
+			fn(d)
+			return c.Update(ctx, d)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	editAssignment(func(current *api.TrmnlDevice) { current.Spec.ScreenRef = nil })
+	second := s.DeepCopy()
+	second.Name = "second"
+	second.ResourceVersion = ""
+	second.UID = ""
+	second.Spec.Source.Job.Renderer.Args = []string{"exit 0 # discovered"}
+	if err := c.Create(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	hasAttempt := func(marker string) bool {
+		if c.List(ctx, &jobs, client.InNamespace(d.Namespace)) != nil {
+			return false
+		}
+		for _, candidate := range jobs.Items {
+			if candidate.Spec.Template.Spec.Containers[0].Args[0] == marker && candidate.DeletionTimestamp.IsZero() {
+				return true
+			}
+		}
+		return false
+	}
+	eventually(t, func() bool { return hasAttempt("exit 0 # discovered") })
+	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "cycle"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: second.Name}}}}
+	if err := c.Create(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	editAssignment(func(current *api.TrmnlDevice) { current.Spec.PlaylistRef = &api.LocalReference{Name: p.Name} })
+	third := s.DeepCopy()
+	third.Name = "third"
+	third.ResourceVersion = ""
+	third.UID = ""
+	third.Spec.Source.Job.Renderer.Args = []string{"exit 0 # playlist"}
+	if err := c.Create(ctx, third); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.Screens = append(p.Spec.Screens, api.LocalReference{Name: third.Name})
+	if err := c.Update(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return hasAttempt("exit 0 # playlist") })
 }

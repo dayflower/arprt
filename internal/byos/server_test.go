@@ -415,7 +415,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 			if w.Code != 200 || decodeDisplay(t, w).Status != 202 || calls.Load() != before {
 				t.Fatal("unsupported assignment rendered or supplied image")
 			}
-			if meta.IsStatusConditionTrue(loadDevice(t, c).Status.Conditions, "AssignmentReady") {
+			if meta.IsStatusConditionTrue(loadDevice(t, c).Status.Conditions, "AssignmentReady") && mode != "job" && mode != "unassigned" {
 				t.Fatal("unusable assignment reported ready")
 			}
 		})

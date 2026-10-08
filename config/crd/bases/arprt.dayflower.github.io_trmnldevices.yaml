@@ -80,7 +80,8 @@ spec:
                 - name
                 type: object
               playlistRef:
-                description: PlaylistRef is reserved; Phase 1 reports it as UnsupportedFeature.
+                description: PlaylistRef selects an ordered same-namespace screen
+                  cycle.
                 properties:
                   name:
                     maxLength: 253
@@ -241,6 +242,54 @@ spec:
                 format: int64
                 minimum: 0
                 type: integer
+              screenCycle:
+                description: ScreenCycleStatus persists the last successful screen-cycle
+                  display response.
+                properties:
+                  assignment:
+                    type: string
+                  filename:
+                    type: string
+                  imageDigest:
+                    type: string
+                  inputRevision:
+                    type: string
+                  screenUID:
+                    type: string
+                  servedAt:
+                    format: date-time
+                    type: string
+                  target:
+                    properties:
+                      height:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      palette:
+                        enum:
+                        - bw
+                        - gray4
+                        - gray16
+                        - bwry
+                        type: string
+                      width:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                    - height
+                    - palette
+                    - width
+                    type: object
+                required:
+                - assignment
+                - filename
+                - imageDigest
+                - inputRevision
+                - screenUID
+                - servedAt
+                - target
+                type: object
             type: object
         required:
         - spec
