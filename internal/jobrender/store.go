@@ -15,6 +15,7 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/render"
 	"golang.org/x/sys/unix"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 type attempt struct {
@@ -89,7 +90,7 @@ func (s *Store) path(namespace, name string, screenName ...string) string {
 	return filepath.Join(s.Root, "jobs", hash([]byte(key))+".json")
 }
 func (s *Store) load(namespace, name string, screenName ...string) (*state, error) {
-	b, err := os.ReadFile(s.path(namespace, name, screenName...))
+	b, err := readStateFile(s.path(namespace, name, screenName...))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -103,6 +104,9 @@ func (s *Store) load(namespace, name string, screenName ...string) (*state, erro
 	if st.Namespace != namespace || st.DeviceName != name || (len(screenName) > 0 && st.ScreenName != screenName[0]) || (st.Active != nil && !validID(st.Active.ID)) {
 		return nil, errors.New("invalid scheduler record")
 	}
+	if err := validateState(&st); err != nil {
+		return nil, err
+	}
 	return &st, nil
 }
 func validID(id string) bool {
@@ -110,7 +114,14 @@ func validID(id string) bool {
 	return err == nil && len(b) == 16 && id == hex.EncodeToString(b)
 }
 func (s *Store) save(st *state) error {
-	return artifact.WriteJSONAtomic(s.path(st.Namespace, st.DeviceName, st.ScreenName), st)
+	b, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	if len(b) > 1<<20 {
+		return errors.New("scheduler record exceeds size limit")
+	}
+	return artifact.WriteAtomic(s.path(st.Namespace, st.DeviceName, st.ScreenName), b)
 }
 func (s *Store) run(id string) string { return filepath.Join(s.Root, "runs", id) }
 func (s *Store) prepare(a *attempt, snapshot []byte) error {
@@ -154,6 +165,26 @@ func syncDirectory(path string) error {
 }
 
 func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
+	snapshotRoot, err := os.OpenRoot(s.run(a.ID))
+	if err != nil {
+		return nil, err
+	}
+	defer snapshotRoot.Close()
+	snapshot, err := snapshotRoot.OpenFile("context.json", os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := snapshot.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		snapshot.Close()
+		return nil, errors.New("context must be a regular file")
+	}
+	contextBytes, readErr := io.ReadAll(io.LimitReader(snapshot, 65537))
+	closeErr := snapshot.Close()
+	if readErr != nil || closeErr != nil || len(contextBytes) > 65536 || hash(contextBytes) != a.ContextDigest {
+		return nil, errors.New("immutable context integrity failure")
+	}
+
 	// Root-relative opening rejects links outside the writable output subtree.
 	// O_NONBLOCK prevents a FIFO from stalling the controller's work queue.
 	root, err := os.OpenRoot(filepath.Join(s.run(a.ID), "output"))
@@ -166,7 +197,7 @@ func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +224,7 @@ func (s *Store) records() ([]state, error) {
 		if filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(s.Root, "jobs", e.Name()))
+		b, err := readStateFile(filepath.Join(s.Root, "jobs", e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +232,43 @@ func (s *Store) records() ([]state, error) {
 		if err := json.Unmarshal(b, &st); err != nil {
 			return nil, err
 		}
+		if err := validateState(&st); err != nil {
+			return nil, err
+		}
+		if e.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName, st.ScreenName)) && e.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName)) {
+			return nil, errors.New("invalid scheduler key")
+		}
 		records = append(records, st)
 	}
 	return records, nil
+}
+
+func readStateFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > 1<<20 {
+		return nil, errors.New("scheduler record exceeds size limit")
+	}
+	return b, nil
+}
+func validateState(st *state) error {
+	if st.Namespace == "" || len(validation.IsDNS1123Label(st.Namespace)) > 0 || st.DeviceName == "" || len(validation.IsDNS1123Subdomain(st.DeviceName)) > 0 || st.ScreenName == "" || len(validation.IsDNS1123Subdomain(st.ScreenName)) > 0 || st.Unit.Namespace != st.Namespace || st.Unit.DeviceUID != st.DeviceUID || st.DeviceUID == "" || st.Unit.ScreenUID == "" || st.Unit.Target.Validate() != nil || len(st.Revision) != 64 {
+		return errors.New("invalid scheduler record")
+	}
+	if st.Active != nil {
+		if !validID(st.Active.ID) || st.Active.Sequence == 0 || st.Active.StartedAt.IsZero() {
+			return errors.New("invalid scheduler attempt")
+		}
+		if _, err := normalize(st.Active.Source); err != nil {
+			return errors.New("invalid scheduler source")
+		}
+	}
+	return nil
 }

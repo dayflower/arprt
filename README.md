@@ -7,6 +7,8 @@ physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHAS
 [the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
 Device-aware POST implementation, validation and real-device delivery are recorded in [Phase 3](notes/004-PHASE3.md). Job scheduling, collection and recovery are recorded in [Phase 4](notes/007-PHASE4.md).
 Playlist and discovery semantics and validation are recorded in [Phase 5](notes/008-PHASE5.md).
+Operational hardening and initial release acceptance completed on 2026-10-08;
+see [Phase 6](notes/009-PHASE6.md).
 
 ## Playlists and automatic discovery
 
@@ -69,6 +71,7 @@ cluster. For a full local-cluster check with a cluster-accessible image:
 python3 hack/cluster-smoke.py --image <registry>/arprt:<tag>
 python3 hack/job-smoke.py --image <registry>/arprt:<tag>
 python3 hack/playlist-smoke.py --image <registry>/arprt:<tag>
+python3 hack/operations-smoke.py --image <registry>/arprt:<tag>
 ```
 
 The scripts reuse identical installed CRDs and refuse to change mismatched schemas. The HTTP check creates an isolated
@@ -335,7 +338,7 @@ When Job scheduling is enabled, maintenance runs every minute. Finished Jobs
 and run directories are retained for at least one hour; active attempts remain
 protected. Compatible latest successes are kept, issued URLs retain their bytes
 for at least 24h after last issuance, and older unreferenced artifacts are removed.
-HTTP-only local mode keeps its existing artifacts without scheduled maintenance.
+HTTP-only local mode runs the same safe artifact maintenance without Job scheduling.
 
 ## Runtime and conditions
 
@@ -356,7 +359,8 @@ RWOP, RWX and block volumes are rejected for Job mode. Outside a Pod, omit
 `--job-pvc` for HTTP-only development; Job screens report `JobSchedulingDisabled`.
 `--job-concurrency` (4) and `--job-deadline-seconds` (120) bound execution.
 BYOS listens on `:8080`; probes listen on `:8081`. SIGINT/SIGTERM stops serving
-and the manager within its 20-second shutdown budget. Metrics remain disabled.
+and the manager within its 20-second shutdown budget. Metrics are opt-in locally
+and enabled on internal port 8082 by the supplied Deployment.
 
 Device conditions report `IdentityReady`, `IdentityUnique`, `AuthenticationReady`,
 `AssignmentReady`, `TargetKnown`, `TelemetryValid`, `RenderReady` and `Ready`.
@@ -383,3 +387,144 @@ For explicit Job assignments, display polls preserve the reconciler's failure
 reason; finished Job status/logs remain available for diagnosis.
 Renderer defaults and Render Context v1 remain unchanged. Use strict Kubernetes
 field validation; structural CRDs otherwise prune unknown source/reference keys.
+
+## Monitoring and capacity
+
+The supplied Deployment exposes Prometheus metrics on container port 8082.
+It has no public metrics Service or Gateway route. For inspection, use
+`kubectl -n arprt port-forward deployment/arprt 8082:8082` and fetch
+`http://localhost:8082/metrics`. Local development opts in with
+`--metrics-bind-address=:8082`; `0` disables the listener. Restrict monitoring
+access with your network policy. Do not expose this endpoint on the BYOS proxy.
+
+| Metric | Meaning |
+| --- | --- |
+| `arprt_requests_total` | BYOS requests by fixed route and HTTP result; pending is HTTP success |
+| `arprt_request_rejections_total` | Requests rejected by the 64-request admission limit |
+| `arprt_render_duration_seconds` | GET, POST and Job attempt duration, with success/failure labels |
+| `arprt_http_render_active`, `arprt_jobs_active` | Current execution slots/Jobs |
+| `arprt_job_queue_depth` | Due persisted pairs awaiting execution, sampled during maintenance |
+| `arprt_devices` | Counts of never-seen, recent and silent devices |
+| `arprt_device_last_seen_max_age_seconds` | Oldest observed device request |
+| `arprt_artifact_oldest_age_seconds` | Oldest latest successful artifact |
+| `arprt_storage_bytes`, `arprt_storage_free_bytes`, `arprt_storage_limit_bytes` | Managed logical usage, filesystem availability and configured admission limit |
+| `arprt_storage_errors_total`, `arprt_collection_failures_total` | Storage faults and invalid/unavailable completed output |
+| `arprt_maintenance_total` | Successful/failed maintenance passes |
+
+Application metric labels never contain resource names, UIDs, target hashes,
+MACs, URLs, credentials or telemetry. Logs and Events describe fixed outcomes
+and may identify Kubernetes resource names; request bodies, headers, renderer
+URLs and output contents are excluded. Conditions provide per-resource detail.
+`DeviceSeen` becomes false after three polling intervals (at least two minutes),
+independently of whether a previously delivered e-paper image remains usable.
+Device counts, queue depth, artifact age and storage usage refresh each minute;
+render/request counters update on activity. Alert on increasing failure counters,
+old artifacts, silent devices and a queue that does not drain.
+
+The default 1 GiB PVC uses `--storage-max-bytes=805306368` (768 MiB) and
+`--storage-min-free-bytes=67108864` (64 MiB). Usage includes blobs, metadata,
+Job snapshots and output files. Before new image publication, identity/issuance
+allocation or Job work, the controller checks logical usage and available
+filesystem space. An admission failure reports `StorageCapacityExceeded`,
+keeps compatible prior output and retries after space becomes available.
+Updates to an existing issuance may use the reserve so stored images can still
+be delivered. The controller never evicts protected images to satisfy a limit.
+
+These checks are admission controls, not reservations or a filesystem quota.
+Concurrent renderers can write beyond the threshold before the next check.
+Use trusted renderer images, filesystem quotas and filesystem/PVC monitoring
+when a strict disk bound is required. A small compressed PNG limit does not
+limit arbitrary intermediate renderer files. Actual allocated disk usage and
+inode availability should also be monitored by the storage platform.
+
+Maintenance also runs in HTTP-only mode. Latest compatible successes remain
+protected; issued image bytes and access records remain for at least 24 hours
+after the last display response. Issuance writes coalesce within one minute,
+with an extra retention minute preserving that minimum. Interrupted writes and
+unused filename reservations expire after 24h. Jobs and run directories retain
+their diagnostic hour and active attempts are never removed. Seven consecutive
+Job failures slow further retries to at least the screen interval and five
+minutes; success clears the counter. No manual reset is needed after recovery.
+
+Each device can select at most 64 screens, so `D` devices can require `64 × D`
+scheduler records. Only `--job-concurrency` attempts allocate active run
+directories or nonterminal Jobs. A 16-device × 64-screen test verifies 1,024
+pairs with bounded active work; it is a correctness check, not a throughput
+promise. Capacity admission also limits new scheduler metadata. Scale and size
+the namespace, polling intervals and storage together. With four active Jobs
+and the one-hour diagnostic retention, short successful refresh intervals can
+still retain many completed Jobs. Use an appropriate namespace ResourceQuota
+for a hard Kubernetes object ceiling; quota rejection retains prior output and
+uses bounded retries.
+
+## Recovery and troubleshooting
+
+Back up the PVC, CRs and authentication Secrets together. Stop the controller
+and renderer Jobs for a consistent filesystem snapshot, or use a storage
+snapshot mechanism with the same consistency guarantee. Restore the original
+resource UIDs where supported; recreated resources intentionally do not inherit
+identity or issued-image authorization. Do not edit internal JSON to transfer
+ownership. Keep the backup private because it includes registered MACs and
+allowlisted device context snapshots.
+
+The controller uses an advisory exclusive filesystem lock to reject a second
+writer on the same PVC. Keep one active replica and Recreate rollout. This lock
+does not make replicas, multiple PVCs, multi-node failover or shared serving
+metadata supported. SIGTERM cancels in-flight HTTP rendering, stops admitting
+new connections and closes the listener within the shutdown budget; incomplete
+work cannot publish success. Kubernetes Jobs continue independently and are
+recovered by the next controller from their durable snapshots and API status.
+
+| Symptom | Checks and response |
+| --- | --- |
+| `DeviceSeen=False` | Power, Wi-Fi, configured custom-server URL, proxy and device polling interval |
+| 401/403 | Auth Secret validity, registered hardware identity and preserved proxy headers; repeat setup after key rotation |
+| JSON `status: 202` | Assignment/target conditions, then renderer readiness; no compatible first image is available |
+| `StaleImageAvailable` | The existing image is safe to serve; inspect the screen condition or retained Job for the failed refresh |
+| `StorageCapacityExceeded` | PVC usage/free bytes/inodes, configured limits, retained Jobs and output growth; expand storage or wait for safe GC |
+| `CollectionFailed` | Successful renderer exit, actual output path, regular PNG file, size/palette/dimensions and read permissions |
+| Maintenance failure | Check filesystem access and restore invalid retention metadata from backup; GC deliberately avoids guessing ownership |
+| Startup rejects scheduler state | Restore `jobs/` metadata from a consistent backup; do not delete active records while their Jobs exist |
+| Identity unavailable after storage damage | Restore the matching identity record; deleting it could allow re-registration to different hardware |
+| Corrupt image/latest pointer | The affected unit is regenerated on the next render; other valid units and issuance remain intact |
+| Existing URL returns 404 | Confirm device UID, authentication, retention window and blob integrity; an old URL cannot recover missing bytes without its original validated output |
+
+Inspect `kubectl -n arprt get trmnldevices,trmnlscreens,trmnlplaylists -o yaml`,
+`kubectl -n arprt get jobs,pods`, and `kubectl -n arprt get events`.
+Avoid publishing Secret values, raw device requests or renderer logs containing
+private data. A syntactically corrupt latest pointer is regenerable; corrupt
+identity, issuance and scheduler records fail closed. Invalid retention metadata
+aborts destructive artifact GC. Persistent filesystem errors require operator
+repair; a healthy Kubernetes API probe alone does not verify storage integrity.
+
+## Security and support boundary
+
+The namespace is the trust boundary. Screen authors can choose HTTP endpoints,
+container images, commands and same-namespace Secret/ConfigMap references.
+Permission to create screens therefore permits running code and supplying
+Secret-backed renderer environment through controller-created Jobs, even when
+the controller's own direct Secret reads are restricted by `resourceNames`.
+Grant CR write access only to trusted operators. Renderers do not receive the
+controller's ServiceAccount token, auth key, MAC or infrastructure credentials
+through Render Context. An explicitly configured renderer environment is an
+operator-controlled exception and must contain only that renderer's credentials.
+
+HTTP endpoints may be private cluster services or external HTTP(S) services;
+redirects and URL userinfo are rejected. There is no built-in IP allowlist or
+network isolation. Configure NetworkPolicy/egress controls and DNS/TLS according
+to the endpoints you intentionally permit. Keep setup and BYOS behind the
+configured TLS proxy, restrict network access where possible, and preserve the
+firmware authentication headers. Setup remains enabled by default for the
+registered MAC; use `--enable-setup=false` when your operating policy requires it.
+Images require current device authentication and durable issuance to that UID.
+The bundled setup calibration image is intentionally anonymous.
+
+The initial support scope is Linux, Kubernetes **1.36.0+ within minor 1.36**,
+TRMNL **OG / firmware 1.8.17 / 800×480 gray4**, one namespace, one active
+controller and a POSIX filesystem RWO PVC with same-node renderer mounts,
+atomic rename, fsync and advisory flock. API integration covers 1.36.0/1.36.2;
+local end-to-end validation uses 1.36.4. Other devices, firmware, Kubernetes
+minors, non-POSIX backends, multiple active replicas and automatic multi-node
+storage failover remain unverified. No extra packaging is required beyond the
+versioned CRDs and Kustomize manifests. Phase 6 evidence and completed
+release acceptance are recorded in [Phase 6](notes/009-PHASE6.md).

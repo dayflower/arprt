@@ -5,6 +5,9 @@ That contract defines the initial single-namespace PVC topology, verified
 TRMNL OG / firmware 1.8.17 behavior, routing, authentication, defaults and validation.
 Examples below use the agreed `arprt.dayflower.github.io/v1alpha1` API group.
 
+Operational limits, monitoring, storage recovery and the initial release support
+boundary are recorded in [Phase 6](009-PHASE6.md).
+
 ## 1. Overview
 
 This project provides a Kubernetes-native controller for operating TRMNL devices using the TRMNL BYOS protocol.

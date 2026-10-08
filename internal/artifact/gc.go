@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,9 @@ import (
 func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[string]bool, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.validateRetention(ctx, now); err != nil {
+		return err
+	}
 	retained := map[string]bool{}
 	latest, err := os.ReadDir(filepath.Join(s.root, "latest"))
 	if err != nil {
@@ -50,7 +54,7 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 		if err = readJSON(p, &i); err != nil {
 			return err
 		}
-		if now.Sub(i.LastIssuedAt) < 24*time.Hour {
+		if now.Sub(i.LastIssuedAt) < 24*time.Hour+time.Minute {
 			retained[i.ImageDigest] = true
 		} else if err = os.Remove(p); err != nil {
 			return err
@@ -91,7 +95,7 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 		if err = os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if filepath.Base(record.Filename) == record.Filename && record.Filename != "" {
+		if filenamePattern.MatchString(record.Filename) {
 			if err = os.Remove(filepath.Join(s.root, "records", record.Filename)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
@@ -111,8 +115,59 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 			return err
 		}
 		if !deviceUIDs[b.DeviceUID] {
+			// The API snapshot can precede a concurrent successful setup. Never erase
+			// a new durable hardware binding using that older snapshot.
+			info, err := e.Info()
+			if err != nil {
+				return err
+			}
+			if now.Sub(info.ModTime()) < time.Hour {
+				continue
+			}
 			if err = os.Remove(p); err != nil {
 				return err
+			}
+		}
+	}
+	usedNames := map[string]bool{}
+	records, err := os.ReadDir(filepath.Join(s.root, "records"))
+	if err != nil {
+		return err
+	}
+	for _, e := range records {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		var record struct {
+			Filename string `json:"filename"`
+		}
+		if err := readJSON(filepath.Join(s.root, "records", e.Name()), &record); err != nil {
+			return err
+		}
+		usedNames[record.Filename] = true
+	}
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities"} {
+		entries, err := os.ReadDir(filepath.Join(s.root, dir))
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			pending := strings.HasPrefix(e.Name(), ".pending-")
+			orphan := dir == "records" && filenamePattern.MatchString(e.Name()) && !usedNames[e.Name()]
+			if !pending && !orphan {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				return err
+			}
+			if info.Mode().IsRegular() && now.Sub(info.ModTime()) >= 24*time.Hour {
+				if err := os.Remove(filepath.Join(s.root, dir, e.Name())); err != nil {
+					return err
+				}
 			}
 		}
 	}

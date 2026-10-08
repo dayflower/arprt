@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path"
 	"strings"
+	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -20,6 +21,7 @@ const managedLabel = "arprt.dayflower.github.io/renderer"
 const deviceLabel = "arprt.dayflower.github.io/device"
 
 type Config struct {
+	Refresh         time.Duration
 	Namespace       string
 	PVC             string
 	ControllerPod   string

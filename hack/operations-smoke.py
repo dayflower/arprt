@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Exercise documented examples, storage faults and metrics in an isolated namespace.
+
+Requires kubectl and a cluster-accessible controller image. Never targets an
+existing device namespace; uses a temporary administrative PVC inspection Pod.
+"""
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import tempfile
+import urllib.request
+import urllib.parse
+import uuid
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'hack/cluster-smoke.py')
+smoke = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(smoke)
+kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--image', required=True)
+    args = parser.parse_args()
+    namespace = 'arprt-phase6-' + uuid.uuid4().hex[:8]
+    created_crds, created_namespace = [], False
+    try:
+        for name in smoke.CRDS:
+            plural, group = name.split('.', 1)
+            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
+            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
+            if existing:
+                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
+                actual = json.loads(existing)['spec']
+                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
+                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
+                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
+            else:
+                kubectl('create', '-f', path)
+                created_crds.append(name)
+                kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
+        kubectl('create', 'namespace', namespace)
+        created_namespace = True
+        with tempfile.TemporaryDirectory(prefix='arprt-operations-') as temporary:
+            directory = Path(temporary)
+            image_name, image_tag = args.image.rsplit(':', 1)
+            (directory / 'kustomization.yaml').write_text(json.dumps({
+                'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization', 'namespace': namespace,
+                'resources': [os.path.relpath(ROOT / p, directory) for p in ['config/default', 'examples/http-get', 'examples/http-post', 'examples/job']],
+                'images': [{'name': 'arprt', 'newName': image_name, 'newTag': image_tag}],
+            }))
+            kubectl('apply', '--validate=strict', '-k', str(directory))
+            for name in ['arprt', 'example-renderer', 'device-status-renderer']:
+                kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + name, '--timeout=180s')
+
+            def resource(kind, name):
+                return json.loads(kubectl('-n', namespace, 'get', kind, name, '-o', 'json').stdout)
+
+            def patch(kind, name, value):
+                kubectl('-n', namespace, 'patch', kind, name, '--type=merge', '-p', json.dumps(value))
+
+            kubectl('-n', namespace, 'apply', '-f', str(ROOT / 'config/samples/device.yaml'))
+            headers = {'ID': '02:00:00:00:00:01', 'Model': 'og', 'FW-Version': '1.8.17', 'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91'}
+            path = '/arprt/devices/' + namespace + '/living-room'
+
+            def fetch(base, route):
+                with urllib.request.urlopen(urllib.request.Request(base + route, headers=headers), timeout=15) as response:
+                    return response.read()
+
+            with forwarded(namespace, 8080, directory) as base:
+                headers['Access-Token'] = json.loads(fetch(base, path + '/api/setup'))['api_key']
+
+            def display():
+                with forwarded(namespace, 8080, directory) as base:
+                    return json.loads(fetch(base, path + '/api/display'))
+
+            def ready_display():
+                result = display()
+                return result if result['status'] == 0 else None
+
+            for screen in ['photo', 'device-status', 'job-bands', 'job-bands-custom']:
+                patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': screen}}})
+                wait(ready_display, 90)
+                result = ready_display()
+                with forwarded(namespace, 8080, directory) as base:
+                    png = fetch(base, urllib.parse.urlsplit(result['image_url']).path)
+                    assert png.startswith(b'\x89PNG\r\n\x1a\n') and len(png) < 90000
+            print('PASS: clean installation and all documented GET/POST/default/custom Job examples', flush=True)
+
+            # This administrative test Pod is the only full-root storage inspector.
+            pod = {'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'storage-check'}, 'spec': {
+                'automountServiceAccountToken': False,
+                'securityContext': {'runAsUser': 1000, 'runAsGroup': 1000, 'fsGroup': 1000},
+                'containers': [{'name': 'inspect', 'image': 'busybox:1.37.0', 'command': ['sleep', '3600'],
+                                'volumeMounts': [{'name': 'data', 'mountPath': '/data'}]}],
+                'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-data'}}]}}
+            controller_pods = json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app.kubernetes.io/name=arprt', '-o', 'json').stdout)['items']
+            pod['spec']['nodeName'] = controller_pods[0]['spec']['nodeName']
+            (directory / 'inspector.json').write_text(json.dumps(pod))
+            kubectl('-n', namespace, 'apply', '-f', str(directory / 'inspector.json'))
+            kubectl('-n', namespace, 'wait', '--for=condition=Ready', 'pod/storage-check', '--timeout=60s')
+
+            def inspect(script):
+                return kubectl('-n', namespace, 'exec', 'storage-check', '--', 'sh', '-ec', script).stdout
+
+            patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
+            result = ready_display()
+            image_route = path + '/images/' + result['image_url'].rsplit('/', 1)[-1]
+            screen = resource('trmnlscreen', 'photo')
+            unit = {'namespace': namespace, 'screenUID': screen['metadata']['uid'], 'target': {'width': 800, 'height': 480, 'palette': 'gray4'}}
+            key = hashlib.sha256(json.dumps(unit, separators=(',', ':')).encode()).hexdigest()
+            inspect('printf broken > /data/latest/' + key + '.json')
+            assert ready_display()['image_url'] == result['image_url']
+            image_digest = result['image_url'].rsplit('/', 1)[-1][:-4]
+            inspect('printf broken > /data/blobs/' + image_digest + '.png')
+            assert ready_display()['image_url'] == result['image_url']
+            print('PASS: corrupt pointer and blob regenerate from validated renderer bytes', flush=True)
+
+            standard_args = ['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--metrics-bind-address=:8082']
+
+            def runtime_args(values):
+                deployment = resource('deployment', 'arprt')
+                container = deployment['spec']['template']['spec']['containers'][0]
+                container['args'] = values
+                patch('deployment', 'arprt', {'spec': {'template': {'spec': {'containers': [container]}}}})
+                kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+
+            runtime_args(standard_args + ['--storage-max-bytes=1'])
+            patch('trmnlscreen', 'photo', {'spec': {'refreshInterval': '1s'}})
+            assert ready_display()['image_url'] == result['image_url']
+            conditions = {c['type']: c for c in resource('trmnldevice', 'living-room')['status']['conditions']}
+            assert conditions['Ready']['reason'] == 'StaleImageAvailable'
+            with forwarded(namespace, 8080, directory) as base:
+                assert fetch(base, image_route).startswith(b'\x89PNG')
+            with forwarded(namespace, 8082, directory) as base:
+                metrics = urllib.request.urlopen(base + '/metrics', timeout=10).read().decode()
+                assert 'arprt_storage_errors_total{operation="capacity"}' in metrics
+                for sensitive in [headers['ID'], headers['Access-Token'], 'living-room', 'screenUID', 'contextDigest']:
+                    assert sensitive not in metrics, 'sensitive/high-cardinality metrics'
+            runtime_args(standard_args)
+            assert ready_display()['status'] == 0
+            print('PASS: capacity admission preserves stale success and issued URL; metrics redact identities', flush=True)
+
+            # HTTP-only startup must also collect abandoned data without touching issued bytes.
+            orphan = 'f' * 64
+            inspect('printf orphan > /data/blobs/' + orphan + '.png; touch -d 2020-01-01 /data/blobs/' + orphan + '.png')
+            runtime_args(['--namespace=$(POD_NAMESPACE)', '--metrics-bind-address=:8082'])
+            wait(lambda: inspect('test ! -e /data/blobs/' + orphan + '.png && printf removed || true') == 'removed', 75)
+            with forwarded(namespace, 8080, directory) as base:
+                assert fetch(base, image_route).startswith(b'\x89PNG')
+            logs = kubectl('-n', namespace, 'logs', 'deployment/arprt').stdout
+            assert headers['Access-Token'] not in logs and headers['ID'] not in logs
+            print('PASS: graceful restart, HTTP-only GC, issued URL retention and redacted logs', flush=True)
+    finally:
+        if created_namespace:
+            kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')
+        for name in created_crds:
+            if not json.loads(kubectl('get', name, '--all-namespaces', '-o', 'json').stdout)['items']:
+                kubectl('delete', 'crd', name)
+        print('Disposable operations test resources removed; existing CRDs untouched')
+
+
+if __name__ == '__main__':
+    main()

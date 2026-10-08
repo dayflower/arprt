@@ -83,6 +83,7 @@ func (r *ScreenReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 type DeviceReconciler struct {
+	Refresh    time.Duration
 	Client     client.Client
 	Reader     client.Reader
 	AuthReader client.Reader
@@ -182,6 +183,17 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		} else if existing == nil || existing.ObservedGeneration != device.Generation || device.Status.Display == nil {
 			set(&device.Status.Conditions, device.Generation, ConditionReady, metav1.ConditionFalse, "AwaitingDisplay", "Waiting for an authenticated display request with a verified target")
 		}
+		refresh := r.Refresh
+		if refresh <= 0 {
+			refresh = 5 * time.Minute
+		}
+		seenStatus, seenReason, seenMessage := metav1.ConditionTrue, "DeviceSeen", "Authenticated display request observed recently"
+		if device.Status.LastSeenAt == nil {
+			seenStatus, seenReason, seenMessage = metav1.ConditionUnknown, "NeverSeen", "Waiting for an authenticated display request"
+		} else if time.Since(device.Status.LastSeenAt.Time) > max(3*refresh, 2*time.Minute) {
+			seenStatus, seenReason, seenMessage = metav1.ConditionFalse, "DeviceSilent", "No display request within three polling intervals; check power and network"
+		}
+		set(&device.Status.Conditions, device.Generation, "DeviceSeen", seenStatus, seenReason, seenMessage)
 		device.Status.ObservedGeneration = device.Generation
 		if reflect.DeepEqual(before.Status, device.Status) {
 			return nil

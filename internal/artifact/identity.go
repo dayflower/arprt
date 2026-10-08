@@ -57,5 +57,8 @@ func (s *PVC) Bind(ctx context.Context, uid, id string) error {
 	if !errors.Is(err, ErrNotFound) {
 		return err
 	}
+	if err := s.checkCapacity(ctx, 1024); err != nil {
+		return err
+	}
 	return writeJSON(filepath.Join(s.root, "identities", digest([]byte(uid))+".json"), binding{uid, id})
 }

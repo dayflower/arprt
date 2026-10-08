@@ -18,6 +18,7 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	batchv1 "k8s.io/api/batch/v1"
@@ -191,6 +192,19 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 			}
 			return ctrl.Result{}, nil
 		}
+		if st == nil {
+			if repository, ok := r.Repository.(*artifact.PVC); ok {
+				if err := repository.CheckCapacity(ctx, 4096); err != nil {
+					if !errors.Is(err, artifact.ErrCapacity) {
+						return ctrl.Result{}, err
+					}
+					if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
+						return ctrl.Result{}, err
+					}
+					return ctrl.Result{RequeueAfter: time.Minute}, nil
+				}
+			}
+		}
 		wanted.Due = r.now()
 		if st != nil && st.DeviceUID == wanted.DeviceUID {
 			wanted.Sequence = st.Sequence
@@ -229,9 +243,11 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 			active++
 		}
 	}
+	observe.Jobs.Set(float64(active))
 	if active >= r.Config.MaxActive {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
+
 	source, err := normalize(*s.Spec.Source.Job)
 	if err != nil {
 		return r.failed(ctx, d, s, st, "InvalidJobPaths")
@@ -249,6 +265,23 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 		return ctrl.Result{}, err
 	}
 	a := &attempt{ID: hex.EncodeToString(id[:]), Sequence: st.Sequence + 1, StartedAt: r.now(), ContextDigest: hash(b), Source: source}
+	candidate := *st
+	candidate.Active = a
+	encoded, err := json.Marshal(candidate)
+	if err != nil || len(encoded) > 1<<20 {
+		return r.failed(ctx, d, s, st, "InvalidJobSpec")
+	}
+	if repository, ok := r.Repository.(*artifact.PVC); ok {
+		if err := repository.CheckCapacity(ctx, int64(2*len(encoded)+len(b))+(128<<10)); err != nil {
+			if !errors.Is(err, artifact.ErrCapacity) {
+				return ctrl.Result{}, err
+			}
+			if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+	}
 	if err = r.Store.prepare(a, b); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -437,11 +470,18 @@ func (r *Reconciler) advance(ctx context.Context, d *api.TrmnlDevice, s *api.Trm
 	}
 	m, err := r.Repository.Publish(ctx, artifact.Metadata{Unit: st.Unit, ScreenGeneration: st.ScreenGeneration, InputRevision: st.Revision, AttemptID: a.ID, Sequence: a.Sequence, ContextDigest: a.ContextDigest, RenderedAt: renderedAt}, b)
 	if err != nil {
+		if errors.Is(err, artifact.ErrCapacity) {
+			if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
 		if errors.Is(err, artifact.ErrObsolete) {
 			return r.failed(ctx, d, s, st, "ObsoleteAttempt")
 		}
 		return ctrl.Result{}, err
 	}
+	observe.Render("Job", a.StartedAt, nil)
 	interval, _ := screen.EffectiveInterval(s.Spec)
 	st.Due = m.RenderedAt.Add(interval)
 	st.Failures = 0
@@ -480,10 +520,20 @@ func (r *Reconciler) failed(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 			}
 		}
 	}
+	if st.Active != nil {
+		observe.Render("Job", st.Active.StartedAt, errors.New("failed"))
+	}
+	if reason == "CollectionFailed" {
+		observe.CollectionFailures.Inc()
+	}
 	st.Active = nil
 	st.Failures = min(st.Failures+1, 7)
 	st.Reason = reason
 	delay := min(5*time.Second*time.Duration(1<<uint(st.Failures-1)), 5*time.Minute)
+	if st.Failures >= 7 {
+		interval, _ := screen.EffectiveInterval(s.Spec)
+		delay = max(delay, interval)
+	}
 	st.Due = r.now().Add(delay)
 	if err := r.Store.save(st); err != nil {
 		return ctrl.Result{}, err
@@ -498,6 +548,7 @@ func (r *Reconciler) failed(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 }
 
 func (r *Reconciler) report(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, ready bool, reason string) error {
+	ctrl.LoggerFrom(ctx).Info("Job render state", "namespace", d.Namespace, "device", d.Name, "screen", s.Name, "reason", reason)
 	status := metav1.ConditionFalse
 	if ready {
 		status = metav1.ConditionTrue
@@ -562,7 +613,11 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := r.maintenance(ctx); err != nil && ctx.Err() == nil {
-			ctrl.LoggerFrom(ctx).Error(err, "Job storage maintenance failed")
+			observe.Maintenance.WithLabelValues("failure").Inc()
+			observe.StorageErrors.WithLabelValues("maintenance").Inc()
+			ctrl.LoggerFrom(ctx).Info("Job storage maintenance failed; retained data is protected", "reason", "StorageMaintenanceFailed")
+		} else if ctx.Err() == nil {
+			observe.Maintenance.WithLabelValues("success").Inc()
 		}
 		select {
 		case <-ctx.Done():
@@ -580,17 +635,39 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		return err
 	}
 	active := map[string]bool{}
+	queued := 0
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".pending-") {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if info.Mode().IsRegular() && r.now().Sub(info.ModTime()) >= time.Hour {
+				if err := os.Remove(filepath.Join(r.Store.Root, "jobs", entry.Name())); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(r.Store.Root, "jobs", entry.Name()))
+		b, err := readStateFile(filepath.Join(r.Store.Root, "jobs", entry.Name()))
 		if err != nil {
 			return err
 		}
 		var st state
 		if err = json.Unmarshal(b, &st); err != nil {
+			return errors.New("corrupt scheduler metadata")
+		}
+		if err = validateState(&st); err != nil {
 			return err
+		}
+		if entry.Name() != filepath.Base(r.Store.path(st.Namespace, st.DeviceName, st.ScreenName)) {
+			return errors.New("invalid scheduler key")
+		}
+		if st.Active == nil && !st.Due.After(r.now()) {
+			queued++
 		}
 		_, _, desired, err := r.desired(ctx, client.ObjectKey{Namespace: st.Namespace, Name: st.DeviceName}, st.ScreenName)
 		if err != nil {
@@ -614,10 +691,18 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 			active[st.Active.ID] = true
 		}
 	}
+	observe.Queue.Set(float64(queued))
 	var jobs batchv1.JobList
 	if err = r.Reader.List(ctx, &jobs, client.InNamespace(r.Config.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
 		return err
 	}
+	running := 0
+	for i := range jobs.Items {
+		if complete, failed := terminal(&jobs.Items[i]); !complete && !failed {
+			running++
+		}
+	}
+	observe.Jobs.Set(float64(running))
 	for i := range jobs.Items {
 		job := &jobs.Items[i]
 		id := strings.TrimPrefix(job.Name, "arprt-render-")
@@ -659,33 +744,7 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		}
 	}
 	if repository, ok := r.Repository.(*artifact.PVC); ok {
-		var devices api.TrmnlDeviceList
-		if err := r.Reader.List(ctx, &devices, client.InNamespace(r.Config.Namespace)); err != nil {
-			return err
-		}
-		deviceUIDs := map[string]bool{}
-		units := map[artifact.Unit]bool{}
-		for _, d := range devices.Items {
-			if !d.DeletionTimestamp.IsZero() {
-				continue
-			}
-			deviceUIDs[string(d.UID)] = true
-			if d.Status.Display == nil {
-				continue
-			}
-			eligible, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, &d)
-			if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
-				return err
-			}
-			for _, s := range eligible.Screens {
-				u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}}
-				if s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST") {
-					u.DeviceUID = string(d.UID)
-				}
-				units[u] = true
-			}
-		}
-		return repository.Collect(ctx, func(u artifact.Unit) bool { return units[u] }, deviceUIDs, r.now())
+		return (&controller.StorageMaintenance{Reader: r.Reader, Repository: repository, Namespace: r.Config.Namespace, Refresh: r.Config.Refresh}).Collect(ctx, r.now())
 	}
 	return nil
 }

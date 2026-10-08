@@ -27,7 +27,7 @@ spec:
         - name: controller
           image: arprt:dev
           imagePullPolicy: IfNotPresent
-          args: [--namespace=$(POD_NAMESPACE), --job-pvc=arprt-data]
+          args: [--namespace=$(POD_NAMESPACE), --job-pvc=arprt-data, --metrics-bind-address=:8082]
           env:
             - name: PUBLIC_BASE_URL
               valueFrom:
@@ -45,6 +45,8 @@ spec:
           ports:
             - name: byos
               containerPort: 8080
+            - name: metrics
+              containerPort: 8082
             - name: probes
               containerPort: 8081
           livenessProbe:

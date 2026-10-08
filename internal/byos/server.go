@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
@@ -26,13 +25,17 @@ import (
 	"github.com/dayflower/arprt/internal/credentials"
 	"github.com/dayflower/arprt/internal/delivery"
 	"github.com/dayflower/arprt/internal/deviceidentity"
+	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -49,7 +52,9 @@ type Server struct {
 	POST       *delivery.POST
 	Identity   *deviceidentity.Service
 	base       *url.URL
-	gates      sync.Map
+	gates      [64]chan struct{}
+	slots      chan struct{}
+	Recorder   events.EventRecorder
 }
 
 func NewServer(c Config, reader client.Reader, writer client.Client, repo artifact.Repository) (*Server, error) {
@@ -67,16 +72,44 @@ func NewServer(c Config, reader client.Reader, writer client.Client, repo artifa
 		return nil, errors.New("device refresh must be 1..86400 seconds")
 	}
 	get := delivery.NewGET(repo, reader)
-	return &Server{Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), Identity: &deviceidentity.Service{Reader: reader, Writer: writer, Store: repo}, base: base}, nil
+	server := &Server{slots: make(chan struct{}, 64), Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), Identity: &deviceidentity.Service{Reader: reader, Writer: writer, Store: repo}, base: base}
+	for i := range server.gates {
+		server.gates[i] = make(chan struct{}, 1)
+	}
+	return server, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	default:
+		observe.Rejected.Inc()
+		reply(w, 503, 503)
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	ctx, cancel := context.WithTimeout(r.Context(), 13*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
 	name, endpoint, ok := s.route(r)
+	route := endpoint
+	if strings.HasPrefix(route, "images/") {
+		route = "image"
+	}
+	if !ok {
+		route = "unknown"
+	}
+	response := &responseWriter{ResponseWriter: w, status: 200}
+	w = response
+	defer func() {
+		result := "success"
+		if response.status >= 400 {
+			result = "failure"
+		}
+		observe.Requests.WithLabelValues(route, result).Inc()
+	}()
 	if !ok {
 		reply(w, 404, 404)
 		return
@@ -170,8 +203,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Message string `json:"message"`
 		}{200, key, d.Name, s.deviceURL(d.Name) + "/setup-logo.png", "Device registered with arprt"})
 	case endpoint == "api/display":
-		gateValue, _ := s.gates.LoadOrStore(string(d.UID), make(chan struct{}, 1))
-		gate := gateValue.(chan struct{})
+		key := sha256.Sum256([]byte(d.UID))
+		gate := s.gates[int(key[0])%len(s.gates)]
 		select {
 		case gate <- struct{}{}:
 			defer func() { <-gate }()
@@ -312,7 +345,9 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 			return
 		}
 		condition(current, "AuthenticationReady", true, "CredentialsConfigured", "Authentication Secret is usable")
-		current.Status.LastSeenAt = &now
+		if current.Status.LastSeenAt == nil || now.Sub(current.Status.LastSeenAt.Time) >= 30*time.Second {
+			current.Status.LastSeenAt = &now
+		}
 		current.Status.Device = &api.DeviceInfoStatus{Model: model, FirmwareVersion: fw}
 		current.Status.Display = nil
 		if targetErr == nil {
@@ -339,6 +374,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 503, 503)
 		return
 	}
+	now = *d.Status.LastSeenAt
 	if targetErr != nil {
 		s.outcome(ctx, d, now, nil, false, "UnknownCapabilities", "No verified render target")
 		reply(w, 200, 202)
@@ -439,6 +475,9 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 	reason, message := "ImageReady", "Validated HTTP image available"
 	if renderErr != nil {
 		reason, message = "RenderFailed", "HTTP rendering failed; check renderer availability and the PNG contract"
+		if errors.Is(renderErr, artifact.ErrCapacity) {
+			reason, message = "StorageCapacityExceeded", "Storage admission limit reached; expand storage or safely release unreferenced data"
+		}
 	}
 	if assigned.Spec.Source.Job != nil {
 		message = "Validated Job image available"
@@ -527,7 +566,14 @@ func (s *Server) screenOutcome(ctx context.Context, screenObj *api.TrmnlScreen, 
 		if reflect.DeepEqual(before.Status, current.Status) {
 			return nil
 		}
-		return s.Client.Status().Patch(ctx, &current, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
+		if err := s.Client.Status().Patch(ctx, &current, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
+			return err
+		}
+		ctrl.LoggerFrom(ctx).Info("HTTP render state changed", "namespace", current.Namespace, "screen", current.Name, "reason", reason)
+		if s.Recorder != nil && !ready {
+			s.Recorder.Eventf(&current, nil, corev1.EventTypeWarning, reason, "Render", "%s", message)
+		}
+		return nil
 	})
 }
 func reply(w http.ResponseWriter, httpStatus, status int) {
@@ -557,6 +603,9 @@ type Listener struct {
 
 func (l *Listener) NeedLeaderElection() bool { return false }
 func (l *Listener) Start(ctx context.Context) error {
+	if s, ok := l.Handler.(*Server); ok {
+		s.GET.Context = ctx
+	}
 	listener, err := net.Listen("tcp", l.Address)
 	if err != nil {
 		return err
@@ -579,4 +628,15 @@ func (l *Listener) Start(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+// Only the normalized route and result reach metrics, never URL/header values.
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *responseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }

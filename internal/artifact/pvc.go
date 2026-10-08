@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"github.com/dayflower/arprt/internal/observe"
 )
 
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -23,8 +25,10 @@ var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 // Root is operator configuration, never renderer-controlled. Renderers mount
 // per-attempt directories in Phase 4, not this repository's directories.
 type PVC struct {
-	root string
-	mu   sync.Mutex
+	root         string
+	mu           sync.Mutex
+	MaxBytes     int64
+	MinFreeBytes uint64
 }
 
 var _ Repository = (*PVC)(nil)
@@ -41,7 +45,7 @@ func NewPVC(root string) (*PVC, error) {
 	if err := syncDir(root); err != nil {
 		return nil, err
 	}
-	return &PVC{root: root}, nil
+	return &PVC{root: root, MaxBytes: 768 << 20, MinFreeBytes: 64 << 20}, nil
 }
 
 func unitKey(u Unit) (string, error) {
@@ -73,6 +77,9 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	if len(png) == 0 || len(png) >= 90000 || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.AttemptID == "" || m.RenderedAt.IsZero() || (m.ContextDigest != "" && (m.Unit.DeviceUID == "" || !digestPattern.MatchString(m.ContextDigest))) {
 		return Metadata{}, errors.New("invalid artifact publication metadata or size")
 	}
+	if err := s.checkCapacity(ctx, int64(len(png))+16384); err != nil {
+		return Metadata{}, err
+	}
 	m.ImageDigest = digest(png)
 	previous, err := s.latest(key)
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -89,9 +96,12 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	blob := filepath.Join(s.root, "blobs", m.ImageDigest+".png")
 	if existing, err := readImage(blob); err == nil {
 		if digest(existing) != m.ImageDigest {
-			return Metadata{}, errors.New("stored image integrity failure")
+			observe.StorageErrors.WithLabelValues("integrity").Inc()
+			if err := atomicWrite(blob, png); err != nil {
+				return Metadata{}, err
+			}
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrCorrupt) {
 		return Metadata{}, err
 	} else if err := atomicWrite(blob, png); err != nil {
 		return Metadata{}, err
@@ -128,6 +138,9 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	} else if err != nil {
 		return Metadata{}, err
 	}
+	if !filenamePattern.MatchString(record.Filename) {
+		return Metadata{}, ErrCorrupt
+	}
 	m.Filename = record.Filename
 	// All immutable bytes/records are durable before the success pointer changes.
 	if err := ctx.Err(); err != nil {
@@ -141,7 +154,17 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 
 func (s *PVC) latest(key string) (Metadata, error) {
 	var m Metadata
-	err := readJSON(filepath.Join(s.root, "latest", key+".json"), &m)
+	p := filepath.Join(s.root, "latest", key+".json")
+	err := readJSON(p, &m)
+	if err == nil {
+		actual, valid := unitKey(m.Unit)
+		if valid != nil || actual != key || !digestPattern.MatchString(m.ImageDigest) || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.Size <= 0 || m.Size >= 90000 || m.RenderedAt.IsZero() || !filenamePattern.MatchString(m.Filename) {
+			err = ErrCorrupt
+		}
+	}
+	if errors.Is(err, ErrCorrupt) {
+		return Metadata{}, s.discardPointer(p)
+	}
 	return m, err
 }
 
@@ -160,14 +183,17 @@ func (s *PVC) Latest(ctx context.Context, u Unit) (Metadata, error) {
 		return Metadata{}, err
 	}
 	if m.Unit != u || !digestPattern.MatchString(m.ImageDigest) {
-		return Metadata{}, errors.New("invalid artifact pointer")
+		return Metadata{}, s.discardPointer(filepath.Join(s.root, "latest", key+".json"))
 	}
 	b, err := s.Read(ctx, m.ImageDigest)
+	if errors.Is(err, ErrCorrupt) || errors.Is(err, ErrNotFound) {
+		return Metadata{}, s.discardPointer(filepath.Join(s.root, "latest", key+".json"))
+	}
 	if err != nil {
 		return Metadata{}, err
 	}
 	if len(b) != m.Size {
-		return Metadata{}, errors.New("stored image size mismatch")
+		return Metadata{}, s.discardPointer(filepath.Join(s.root, "latest", key+".json"))
 	}
 	return m, nil
 }
@@ -187,7 +213,8 @@ func (s *PVC) Read(ctx context.Context, imageDigest string) ([]byte, error) {
 		return nil, err
 	}
 	if digest(b) != imageDigest {
-		return nil, errors.New("stored image integrity failure")
+		observe.StorageErrors.WithLabelValues("integrity").Inc()
+		return nil, ErrCorrupt
 	}
 	return b, nil
 }
@@ -224,6 +251,22 @@ func (s *PVC) Issue(ctx context.Context, uid, imageDigest string, now time.Time)
 	} else if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
 	}
+	if previous.DeviceUID == uid && previous.ImageDigest == imageDigest && now.Sub(previous.LastIssuedAt) < time.Minute {
+		return nil
+	}
+	if previous.DeviceUID == uid && previous.ImageDigest == imageDigest {
+		// Existing issuance bookkeeping may consume the reserve so capacity pressure
+		// does not prevent delivery of already stored compatible output.
+		_, free, err := s.Usage(ctx)
+		if err != nil {
+			return err
+		}
+		if free < 8192 {
+			return ErrCapacity
+		}
+	} else if err := s.checkCapacity(ctx, 1024); err != nil {
+		return err
+	}
 	return writeJSON(filepath.Join(s.root, "issued", key+".json"), issuance{uid, imageDigest, now.UTC()})
 }
 
@@ -240,19 +283,33 @@ func (s *PVC) Authorized(ctx context.Context, uid, imageDigest string) (bool, er
 	if errors.Is(err, ErrNotFound) {
 		return false, nil
 	}
+	if err == nil && (i.DeviceUID != uid || i.ImageDigest != imageDigest || i.LastIssuedAt.IsZero()) {
+		return false, ErrCorrupt
+	}
 	return i.DeviceUID == uid && i.ImageDigest == imageDigest, err
 }
 
 func readJSON(path string, v any) error {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, 65537))
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if len(b) > 65536 {
+		return ErrCorrupt
+	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("invalid artifact metadata: %w", err)
+		return fmt.Errorf("%w: invalid metadata JSON", ErrCorrupt)
 	}
 	return nil
 }
@@ -268,7 +325,7 @@ func readImage(path string) ([]byte, error) {
 		return nil, err
 	}
 	if len(b) == 0 || len(b) >= 90000 {
-		return nil, errors.New("stored image size outside device limits")
+		return nil, ErrCorrupt
 	}
 	return b, nil
 }

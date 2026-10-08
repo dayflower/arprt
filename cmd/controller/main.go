@@ -33,7 +33,9 @@ func main() {
 }
 
 func run() error {
-	var namespace, root, probes, listen, publicURL string
+	var namespace, root, probes, listen, publicURL, metricsAddress string
+	var storageMax int64
+	var storageReserve uint64
 	var enableSetup, strips bool
 	var refresh int
 	var jobConfig jobrender.Config
@@ -49,6 +51,9 @@ func run() error {
 	flag.StringVar(&jobConfig.ControllerPod, "controller-pod", os.Getenv("POD_NAME"), "Controller Pod for same-node Job affinity validation")
 	flag.Int64Var(&jobConfig.DeadlineSeconds, "job-deadline-seconds", 120, "Maximum renderer Job execution duration")
 	flag.IntVar(&jobConfig.MaxActive, "job-concurrency", 4, "Maximum active renderer Jobs")
+	flag.StringVar(&metricsAddress, "metrics-bind-address", "0", "Internal metrics listener; 0 disables it")
+	flag.Int64Var(&storageMax, "storage-max-bytes", 768<<20, "Managed storage admission limit")
+	flag.Uint64Var(&storageReserve, "storage-min-free-bytes", 64<<20, "Filesystem free-space reserve")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -63,6 +68,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("initialize artifact repository: %w", err)
 	}
+	unlock, err := repo.Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if storageMax < 1 {
+		return fmt.Errorf("--storage-max-bytes must be positive")
+	}
+	repo.MaxBytes, repo.MinFreeBytes = storageMax, storageReserve
 	scheme := runtime.NewScheme()
 	if err := api.AddToScheme(scheme); err != nil {
 		return err
@@ -77,7 +91,7 @@ func run() error {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
 		Cache:                   cache.Options{DefaultNamespaces: map[string]cache.Config{namespace: {}}, ReaderFailOnMissingInformer: true},
-		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		Metrics:                 metricsserver.Options{BindAddress: metricsAddress},
 		HealthProbeBindAddress:  probes,
 		GracefulShutdownTimeout: &shutdown,
 	})
@@ -86,6 +100,7 @@ func run() error {
 	}
 	if jobConfig.PVC != "" {
 		jobConfig.Namespace = namespace
+		jobConfig.Refresh = time.Duration(refresh) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		err := jobConfig.ValidateTopology(ctx, mgr.GetAPIReader(), root)
 		cancel()
@@ -114,8 +129,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}, Identity: server.Identity}).SetupWithManager(mgr); err != nil {
+	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Refresh: time.Duration(refresh) * time.Second, Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}, Identity: server.Identity}).SetupWithManager(mgr); err != nil {
 		return err
+	}
+	server.Recorder = mgr.GetEventRecorder("http-renderer")
+	if jobConfig.PVC == "" {
+		if err := mgr.Add(&controller.StorageMaintenance{Reader: mgr.GetAPIReader(), Repository: repo, Namespace: namespace, Refresh: time.Duration(refresh) * time.Second}); err != nil {
+			return err
+		}
 	}
 	if err := mgr.Add(&byos.Listener{Address: listen, Handler: server}); err != nil {
 		return err

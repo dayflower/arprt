@@ -10,6 +10,8 @@ import (
 )
 
 var (
+	ErrCapacity         = errors.New("storage admission limit reached")
+	ErrCorrupt          = errors.New("stored artifact is corrupt")
 	ErrNotFound         = errors.New("artifact not found")
 	ErrObsolete         = errors.New("render attempt is obsolete")
 	ErrIdentityConflict = errors.New("device identity is already bound")

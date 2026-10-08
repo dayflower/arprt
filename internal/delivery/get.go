@@ -11,6 +11,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,7 @@ type flight struct {
 	err  error
 }
 type GET struct {
+	Context     context.Context
 	Repository  artifact.Repository
 	Reader      client.Reader
 	NewExecutor func(string) render.Executor
@@ -31,7 +33,7 @@ type GET struct {
 }
 
 func NewGET(repo artifact.Repository, reader client.Reader) *GET {
-	return &GET{Repository: repo, Reader: reader, flights: map[artifact.Unit]*flight{}, slots: make(chan struct{}, 8), NewExecutor: func(raw string) render.Executor { return render.HTTPGET{URL: raw} }}
+	return &GET{Context: context.Background(), Repository: repo, Reader: reader, flights: map[artifact.Unit]*flight{}, slots: make(chan struct{}, 8), NewExecutor: func(raw string) render.Executor { return render.HTTPGET{URL: raw} }}
 }
 
 // Image returns eligible old output with a nonnil render error after a failed
@@ -45,7 +47,7 @@ func (g *GET) Image(ctx context.Context, s *api.TrmnlScreen, target render.Targe
 		g.flights[unit] = f
 		snapshot := s.DeepCopy()
 		go func() {
-			work, cancel := context.WithTimeout(context.Background(), render.HTTPTimeout)
+			work, cancel := context.WithTimeout(g.Context, render.HTTPTimeout)
 			defer cancel()
 			f.meta, f.err = g.image(work, snapshot, unit)
 			g.mu.Lock()
@@ -90,7 +92,8 @@ func (g *GET) image(ctx context.Context, s *api.TrmnlScreen, u artifact.Unit) (a
 	}
 	select {
 	case g.slots <- struct{}{}:
-		defer func() { <-g.slots }()
+		observe.HTTPActive.Inc()
+		defer func() { <-g.slots; observe.HTTPActive.Dec() }()
 	case <-ctx.Done():
 		return old, errors.New("render concurrency wait timed out")
 	}

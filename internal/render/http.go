@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/dayflower/arprt/internal/observe"
 )
 
 const MaxPNGBytes = 89999
@@ -66,7 +68,9 @@ func (h HTTPPOST) Execute(ctx context.Context, input Request) (Output, error) {
 	return executeHTTP(ctx, h.URL, h.Client, http.MethodPost, input, body)
 }
 
-func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, method string, input Request, body []byte) (Output, error) {
+func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, method string, input Request, body []byte) (output Output, resultErr error) {
+	started := time.Now()
+	defer func() { observe.Render(method, started, resultErr) }()
 	raw, err := TargetURL(rawURL, input.Target)
 	if err != nil {
 		return Output{}, err

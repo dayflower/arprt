@@ -6,7 +6,7 @@ ENVTEST_K8S_VERSION ?= 1.36.2
 ENVTEST_BIN := $(CURDIR)/bin/k8s
 IMAGE ?= arprt:dev
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build
+.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke
 
 tools: bin/controller-gen
 
@@ -45,3 +45,10 @@ integration: manifests bin/setup-envtest
 
 docker-build:
 	docker build -t $(IMAGE) .
+
+# Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
+cluster-smoke:
+	python3 hack/cluster-smoke.py --image $(IMAGE)
+	python3 hack/job-smoke.py --image $(IMAGE)
+	python3 hack/playlist-smoke.py --image $(IMAGE)
+	python3 hack/operations-smoke.py --image $(IMAGE)

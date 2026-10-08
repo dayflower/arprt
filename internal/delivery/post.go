@@ -14,10 +14,16 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+type order struct {
+	sequence uint64
+	active   int
+}
 
 type pair struct{ namespace, screenUID, deviceUID string }
 
@@ -28,13 +34,13 @@ type POST struct {
 	Reader      client.Reader
 	NewExecutor func(string) render.Executor
 	mu          sync.Mutex
-	attempts    map[pair]uint64
+	attempts    map[pair]*order
 	slots       chan struct{}
 }
 
 // NewPOST shares GET's repository, direct reader and HTTP concurrency budget.
 func NewPOST(get *GET) *POST {
-	return &POST{Repository: get.Repository, Reader: get.Reader, slots: get.slots, attempts: map[pair]uint64{}, NewExecutor: func(raw string) render.Executor { return render.HTTPPOST{URL: raw} }}
+	return &POST{Repository: get.Repository, Reader: get.Reader, slots: get.slots, attempts: map[pair]*order{}, NewExecutor: func(raw string) render.Executor { return render.HTTPPOST{URL: raw} }}
 }
 
 // Image returns this pair's compatible prior success on failure, never another
@@ -70,21 +76,33 @@ func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice
 		p.mu.Unlock()
 		return artifact.Metadata{}, err
 	}
-	if p.attempts[key] < old.Sequence {
-		p.attempts[key] = old.Sequence
+	entry := p.attempts[key]
+	if entry == nil {
+		entry = &order{}
+		p.attempts[key] = entry
 	}
-	p.attempts[key]++
-	sequence := p.attempts[key]
+	entry.sequence = max(entry.sequence, old.Sequence) + 1
+	entry.active++
+	sequence := entry.sequence
+	defer func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		entry.active--
+		if entry.active == 0 {
+			delete(p.attempts, key)
+		}
+	}()
 	p.mu.Unlock()
 
 	work, cancel := context.WithTimeout(ctx, render.HTTPTimeout)
 	defer cancel()
 	select {
 	case p.slots <- struct{}{}:
-		defer func() { <-p.slots }()
+		observe.HTTPActive.Inc()
+		defer func() { <-p.slots; observe.HTTPActive.Dec() }()
 	case <-work.Done():
 		p.mu.Lock()
-		current := p.attempts[key] == sequence
+		current := entry.sequence == sequence
 		p.mu.Unlock()
 		if !current {
 			return artifact.Metadata{}, artifact.ErrObsolete
@@ -94,7 +112,7 @@ func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice
 	out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Context: &input})
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.attempts[key] != sequence {
+	if entry.sequence != sequence {
 		return artifact.Metadata{}, artifact.ErrObsolete
 	}
 	if renderErr != nil {
