@@ -170,7 +170,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 	}
 	// Apply every checked-in sample, preserving native Kubernetes container fields.
-	for _, file := range []string{"screens.yaml", "device.yaml"} {
+	for _, file := range []string{"screens.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "config", "samples", file))
 		if err != nil {
 			t.Fatal(err)
@@ -317,6 +317,8 @@ func TestAPIAndController(t *testing.T) {
 		return reason(job.Status.Conditions, controller.ConditionReady) == controller.ReasonUnsupportedFeature
 	})
 	verifyDelivery(t, c)
+	verifyIdentityAPI(t, c)
+	verifyIdentityRegistration(t, c)
 }
 
 func reason(conditions []metav1.Condition, kind string) string {

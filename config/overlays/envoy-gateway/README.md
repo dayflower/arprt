@@ -26,7 +26,7 @@ kubectl apply --validate=strict -k /path/to/private-gateway-overlay
 This installs the controller, PVC, minimal renderer and HTTPRoute in namespace
 `trmnl`. Register your device and create its auth Secret separately, following the
 main README. Keep real MAC addresses, credentials and private environment values
-outside the repository. The default Role permits only `living-room-auth`.
+outside the repository. The default Role permits only `living-room-auth` and `living-room-identity`.
 
 For device `living-room`, the example Custom Server URL is:
 

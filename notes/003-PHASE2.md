@@ -45,13 +45,15 @@ confirmation.
 
 ## Runtime RBAC clarification
 
-Default namespace RBAC grants `get` on **only `living-room-auth`**, with
+At the Phase 2 milestone, namespace RBAC granted `get` on **only `living-room-auth`**, with
 `resourceNames`, and grants no Secret list/watch. Operators must add each
 additional device auth Secret name explicitly to that allowlist. Authentication
 uses the device's same-namespace authSecretRef with direct reads. A Secret that
 is missing, unreadable or incorrectly encoded produces `AuthenticationReady=False`
 with `InvalidCredentials`; no credentials enter status or Render Context.
 This narrows runtime permission without changing the public API.
+[Optional MAC support](005-OPTIONAL-MAC.md) later adds named read access to
+`living-room-identity`; Secret writes and list/watch remain unavailable.
 
 ## Conditions
 

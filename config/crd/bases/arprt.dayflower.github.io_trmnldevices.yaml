@@ -56,13 +56,29 @@ spec:
                 - name
                 type: object
               hardwareID:
-                description: HardwareID is an immutable canonical uppercase MAC address.
+                description: HardwareID optionally restricts registration to this
+                  canonical uppercase MAC.
                 maxLength: 17
                 pattern: ^([0-9A-F]{2}:){5}[0-9A-F]{2}$
                 type: string
-                x-kubernetes-validations:
-                - message: hardwareID is immutable; replace the device to change identity
-                  rule: self == oldSelf
+              hardwareIDSecretRef:
+                description: HardwareIDSecretRef optionally restricts registration
+                  using a Secret value.
+                properties:
+                  key:
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[-._a-zA-Z0-9]+$
+                    type: string
+                  name:
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                required:
+                - key
+                - name
+                type: object
               playlistRef:
                 description: PlaylistRef is reserved; Phase 1 reports it as UnsupportedFeature.
                 properties:
@@ -88,11 +104,21 @@ spec:
                 type: object
             required:
             - authSecretRef
-            - hardwareID
             type: object
             x-kubernetes-validations:
             - message: at most one of screenRef and playlistRef is permitted
               rule: '!(has(self.screenRef) && has(self.playlistRef))'
+            - message: at most one hardware identity source is permitted
+              rule: '!(has(self.hardwareID) && has(self.hardwareIDSecretRef))'
+            - message: hardwareID source is immutable; replace the device to change
+                identity
+              rule: has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID)
+                || self.hardwareID == oldSelf.hardwareID)
+            - message: hardwareIDSecretRef source is immutable; replace the device
+                to change identity
+              rule: has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef)
+                && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef ==
+                oldSelf.hardwareIDSecretRef)
           status:
             properties:
               battery:
@@ -196,6 +222,12 @@ spec:
                 - palette
                 - width
                 type: object
+              hardwareID:
+                description: HardwareID mirrors the durable registration for this
+                  device UID.
+                maxLength: 17
+                pattern: ^([0-9A-F]{2}:){5}[0-9A-F]{2}$
+                type: string
               lastSeenAt:
                 format: date-time
                 type: string

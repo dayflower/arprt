@@ -164,7 +164,11 @@ device base path; putting them at a global `/images` route would lose the auth
 headers. Return absolute URLs with exactly the configured scheme / host / port
 spelling, keep proxy routes on that prefix, and send no image redirects.
 
-Public `TrmnlDevice.spec` includes required, immutable `hardwareID` (canonical uppercase MAC)
+The initial MAC contract below is superseded by
+[optional MAC registration](005-OPTIONAL-MAC.md): direct, Secret-backed, or
+learned identity. `authSecretRef` and setup admission retain this contract.
+
+The Phase 0 `TrmnlDevice.spec` included required, immutable `hardwareID` (canonical uppercase MAC)
 and required `authSecretRef.name`, a same-namespace Secret whose `apiKey` contains
 at least 32 random bytes encoded as URL-safe text. Names and MACs are routing
 identifiers, not authentication. Verify registered hardware ID and token with

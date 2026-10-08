@@ -33,7 +33,7 @@ func NewPVC(root string) (*PVC, error) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
 		return nil, errors.New("artifact root must be a clean absolute directory")
 	}
-	for _, dir := range []string{"blobs", "records", "latest", "issued"} {
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
 			return nil, err
 		}

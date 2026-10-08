@@ -3,7 +3,6 @@ kind: TrmnlDevice
 metadata:
   name: living-room
 spec:
-  hardwareID: "02:00:00:00:00:01"
   authSecretRef:
     name: living-room-auth
   screenRef:

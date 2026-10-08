@@ -64,8 +64,13 @@ namespace trmnl / TrmnlDevice living-room
 
 TRMNL devices may also send a device identity through HTTP headers or other protocol fields.
 
-Initially `spec.hardwareID` registers the MAC address and `spec.authSecretRef`
-references the device key. Setup is enabled temporarily by runtime configuration;
+`spec.hardwareID` optionally restricts the device to a literal MAC;
+`spec.hardwareIDSecretRef` can instead select a same-namespace Secret key.
+Leaving both unset learns the MAC during successful setup. `spec.authSecretRef`
+remains required and references the operator-supplied device key. Registration
+is pinned to the device UID on the PVC, with a mirror in `status.hardwareID`.
+See [optional MAC registration](005-OPTIONAL-MAC.md) for source immutability,
+Secret changes, namespace uniqueness and recovery. Setup is enabled temporarily by runtime configuration;
 display and image requests validate both registered identity and credentials.
 The namespace in the route must match the controller's single watched namespace.
 See the Phase 0 contract for proxy prefixes and the firmware's image-URL prefix check.

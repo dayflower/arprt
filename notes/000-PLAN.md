@@ -19,6 +19,8 @@ This plan describes implementation work; it does not introduce additional public
 
 ## Architecture invariants
 
+- Device MACs support literal configuration, same-namespace Secret references, or first-setup registration; see [optional MAC support](005-OPTIONAL-MAC.md). Auth Secret provisioning and setup admission remain operator-controlled.
+
 - Public resources express user intent: `TrmnlScreen`, `TrmnlDevice`, and, when implemented, `TrmnlPlaylist`.
 - Resources are namespaced. Reference scope and device URL mapping must be settled before API implementation.
 - A device may specify at most one of `screenRef` and `playlistRef`. Leaving both unset is valid and ultimately enables automatic screen discovery.

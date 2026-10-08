@@ -104,11 +104,13 @@ def main():
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/samples' / sample))
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
                 'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m'}}))
-            # ResourceNames-limited Role permits the supplied auth Secret only.
+            # Secret reads are restricted to the supplied auth and MAC sources.
             account = 'system:serviceaccount:' + namespace + ':arprt'
             for ns, verb, resource, allowed in [
                 (namespace, 'list', CRDS[0], True), (namespace, 'get', 'secret/living-room-auth', True),
+                (namespace, 'get', 'secret/living-room-identity', True),
                 (namespace, 'get', 'secret/unrelated', False), (namespace, 'list', 'secrets', False),
+                (namespace, 'create', 'secrets', False), (namespace, 'update', 'secret/living-room-identity', False),
                 ('default', 'list', CRDS[0], False), (namespace, 'create', 'jobs', False),
             ]:
                 answer = kubectl('auth', 'can-i', verb, resource, '--as=' + account, '-n', ns, check=False)
@@ -123,8 +125,8 @@ def main():
             headers = {'ID': '02:00:00:00:00:01', 'Access-Token': token, 'Model': 'og', 'FW-Version': '1.8.17',
                        'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91', 'RSSI': '-48'}
 
-            def fetch(base, path, authenticated=True):
-                req = urllib.request.Request(base + path, headers=headers if authenticated else {})
+            def fetch(base, path, authenticated=True, request_headers=None):
+                req = urllib.request.Request(base + path, headers=(request_headers or headers) if authenticated else {})
                 try:
                     with urllib.request.urlopen(req, timeout=15) as response:
                         return response.status, response.headers, response.read()
@@ -148,6 +150,45 @@ def main():
                 status, _, body = fetch(base, prefix + '/api/setup')
                 if status != 200 or json.loads(body)['api_key'] != token:
                     raise RuntimeError('pairing failed')
+                device = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)
+                if device['status']['hardwareID'] != headers['ID'] or 'hardwareID' in device['spec']:
+                    raise RuntimeError('automatic MAC registration rewrote spec or failed to record status')
+                # Exercise all sources on live Kubernetes without changing source
+                # selection after resource creation. All MACs are synthetic.
+                for peer, identity in [
+                    ('inline-peer', {'hardwareID': '02:00:00:00:00:04'}),
+                    ('secret-peer', {'hardwareIDSecretRef': {'name': 'living-room-identity', 'key': 'mac'}}),
+                    ('pending-peer', {}),
+                ]:
+                    apply({'apiVersion': device['apiVersion'], 'kind': device['kind'], 'metadata': {'name': peer},
+                           'spec': {**device['spec'], **identity}})
+                identity_secret = {'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'living-room-identity'},
+                                   'stringData': {'mac': '02:00:00:00:00:02'}}
+                apply(identity_secret)
+                peer_prefix = prefix.rsplit('/', 1)[0]
+                for peer, mac in [('inline-peer', '02:00:00:00:00:04'), ('secret-peer', '02:00:00:00:00:02')]:
+                    peer_headers = {**headers, 'ID': mac}
+                    status, _, body = fetch(base, peer_prefix + '/' + peer + '/api/setup', request_headers=peer_headers)
+                    if status != 200 or json.loads(body)['api_key'] != token:
+                        raise RuntimeError('configured MAC setup failed')
+                if fetch(base, peer_prefix + '/pending-peer/api/setup')[0] != 503:
+                    raise RuntimeError('duplicate automatic registration succeeded')
+                pending = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'pending-peer', '-o', 'json').stdout)
+                if pending.get('status', {}).get('hardwareID'):
+                    raise RuntimeError('failed setup registered a duplicate MAC')
+                identity_secret['stringData']['mac'] = '02:00:00:00:00:03'
+                apply(identity_secret)
+                for mac in ['02:00:00:00:00:02', '02:00:00:00:00:03']:
+                    if fetch(base, peer_prefix + '/secret-peer/api/display', request_headers={**headers, 'ID': mac})[0] != 403:
+                        raise RuntimeError('Secret change replaced the registered MAC')
+                identity_secret['stringData']['mac'] = '02:00:00:00:00:02'
+                apply(identity_secret)
+                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--subresource=status', '--type=merge',
+                        '-p', json.dumps({'status': {'hardwareID': None}}))
+                if fetch(base, prefix + '/api/setup', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
+                    raise RuntimeError('status loss allowed replacement of the PVC binding')
+                if fetch(base, prefix + '/api/setup')[0] != 200:
+                    raise RuntimeError('setup did not recover the status mirror')
                 status, image_headers, logo = fetch(base, prefix + '/setup-logo.png', False)
                 if status != 200 or len(logo) != int(image_headers['Content-Length']):
                     raise RuntimeError('anonymous setup image failed')
@@ -178,6 +219,8 @@ def main():
                     raise RuntimeError('outage failed to preserve the last compatible image')
                 if fetch(base, stripped + '/api/setup')[0] != 403:
                     raise RuntimeError('setup was not disabled after pairing')
+                if fetch(base, stripped + '/api/display', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
+                    raise RuntimeError('PVC restart lost the registered MAC')
                 # Changing UID while the renderer is down must yield initial pending.
                 screen = json.loads(kubectl('-n', namespace, 'get', 'trmnlscreen', 'photo', '-o', 'json').stdout)
                 kubectl('-n', namespace, 'delete', 'trmnlscreen', 'photo')
@@ -185,7 +228,7 @@ def main():
                 status, _, body = fetch(base, stripped + '/api/display')
                 if status != 200 or json.loads(body) != {'status': 202}:
                     raise RuntimeError('replacement resource borrowed an obsolete image')
-            print('PASS: setup, both prefix modes, display, PNG fetch, auth, telemetry, reuse, PVC restart, outage, initial pending and scoped RBAC')
+            print('PASS: three MAC sources, duplicates, Secret changes, status recovery, setup, both prefix modes, display, PNG fetch, auth, telemetry, reuse, PVC restart, outage, initial pending and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

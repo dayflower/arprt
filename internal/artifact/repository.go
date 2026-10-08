@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("artifact not found")
-	ErrObsolete = errors.New("render attempt is obsolete")
+	ErrNotFound         = errors.New("artifact not found")
+	ErrObsolete         = errors.New("render attempt is obsolete")
+	ErrIdentityConflict = errors.New("device identity is already bound")
 )
 
 // Unit excludes definition revision intentionally: a prior revision may be a
@@ -37,9 +38,17 @@ type Metadata struct {
 	RenderedAt       time.Time `json:"renderedAt"`
 }
 
-// Publish receives an already validated PNG and a current, ordered attempt.
-// The caller rechecks assignment, UIDs and revision before publication.
+// IdentityStore durably pins a hardware identity to a device UID, independently
+// of credentials and observable Kubernetes status. Bind is idempotent.
+type IdentityStore interface {
+	Binding(context.Context, string) (string, error)
+	Bind(context.Context, string, string) error
+}
+
 type Repository interface {
+	IdentityStore
+	// Publish receives an already validated PNG and a current, ordered attempt.
+	// The caller rechecks assignment, UIDs and revision before publication.
 	Publish(context.Context, Metadata, []byte) (Metadata, error)
 	Latest(context.Context, Unit) (Metadata, error)
 	Read(context.Context, string) ([]byte, error)

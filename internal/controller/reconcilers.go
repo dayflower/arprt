@@ -3,15 +3,14 @@ package controller
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"reflect"
-	"strings"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/assignment"
-	corev1 "k8s.io/api/core/v1"
+	"github.com/dayflower/arprt/internal/credentials"
+	"github.com/dayflower/arprt/internal/deviceidentity"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +18,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -83,6 +83,7 @@ type DeviceReconciler struct {
 	Reader     client.Reader
 	AuthReader client.Reader
 	Resolver   assignment.Resolver
+	Identity   *deviceidentity.Service
 }
 
 func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -96,21 +97,42 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return client.IgnoreNotFound(err)
 		}
 		before := device.DeepCopy()
-		var devices api.TrmnlDeviceList
-		if err := reader.List(ctx, &devices, client.InNamespace(device.Namespace)); err != nil {
-			return err
+		identity := r.Identity
+		if identity == nil {
+			identity = &deviceidentity.Service{Reader: reader}
 		}
-		unique := true
-		for _, other := range devices.Items {
-			if other.UID != device.UID && other.Spec.HardwareID == device.Spec.HardwareID {
-				unique = false
-				break
+		bound, boundErr := identity.Binding(ctx, &device)
+		if boundErr == nil && bound != "" {
+			device.Status.HardwareID = bound
+		}
+		id, identityErr := identity.Resolve(ctx, &device)
+		if identityErr != nil || boundErr != nil {
+			reason := "IdentityUnavailable"
+			if errors.Is(identityErr, deviceidentity.ErrMismatch) {
+				reason = "HardwareIdentityChanged"
 			}
-		}
-		if unique {
-			set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionTrue, ReasonIdentityUnique, "Hardware identity is unique in this namespace")
+			set(&device.Status.Conditions, device.Generation, "IdentityReady", metav1.ConditionFalse, reason, "Check the MAC source; changing registered hardware requires replacing the device")
+			set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionUnknown, "IdentityUnavailable", "Hardware identity cannot be resolved")
+		} else if id == "" {
+			set(&device.Status.Conditions, device.Generation, "IdentityReady", metav1.ConditionFalse, "AwaitingSetup", "Complete setup to register this device")
+			set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionUnknown, "AwaitingSetup", "Hardware identity has not been registered")
 		} else {
-			set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionFalse, ReasonDuplicateHardwareID, "Multiple registered devices use this hardware identity")
+			reason := "IdentityConfigured"
+			message := "Hardware identity is configured"
+			if bound != "" {
+				reason = "IdentityRegistered"
+				message = "Hardware identity is registered"
+			}
+			set(&device.Status.Conditions, device.Generation, "IdentityReady", metav1.ConditionTrue, reason, message)
+			unique, err := identity.Unique(ctx, &device, id)
+			if err != nil {
+				return err
+			}
+			if unique {
+				set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionTrue, ReasonIdentityUnique, "Hardware identity is unique in this namespace")
+			} else {
+				set(&device.Status.Conditions, device.Generation, ConditionIdentityUnique, metav1.ConditionFalse, ReasonDuplicateHardwareID, "Multiple registered devices use this hardware identity")
+			}
 		}
 		resolved, err := r.Resolver.Resolve(ctx, &device)
 		switch {
@@ -131,14 +153,8 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			set(&device.Status.Conditions, device.Generation, ConditionTargetKnown, metav1.ConditionUnknown, ReasonTargetUnobserved, "Waiting for authenticated capability observations")
 		}
 		if r.AuthReader != nil {
-			var secret corev1.Secret
-			authErr := r.AuthReader.Get(ctx, client.ObjectKey{Namespace: device.Namespace, Name: device.Spec.AuthSecretRef.Name}, &secret)
-			key := string(secret.Data["apiKey"])
-			raw, decodeErr := base64.RawURLEncoding.DecodeString(key)
-			if decodeErr != nil {
-				raw, decodeErr = base64.URLEncoding.DecodeString(key)
-			}
-			valid := authErr == nil && decodeErr == nil && len(raw) >= 32 && len(key) <= 512 && !strings.ContainsAny(key, "\r\n")
+			_, authErr := credentials.Read(ctx, r.AuthReader, &device)
+			valid := authErr == nil
 			authState, authReason, authMessage := metav1.ConditionTrue, "CredentialsConfigured", "Authentication Secret is usable"
 			if !valid {
 				authState, authReason, authMessage = metav1.ConditionFalse, "InvalidCredentials", "Provide a same-namespace Secret with apiKey encoding at least 32 random bytes as URL-safe base64"
@@ -146,7 +162,7 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			set(&device.Status.Conditions, device.Generation, "AuthenticationReady", authState, authReason, authMessage)
 		}
 		failure := ""
-		for _, kind := range []string{ConditionIdentityUnique, ConditionAssignmentReady, "AuthenticationReady"} {
+		for _, kind := range []string{"IdentityReady", ConditionIdentityUnique, ConditionAssignmentReady, "AuthenticationReady"} {
 			c := meta.FindStatusCondition(device.Status.Conditions, kind)
 			if c != nil && c.Status == metav1.ConditionFalse {
 				failure = c.Reason
@@ -184,6 +200,12 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return requests
 	})
 	return ctrl.NewControllerManagedBy(mgr).Named("trmnldevice").
-		Watches(&api.TrmnlDevice{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&api.TrmnlDevice{}, enqueue, builder.WithPredicates(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldDevice, oldOK := e.ObjectOld.(*api.TrmnlDevice)
+				newDevice, newOK := e.ObjectNew.(*api.TrmnlDevice)
+				return oldOK && newOK && (oldDevice.Generation != newDevice.Generation || oldDevice.Status.HardwareID != newDevice.Status.HardwareID)
+			},
+		})).
 		Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }

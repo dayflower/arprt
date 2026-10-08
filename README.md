@@ -71,22 +71,21 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
    PY
    ```
 
-5. Copy the sample device manifest outside the repository:
+5. Create the device using one of the three MAC modes. The default sample omits
+   the MAC and learns it during successful setup:
 
    ```sh
-   mkdir -p "$HOME/.config/arprt"
-   cp config/samples/device.yaml "$HOME/.config/arprt/device.yaml"
+   kubectl -n trmnl apply --validate=strict -f config/samples/device.yaml
    ```
 
-   Edit that private copy to set the actual uppercase MAC, then apply it:
+   Alternatively use `device-inline.yaml` for a direct MAC or `device-secret.yaml`
+   for a same-namespace Secret reference. These are alternatives for the same
+   resource; choose before creating it. Keep actual MACs in private configuration
+   or a Secret managed by your GitOps tooling. See [hardware identity](#hardware-identity).
 
-   ```sh
-   kubectl -n trmnl apply --validate=strict -f "$HOME/.config/arprt/device.yaml"
-   ```
-
-   The default Role allows `get` only on `living-room-auth`. For other auth
-   Secrets, explicitly add their names to that rule's `resourceNames`. Secret
-   listing/watching is unnecessary; credentials are read directly on requests.
+   The default Role permits `get` on `living-room-auth` and `living-room-identity`
+   only. Add other referenced Secret names explicitly to `resourceNames`. Secret
+   listing/watching and creation/updating are unnecessary.
 6. On a trusted network, temporarily add `--enable-setup=true` to the controller
    args and wait for rollout. Set the TRMNL's **Custom Server URL** to:
 
@@ -110,6 +109,49 @@ logging them or setup response bodies. Absolute image URLs always come from
 `publicBaseURL`; forwarded headers never change their origin. Images live below
 the exact device base URL to match firmware 1.8.17's authentication prefix test.
 Image routes do not redirect or compress; they return exact Content-Length.
+
+## Hardware identity
+
+`TrmnlDevice.spec` accepts at most one of:
+
+```yaml
+hardwareID: "02:00:00:00:00:01"  # synthetic direct-MAC example
+```
+
+```yaml
+hardwareIDSecretRef:
+  name: living-room-identity
+  key: mac
+```
+
+Omit both to learn the first MAC from successful `/api/setup`. The device resource
+and its usable auth Secret must already exist; `authSecretRef` remains required.
+Setup still defaults to disabled. No credential generation or automatic resource
+creation is included in this feature.
+
+A referenced Secret must be in the device's namespace and contain a canonical
+uppercase MAC at the selected key, without whitespace. Missing, unreadable or
+invalid identity Secrets make the device unavailable; they never fall back to
+learning a MAC. Use SealedSecret or your existing secret-management workflow to
+provision the Secret; arprt only reads the resulting Kubernetes Secret.
+
+MAC source selection, a direct value, and a Secret reference's name/key are
+immutable after creation. A registration pins the MAC to the device UID on the
+PVC and mirrors it in `status.hardwareID`. Changing a Secret to a different MAC
+produces `IdentityReady=False` with `HardwareIdentityChanged`; the existing
+registration is retained. To change hardware or input mode, replace the device
+resource. Preserve or separately rotate its auth Secret as appropriate. Existing
+explicit-MAC devices can establish their durable registration through an
+already-authenticated display request without re-pairing.
+
+Registration survives controller restart and status loss. Repeated setup for
+the same MAC returns the existing auth key. Setup on a different MAC is rejected.
+Unbound automatic devices report `AwaitingSetup`; MACs are unique within the
+namespace across direct, Secret-backed and learned identities. Two unbound
+automatic devices are not duplicates. MACs, identity Secret values/references
+and credentials are excluded from renderer context and controller messages.
+Back up the PVC along with Kubernetes resources; replacement UIDs never inherit
+prior image issuance. See [implementation and validation](notes/005-OPTIONAL-MAC.md).
 
 ## Renderer contract
 
@@ -202,7 +244,7 @@ must match. `PUBLIC_BASE_URL` is the fallback for `--public-base-url`.
 BYOS listens on `:8080`; probes listen on `:8081`. SIGINT/SIGTERM stops serving
 and the manager within its 20-second shutdown budget. Metrics remain disabled.
 
-Device conditions report `IdentityUnique`, `AuthenticationReady`,
+Device conditions report `IdentityReady`, `IdentityUnique`, `AuthenticationReady`,
 `AssignmentReady`, `TargetKnown`, `TelemetryValid`, `RenderReady` and `Ready`.
 Screen `Ready` reports the last requested render outcome for its current
 revision; it does not attest renderer availability before the first request.

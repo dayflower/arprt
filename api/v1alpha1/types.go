@@ -105,15 +105,31 @@ type TrmnlScreenList struct {
 	Items           []TrmnlScreen `json:"items"`
 }
 
+// HardwareIDSecretReference selects a required key in a same-namespace Secret.
+type HardwareIDSecretReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[-._a-zA-Z0-9]+$`
+	Key string `json:"key"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!(has(self.screenRef) && has(self.playlistRef))",message="at most one of screenRef and playlistRef is permitted"
+// +kubebuilder:validation:XValidation:rule="!(has(self.hardwareID) && has(self.hardwareIDSecretRef))",message="at most one hardware identity source is permitted"
+// +kubebuilder:validation:XValidation:rule="has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID) || self.hardwareID == oldSelf.hardwareID)",message="hardwareID source is immutable; replace the device to change identity"
+// +kubebuilder:validation:XValidation:rule="has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef) && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef == oldSelf.hardwareIDSecretRef)",message="hardwareIDSecretRef source is immutable; replace the device to change identity"
 type TrmnlDeviceSpec struct {
-	// HardwareID is an immutable canonical uppercase MAC address.
+	// HardwareID optionally restricts registration to this canonical uppercase MAC.
 	// +kubebuilder:validation:MaxLength=17
 	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="hardwareID is immutable; replace the device to change identity"
-	HardwareID    string          `json:"hardwareID"`
-	AuthSecretRef LocalReference  `json:"authSecretRef"`
-	ScreenRef     *LocalReference `json:"screenRef,omitempty"`
+	HardwareID string `json:"hardwareID,omitempty"`
+	// HardwareIDSecretRef optionally restricts registration using a Secret value.
+	HardwareIDSecretRef *HardwareIDSecretReference `json:"hardwareIDSecretRef,omitempty"`
+	AuthSecretRef       LocalReference             `json:"authSecretRef"`
+	ScreenRef           *LocalReference            `json:"screenRef,omitempty"`
 	// PlaylistRef is reserved; Phase 1 reports it as UnsupportedFeature.
 	PlaylistRef *LocalReference `json:"playlistRef,omitempty"`
 }
@@ -146,6 +162,10 @@ type NetworkStatus struct {
 }
 
 type TrmnlDeviceStatus struct {
+	// HardwareID mirrors the durable registration for this device UID.
+	// +kubebuilder:validation:MaxLength=17
+	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`
+	HardwareID string `json:"hardwareID,omitempty"`
 	// +kubebuilder:validation:Minimum=0
 	ObservedGeneration int64             `json:"observedGeneration,omitempty"`
 	Display            *DisplayStatus    `json:"display,omitempty"`

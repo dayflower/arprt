@@ -77,11 +77,11 @@ func run() error {
 	if err := (&controller.ScreenReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
 		return err
 	}
-	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}}).SetupWithManager(mgr); err != nil {
-		return err
-	}
 	server, err := byos.NewServer(byos.Config{Namespace: namespace, PublicBaseURL: publicURL, ProxyStripsPrefix: strips, EnableSetup: enableSetup, RefreshSeconds: refresh}, mgr.GetAPIReader(), mgr.GetClient(), repo)
 	if err != nil {
+		return err
+	}
+	if err := (&controller.DeviceReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), AuthReader: mgr.GetAPIReader(), Resolver: assignment.Explicit{Reader: mgr.GetAPIReader()}, Identity: server.Identity}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.Add(&byos.Listener{Address: listen, Handler: server}); err != nil {

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,10 +23,11 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/credentials"
 	"github.com/dayflower/arprt/internal/delivery"
+	"github.com/dayflower/arprt/internal/deviceidentity"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,6 +47,7 @@ type Server struct {
 	Repository artifact.Repository
 	GET        *delivery.GET
 	POST       *delivery.POST
+	Identity   *deviceidentity.Service
 	base       *url.URL
 	gates      sync.Map
 }
@@ -66,7 +67,7 @@ func NewServer(c Config, reader client.Reader, writer client.Client, repo artifa
 		return nil, errors.New("device refresh must be 1..86400 seconds")
 	}
 	get := delivery.NewGET(repo, reader)
-	return &Server{Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), base: base}, nil
+	return &Server{Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), Identity: &deviceidentity.Service{Reader: reader, Writer: writer, Store: repo}, base: base}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -108,19 +109,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, err := HardwareID(h["id"])
-	if err != nil || !equal(id, d.Spec.HardwareID) {
+	if err != nil {
 		reply(w, 403, 403)
 		return
 	}
-	unique, err := s.unique(ctx, &d)
-	if err != nil {
-		reply(w, 503, 503)
-		return
-	}
-	if !unique {
-		reply(w, 503, 503)
-		return
-	}
+	// Setup admission is independent of identity registration and credentials.
 	if endpoint == "api/setup" && !s.Config.EnableSetup {
 		reply(w, 403, 403)
 		return
@@ -128,6 +121,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key, err := s.key(ctx, &d)
 	if err != nil || (endpoint != "api/setup" && (h["access-token"] == "" || !equal(key, h["access-token"]))) {
 		reply(w, 401, 401)
+		return
+	}
+	if endpoint == "api/setup" || endpoint == "api/display" {
+		err = s.Identity.Register(ctx, &d, id, endpoint == "api/setup")
+	} else {
+		err = s.Identity.Check(ctx, &d, id)
+	}
+	if err != nil {
+		s.identityError(w, err)
 		return
 	}
 	switch {
@@ -220,31 +222,15 @@ func equal(a, b string) bool {
 }
 
 func (s *Server) key(ctx context.Context, d *api.TrmnlDevice) (string, error) {
-	var secret corev1.Secret
-	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: d.Namespace, Name: d.Spec.AuthSecretRef.Name}, &secret); err != nil {
-		return "", errors.New("authentication Secret unavailable")
-	}
-	key := string(secret.Data["apiKey"])
-	raw, err := base64.RawURLEncoding.DecodeString(key)
-	if err != nil {
-		raw, err = base64.URLEncoding.DecodeString(key)
-	}
-	if err != nil || len(raw) < 32 || len(key) > 512 || strings.ContainsAny(key, "\r\n") {
-		return "", errors.New("authentication apiKey must encode at least 32 bytes as URL-safe base64")
-	}
-	return key, nil
+	return credentials.Read(ctx, s.Reader, d)
 }
-func (s *Server) unique(ctx context.Context, d *api.TrmnlDevice) (bool, error) {
-	var list api.TrmnlDeviceList
-	if err := s.Reader.List(ctx, &list, client.InNamespace(d.Namespace)); err != nil {
-		return false, err
+
+func (s *Server) identityError(w http.ResponseWriter, err error) {
+	code := http.StatusServiceUnavailable
+	if errors.Is(err, deviceidentity.ErrMismatch) || errors.Is(err, deviceidentity.ErrUnbound) {
+		code = http.StatusForbidden
 	}
-	for _, other := range list.Items {
-		if other.UID != d.UID && other.Spec.HardwareID == d.Spec.HardwareID {
-			return false, nil
-		}
-	}
-	return true, nil
+	reply(w, code, code)
 }
 
 // mutate reads each retry directly and patches only status with a resourceVersion
@@ -373,13 +359,20 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	unique, identityErr := s.unique(ctx, &current)
-	if identityErr != nil {
-		reply(w, 503, 503)
+	// Secret contents do not change device generation. Re-resolve identity and
+	// credentials after rendering, before issuing an immutable image.
+	if err := s.Identity.Check(ctx, &current, d.Status.HardwareID); err != nil {
+		if errors.Is(err, deviceidentity.ErrDuplicate) {
+			reply(w, 200, 202)
+		} else {
+			s.identityError(w, err)
+		}
 		return
 	}
-	if !unique {
-		reply(w, 200, 202)
+	key, keyErr := s.key(ctx, &current)
+	headers, _ := Headers(r.Header)
+	if keyErr != nil || !equal(key, headers["access-token"]) {
+		reply(w, 401, 401)
 		return
 	}
 	reason, message := "ImageReady", "Validated HTTP image available"

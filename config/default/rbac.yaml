@@ -10,7 +10,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    resourceNames: [living-room-auth]
+    resourceNames: [living-room-auth, living-room-identity]
     verbs: [get]
   - apiGroups: [arprt.dayflower.github.io]
     resources: [trmnlscreens, trmnldevices]
