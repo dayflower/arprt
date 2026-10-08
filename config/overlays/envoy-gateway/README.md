@@ -24,9 +24,11 @@ kubectl apply --validate=strict -k /path/to/private-gateway-overlay
 ```
 
 This installs the controller, PVC, minimal renderer and HTTPRoute in namespace
-`trmnl`. Register your device and create its auth Secret separately, following the
-main README. Keep real MAC addresses, credentials and private environment values
-outside the repository. The default Role permits only `living-room-auth` and `living-room-identity`.
+`trmnl`, including a keyless `living-room-auth` Secret. Register your device
+following the main README; setup generates its key. Existing keys are reused.
+Keep real MAC addresses, credentials and private environment values outside the
+repository. The Role allows `get` on `living-room-auth` and `living-room-identity`,
+and `patch` only on `living-room-auth`. Other Secret names require explicit rules.
 
 For device `living-room`, the example Custom Server URL is:
 
@@ -34,21 +36,10 @@ For device `living-room`, the example Custom Server URL is:
 https://byos.example.test/trmnl/devices/trmnl/living-room
 ```
 
-Pairing defaults to disabled. After registering the device and Secret,
-temporarily enable setup on a trusted network. Your private pairing overlay
-should use `envoy-gateway-pairing` as its base with the same private overrides:
-
-```sh
-kubectl apply --validate=strict -k /path/to/private-pairing-overlay
-kubectl -n trmnl rollout status deployment/arprt
-```
-
-After pairing, apply the normal overlay again to disable setup:
-
-```sh
-kubectl apply --validate=strict -k /path/to/private-gateway-overlay
-kubectl -n trmnl rollout status deployment/arprt
-```
+Setup stays enabled by default. No separate pairing rollout is required;
+repeating setup for the registered MAC returns the stored key. The old
+`envoy-gateway-pairing` base remains compatible but is redundant.
+If needed, explicitly set `--enable-setup=false` in your private Deployment patch.
 
 The root URL has no web UI. Inspect Kubernetes device status to confirm actual
 firmware requests and successful display. The renderer defaults to grayscale;

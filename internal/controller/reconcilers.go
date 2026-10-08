@@ -158,6 +158,9 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			authState, authReason, authMessage := metav1.ConditionTrue, "CredentialsConfigured", "Authentication Secret is usable"
 			if !valid {
 				authState, authReason, authMessage = metav1.ConditionFalse, "InvalidCredentials", "Provide a same-namespace Secret with apiKey encoding at least 32 random bytes as URL-safe base64"
+				if errors.Is(authErr, credentials.ErrNotProvisioned) {
+					authReason, authMessage = "AwaitingSetup", "Complete setup to provision the authentication key"
+				}
 			}
 			set(&device.Status.Conditions, device.Generation, "AuthenticationReady", authState, authReason, authMessage)
 		}

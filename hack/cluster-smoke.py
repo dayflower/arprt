@@ -10,7 +10,6 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
-import secrets
 import subprocess
 import tempfile
 import time
@@ -98,8 +97,6 @@ def main():
                         'volumes': [{'name': 'script', 'configMap': {'name': 'renderer'}}]}}}})
             apply({'apiVersion': 'v1', 'kind': 'Service', 'metadata': {'name': 'renderer'}, 'spec': {
                 'selector': {'app': 'renderer'}, 'ports': [{'port': 8000, 'targetPort': 8000}]}})
-            token = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('=')
-            apply({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'living-room-auth'}, 'stringData': {'apiKey': token}})
             for sample in ['screens.yaml', 'device.yaml']:
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/samples' / sample))
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
@@ -110,7 +107,11 @@ def main():
                 (namespace, 'list', CRDS[0], True), (namespace, 'get', 'secret/living-room-auth', True),
                 (namespace, 'get', 'secret/living-room-identity', True),
                 (namespace, 'get', 'secret/unrelated', False), (namespace, 'list', 'secrets', False),
+                (namespace, 'patch', 'secret/living-room-auth', True),
+                (namespace, 'patch', 'secret/living-room-identity', False),
+                (namespace, 'patch', 'secret/unrelated', False), (namespace, 'delete', 'secret/living-room-auth', False),
                 (namespace, 'create', 'secrets', False), (namespace, 'update', 'secret/living-room-identity', False),
+                ('default', 'patch', 'secret/living-room-auth', False),
                 ('default', 'list', CRDS[0], False), (namespace, 'create', 'jobs', False),
             ]:
                 answer = kubectl('auth', 'can-i', verb, resource, '--as=' + account, '-n', ns, check=False)
@@ -118,11 +119,10 @@ def main():
                     raise RuntimeError('runtime RBAC did not match scoped permissions')
             patch_args = lambda values: kubectl('-n', namespace, 'patch', 'deployment', 'arprt', '--type=json', '-p', json.dumps([
                 {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': values}]))
-            patch_args(['--namespace=$(POD_NAMESPACE)', '--enable-setup=true'])
             for deployment in ['renderer', 'arprt']:
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + deployment, '--timeout=180s')
             prefix = '/trmnl/devices/' + namespace + '/living-room'
-            headers = {'ID': '02:00:00:00:00:01', 'Access-Token': token, 'Model': 'og', 'FW-Version': '1.8.17',
+            headers = {'ID': '02:00:00:00:00:01', 'Model': 'og', 'FW-Version': '1.8.17',
                        'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91', 'RSSI': '-48'}
 
             def fetch(base, path, authenticated=True, request_headers=None):
@@ -147,9 +147,19 @@ def main():
                     if fetch(base, '/' + endpoint, False)[0] != 200:
                         raise RuntimeError('probe failed')
             with forwarded(namespace, 8080, directory) as base:
+                if fetch(base, prefix + '/api/display')[0] != 401:
+                    raise RuntimeError('display provisioned a key before setup')
                 status, _, body = fetch(base, prefix + '/api/setup')
-                if status != 200 or json.loads(body)['api_key'] != token:
+                token = json.loads(body).get('api_key', '')
+                if status != 200 or len(base64.urlsafe_b64decode(token + '=')) != 32:
                     raise RuntimeError('pairing failed')
+                headers['Access-Token'] = token
+                stored_auth = json.loads(kubectl('-n', namespace, 'get', 'secret', 'living-room-auth', '-o', 'json').stdout)
+                if base64.b64decode(stored_auth['data']['apiKey']).decode() != token:
+                    raise RuntimeError('setup returned an unpersisted key')
+                kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/default/auth-secret.yaml'))
+                if json.loads(fetch(base, prefix + '/api/setup')[2]).get('api_key') != token:
+                    raise RuntimeError('GitOps re-apply reset the generated key')
                 device = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)
                 if device['status']['hardwareID'] != headers['ID'] or 'hardwareID' in device['spec']:
                     raise RuntimeError('automatic MAC registration rewrote spec or failed to record status')
@@ -217,8 +227,9 @@ def main():
                     raise RuntimeError('image or issuance lost on restart')
                 if display(base, stripped) != first:
                     raise RuntimeError('outage failed to preserve the last compatible image')
-                if fetch(base, stripped + '/api/setup')[0] != 403:
-                    raise RuntimeError('setup was not disabled after pairing')
+                status, _, body = fetch(base, stripped + '/api/setup')
+                if status != 200 or json.loads(body).get('api_key') != token:
+                    raise RuntimeError('setup availability or key lost after restart')
                 if fetch(base, stripped + '/api/display', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
                     raise RuntimeError('PVC restart lost the registered MAC')
                 # Changing UID while the renderer is down must yield initial pending.
@@ -228,7 +239,7 @@ def main():
                 status, _, body = fetch(base, stripped + '/api/display')
                 if status != 200 or json.loads(body) != {'status': 202}:
                     raise RuntimeError('replacement resource borrowed an obsolete image')
-            print('PASS: three MAC sources, duplicates, Secret changes, status recovery, setup, both prefix modes, display, PNG fetch, auth, telemetry, reuse, PVC restart, outage, initial pending and scoped RBAC')
+            print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, reuse, PVC restart, outage, initial pending and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

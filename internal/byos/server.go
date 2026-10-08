@@ -118,7 +118,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, 403, 403)
 		return
 	}
-	key, err := s.key(ctx, &d)
+	var key string
+	if endpoint == "api/setup" {
+		if err := s.Identity.ValidateRegistration(ctx, &d, id, true); err != nil {
+			s.identityError(w, err)
+			return
+		}
+		key, err = credentials.Ensure(ctx, s.Reader, s.Client, &d)
+		if err != nil {
+			code := http.StatusServiceUnavailable
+			if errors.Is(err, credentials.ErrInvalid) {
+				code = http.StatusUnauthorized
+			}
+			reply(w, code, code)
+			return
+		}
+	} else {
+		key, err = s.key(ctx, &d)
+	}
 	if err != nil || (endpoint != "api/setup" && (h["access-token"] == "" || !equal(key, h["access-token"]))) {
 		reply(w, 401, 401)
 		return
@@ -134,6 +151,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case endpoint == "api/setup":
+		// Secret changes do not increment generation. Re-read external inputs
+		// after registration and return only the persisted, current key.
+		if err := s.Identity.Check(ctx, &d, id); err != nil {
+			s.identityError(w, err)
+			return
+		}
+		key, err = s.key(ctx, &d)
+		if err != nil {
+			reply(w, 503, 503)
+			return
+		}
 		jsonResponse(w, 200, struct {
 			Status  int    `json:"status"`
 			Key     string `json:"api_key"`

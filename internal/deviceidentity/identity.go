@@ -127,14 +127,23 @@ func (s *Service) Unique(ctx context.Context, d *api.TrmnlDevice, id string) (bo
 }
 
 func (s *Service) Check(ctx context.Context, d *api.TrmnlDevice, id string) error {
+	return s.ValidateRegistration(ctx, d, id, false)
+}
+
+// ValidateRegistration checks eligibility without learning a MAC. Setup uses it
+// before provisioning credentials; Register repeats it against a fresh snapshot.
+func (s *Service) ValidateRegistration(ctx context.Context, d *api.TrmnlDevice, id string, setup bool) error {
+	if !Valid(id) {
+		return ErrMismatch
+	}
 	expected, err := s.Resolve(ctx, d)
 	if err != nil {
 		return err
 	}
-	if expected == "" {
+	if expected == "" && !setup {
 		return ErrUnbound
 	}
-	if expected != id {
+	if expected != "" && expected != id {
 		return ErrMismatch
 	}
 	unique, err := s.Unique(ctx, d, id)
@@ -167,22 +176,8 @@ func (s *Service) Register(ctx context.Context, d *api.TrmnlDevice, id string, s
 		if current.UID != d.UID || current.Generation != d.Generation || !reflect.DeepEqual(current.Spec, d.Spec) || !current.DeletionTimestamp.IsZero() {
 			return artifact.ErrObsolete
 		}
-		expected, err := s.Resolve(ctx, &current)
-		if err != nil {
+		if err := s.ValidateRegistration(ctx, &current, id, setup); err != nil {
 			return err
-		}
-		if expected == "" && !setup {
-			return ErrUnbound
-		}
-		if expected != "" && expected != id {
-			return ErrMismatch
-		}
-		unique, err := s.Unique(ctx, &current, id)
-		if err != nil {
-			return err
-		}
-		if !unique {
-			return ErrDuplicate
 		}
 		if s.Store == nil {
 			return errors.New("identity registration requires durable storage")

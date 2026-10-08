@@ -319,6 +319,7 @@ func TestAPIAndController(t *testing.T) {
 	verifyDelivery(t, c)
 	verifyIdentityAPI(t, c)
 	verifyIdentityRegistration(t, c)
+	verifyAutomaticCredentials(t, c)
 }
 
 func reason(conditions []metav1.Condition, kind string) string {

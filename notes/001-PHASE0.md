@@ -166,7 +166,8 @@ spelling, keep proxy routes on that prefix, and send no image redirects.
 
 The initial MAC contract below is superseded by
 [optional MAC registration](005-OPTIONAL-MAC.md): direct, Secret-backed, or
-learned identity. `authSecretRef` and setup admission retain this contract.
+learned identity. [Automatic credentials](006-AUTOMATIC-KEYS.md) later adds key
+generation into declared Secrets and changes setup to enabled by default.
 
 The Phase 0 `TrmnlDevice.spec` included required, immutable `hardwareID` (canonical uppercase MAC)
 and required `authSecretRef.name`, a same-namespace Secret whose `apiKey` contains

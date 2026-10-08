@@ -39,7 +39,7 @@ func run() error {
 	flag.StringVar(&probes, "health-probe-bind-address", ":8081", "Health and readiness listener")
 	flag.StringVar(&listen, "byos-bind-address", ":8080", "BYOS listener")
 	flag.StringVar(&publicURL, "public-base-url", os.Getenv("PUBLIC_BASE_URL"), "Required absolute public HTTP(S) URL including external path prefix")
-	flag.BoolVar(&enableSetup, "enable-setup", false, "Enable credential pairing on a trusted network")
+	flag.BoolVar(&enableSetup, "enable-setup", true, "Accept setup and provision missing device credentials (enabled by default)")
 	flag.BoolVar(&strips, "proxy-strips-prefix", false, "Proxy strips the configured public URL path prefix")
 	flag.IntVar(&refresh, "device-refresh-seconds", 300, "Device polling interval, independent of screen freshness")
 	opts := zap.Options{}

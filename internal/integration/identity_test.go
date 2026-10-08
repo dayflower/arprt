@@ -158,10 +158,9 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 				t.Fatal("registration changed spec or lost status identity")
 			}
 			// Persisted identity protects against status loss and a different next MAC.
-			d.Status = api.TrmnlDeviceStatus{}
-			if err := c.Status().Update(ctx, d); err != nil {
-				t.Fatal(err)
-			}
+			updateDevice(t, c, d, true, func(current *api.TrmnlDevice) {
+				current.Status = api.TrmnlDeviceStatus{}
+			})
 			if got := setup("02:00:00:00:00:40"); got != 403 {
 				t.Fatal("status loss allowed another MAC", got)
 			}

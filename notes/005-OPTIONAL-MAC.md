@@ -3,6 +3,10 @@
 Implemented 2026-10-08 after Phase 3. This change supports GitOps device
 configuration without a literal MAC in the device manifest.
 
+The credential provisioning and setup defaults recorded below describe this
+change's original scope. They are superseded by
+[automatic key generation and default-on setup](006-AUTOMATIC-KEYS.md).
+
 ## Public API and scope
 
 A device may use `spec.hardwareID`, `spec.hardwareIDSecretRef` (`name`, `key`), or

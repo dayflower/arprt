@@ -53,7 +53,8 @@ is missing, unreadable or incorrectly encoded produces `AuthenticationReady=Fals
 with `InvalidCredentials`; no credentials enter status or Render Context.
 This narrows runtime permission without changing the public API.
 [Optional MAC support](005-OPTIONAL-MAC.md) later adds named read access to
-`living-room-identity`; Secret writes and list/watch remain unavailable.
+`living-room-identity`. [Automatic credentials](006-AUTOMATIC-KEYS.md) later adds
+named `patch` permission for the auth Secret; list/watch remain unavailable.
 
 ## Conditions
 

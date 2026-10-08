@@ -1,7 +1,7 @@
 # arprt
 
 A TRMNL BYOS Kubernetes controller with explicit HTTP GET and POST screen delivery,
-Secret authentication and persistent PNG artifacts. Initial device support is
+Secret authentication with setup-generated keys and persistent PNG artifacts. Initial device support is
 **TRMNL OG (2-bit), firmware 1.8.17, 800 × 480 / gray4**. Phase 2 software and
 physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHASE2.md),
 [the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
@@ -28,7 +28,7 @@ python3 hack/cluster-smoke.py --image <registry>/arprt:<tag>
 
 This script refuses to overwrite existing arprt CRDs. It creates an isolated
 namespace, tests pairing, display, both proxy path modes, image authentication,
-PVC restart, renderer outage, initial-image responses and scoped RBAC, then
+key generation/reuse, GitOps re-apply, PVC restart, renderer outage, initial-image responses and scoped RBAC, then
 removes its resources. It does not configure a physical TRMNL or public ingress.
 
 ## Installation and pairing
@@ -59,17 +59,12 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
    kubectl -n trmnl rollout status deployment/example-renderer
    ```
 
-4. Create the auth Secret without putting its value on the command line:
-
-   ```sh
-   python3 - <<'PY' | kubectl -n trmnl apply -f -
-   import base64, json, secrets
-   key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('=')
-   print(json.dumps({'apiVersion': 'v1', 'kind': 'Secret',
-                    'metadata': {'name': 'living-room-auth'},
-                    'stringData': {'apiKey': key}}))
-   PY
-   ```
+4. The default base declares `living-room-auth` without key data. The first setup
+   generates and saves its `apiKey`; you do not need to supply a key. An existing
+   valid key is reused. For a different `authSecretRef`, declare that Secret in
+   your private overlay and add its name to the Role's `get` and `patch` rules.
+   Keep the generated key out of Git. You may also supply your own key through
+   your existing Secret or SealedSecret workflow.
 
 5. Create the device using one of the three MAC modes. The default sample omits
    the MAC and learns it during successful setup:
@@ -84,19 +79,21 @@ UID/GID 1000 with Recreate rollout and namespace-only RBAC.
    or a Secret managed by your GitOps tooling. See [hardware identity](#hardware-identity).
 
    The default Role permits `get` on `living-room-auth` and `living-room-identity`
-   only. Add other referenced Secret names explicitly to `resourceNames`. Secret
-   listing/watching and creation/updating are unnecessary.
-6. On a trusted network, temporarily add `--enable-setup=true` to the controller
-   args and wait for rollout. Set the TRMNL's **Custom Server URL** to:
+   and `patch` on `living-room-auth` only. Add other referenced Secret names
+   explicitly to the relevant `resourceNames` rules. No Secret list/watch,
+   create, update or delete permission is required.
+
+6. Set the TRMNL's **Custom Server URL** to:
 
    ```text
    https://byos.example.com/trmnl/devices/trmnl/living-room
    ```
 
    The firmware appends `/api/setup` and `/api/display`. Setup returns the
-   pre-registered key and an anonymous bundled calibration PNG. Once pairing
-   completes, remove `--enable-setup=true` and wait for rollout. Setup defaults
-   to disabled. Credential rotation requires re-pairing.
+   generated or existing key and an anonymous bundled calibration PNG. Setup
+   remains available after pairing; repeating it for the registered MAC returns
+   the saved key. No pairing overlay or rollout is necessary.
+
 7. Confirm the four gray bands on the device and inspect status:
 
    ```sh
@@ -125,9 +122,9 @@ hardwareIDSecretRef:
 ```
 
 Omit both to learn the first MAC from successful `/api/setup`. The device resource
-and its usable auth Secret must already exist; `authSecretRef` remains required.
-Setup still defaults to disabled. No credential generation or automatic resource
-creation is included in this feature.
+and its named auth Secret must already exist; `authSecretRef` remains required.
+Setup is enabled by default and fills an absent `apiKey` in that Secret. Device
+and Secret resource creation remain declarative.
 
 A referenced Secret must be in the device's namespace and contain a canonical
 uppercase MAC at the selected key, without whitespace. Missing, unreadable or
@@ -152,6 +149,28 @@ automatic devices are not duplicates. MACs, identity Secret values/references
 and credentials are excluded from renderer context and controller messages.
 Back up the PVC along with Kubernetes resources; replacement UIDs never inherit
 prior image issuance. See [implementation and validation](notes/005-OPTIONAL-MAC.md).
+
+## Setup and credentials
+
+Setup requires the device route and a matching MAC, without an Access-Token.
+For automatic MAC registration, it accepts the first eligible MAC. It generates
+32 random bytes as unpadded URL-safe base64 when `apiKey` is absent from the
+declared auth Secret. The API write must succeed before setup returns a key.
+Concurrent requests, setup retries and controller restart reuse the saved key.
+
+An existing `apiKey` is never overwritten, including an empty or invalid value.
+Remove an invalid field or supply a valid key explicitly. An unavailable Secret,
+an immutable empty Secret or denied patch permission returns 503; an invalid
+key returns 401. Display, log and image requests only read credentials and
+cannot generate them. Keys are excluded from status, render context, artifact
+metadata and logs. See [implementation and tests](notes/006-AUTOMATIC-KEYS.md).
+
+For GitOps, declare only the auth Secret's metadata and type when using generated
+keys. Leave `data.apiKey` and `stringData.apiKey` out of the desired manifest;
+do not combine generated keys with another controller that owns that key field.
+Store the live auth Secrets in your backup alongside the artifact/identity PVC.
+Rotating a key requires setup again on the device. Setup stays enabled by default;
+the existing `--enable-setup=false` option remains available to disable it explicitly.
 
 ## Renderer contract
 
