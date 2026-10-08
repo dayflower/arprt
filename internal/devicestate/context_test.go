@@ -1,4 +1,4 @@
-package controller
+package devicestate
 
 import (
 	"encoding/json"

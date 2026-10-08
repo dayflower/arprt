@@ -1,4 +1,4 @@
-package controller
+package devicestate
 
 import (
 	api "github.com/dayflower/arprt/api/v1alpha1"

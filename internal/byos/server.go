@@ -21,10 +21,10 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
-	"github.com/dayflower/arprt/internal/controller"
 	"github.com/dayflower/arprt/internal/credentials"
 	"github.com/dayflower/arprt/internal/delivery"
 	"github.com/dayflower/arprt/internal/deviceidentity"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -432,7 +432,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		var snapshot render.Context
 		// mutate returned the direct status snapshot, and this explicit overlay
 		// keeps current request telemetry independent of informer propagation.
-		snapshot, renderErr = render.Build(d.Name, target, controller.Observation(d.Status), render.Observation{Model: o.Model, FirmwareVersion: o.Firmware, Voltage: o.Voltage, RSSI: o.RSSI})
+		snapshot, renderErr = render.Build(d.Name, target, devicestate.Observation(d.Status), render.Observation{Model: o.Model, FirmwareVersion: o.Firmware, Voltage: o.Voltage, RSSI: o.RSSI})
 		if renderErr == nil {
 			m, renderErr = s.POST.Image(ctx, assigned, d, snapshot)
 		}

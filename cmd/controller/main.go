@@ -14,6 +14,7 @@ import (
 	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/controller"
 	"github.com/dayflower/arprt/internal/jobrender"
+	"github.com/dayflower/arprt/internal/maintenance"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -134,7 +135,7 @@ func run() error {
 	}
 	server.Recorder = mgr.GetEventRecorder("http-renderer")
 	if jobConfig.PVC == "" {
-		if err := mgr.Add(&controller.StorageMaintenance{Reader: mgr.GetAPIReader(), Repository: repo, Namespace: namespace, Refresh: time.Duration(refresh) * time.Second}); err != nil {
+		if err := mgr.Add(&maintenance.StorageMaintenance{Reader: mgr.GetAPIReader(), Repository: repo, Namespace: namespace, Refresh: time.Duration(refresh) * time.Second}); err != nil {
 			return err
 		}
 	}

@@ -17,7 +17,8 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
-	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/maintenance"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -252,7 +253,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	if err != nil {
 		return r.failed(ctx, d, s, st, "InvalidJobPaths")
 	}
-	snapshot, err := render.Build(d.Name, st.Unit.Target, controller.Observation(d.Status), render.Observation{})
+	snapshot, err := render.Build(d.Name, st.Unit.Target, devicestate.Observation(d.Status), render.Observation{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -744,7 +745,7 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		}
 	}
 	if repository, ok := r.Repository.(*artifact.PVC); ok {
-		return (&controller.StorageMaintenance{Reader: r.Reader, Repository: repository, Namespace: r.Config.Namespace, Refresh: r.Config.Refresh}).Collect(ctx, r.now())
+		return (&maintenance.StorageMaintenance{Reader: r.Reader, Repository: repository, Namespace: r.Config.Namespace, Refresh: r.Config.Refresh}).Collect(ctx, r.now())
 	}
 	return nil
 }

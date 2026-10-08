@@ -17,7 +17,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
-	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/render"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -178,7 +178,7 @@ func postPair(t *testing.T) (*Server, client.Client, *api.TrmnlScreen, *api.Trmn
 	if err := c.Status().Update(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := render.Build(d.Name, target, controller.Observation(d.Status), render.Observation{})
+	snapshot, err := render.Build(d.Name, target, devicestate.Observation(d.Status), render.Observation{})
 	if err != nil {
 		t.Fatal(err)
 	}
