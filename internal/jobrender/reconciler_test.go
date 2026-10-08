@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -185,12 +186,23 @@ func TestRestartSchedulingAndSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta := artifact.Metadata{Unit: st.Unit, ScreenGeneration: st.ScreenGeneration, InputRevision: st.Revision, Sequence: 2, AttemptID: st.Active.ID, ContextDigest: st.Active.ContextDigest, RenderedAt: *now}
-	if _, err = repo.Publish(context.Background(), meta, png(t)); err != nil {
+	published, err := repo.Publish(context.Background(), meta, png(t))
+	if err != nil {
 		t.Fatal(err)
 	}
+	// Reopen both persistence owners at the publish-before-active-clear boundary.
+	store, err = NewStore(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err = artifact.NewPVC(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted = &Reconciler{Client: r.Client, Reader: r.Reader, Store: store, Repository: repo, Config: r.Config, Now: r.Now}
 	step(t, restarted, d)
 	latest, err := repo.Latest(context.Background(), st.Unit)
-	if err != nil || latest.Sequence != 2 {
+	if err != nil || latest != published || load(t, restarted, d).Active != nil {
 		t.Fatal("collection replay failed", err)
 	}
 }
@@ -410,8 +422,19 @@ func TestPreparedAttemptAndRunRetention(t *testing.T) {
 	if err := r.Client.Delete(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
+	store, err := NewStore(r.Store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := artifact.NewPVC(r.Store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = &Reconciler{Client: r.Client, Reader: r.Reader, Store: store, Repository: repo, Config: r.Config, Now: r.Now}
 	step(t, r, d)
-	if recovered := load(t, r, d); recovered.Active.ID != st.Active.ID {
+	expected := *st.Active
+	expected.Submitted = true
+	if recovered := load(t, r, d); !reflect.DeepEqual(recovered.Active, &expected) {
 		t.Fatal("prepared attempt duplicated")
 	}
 	var jobs batchv1.JobList
