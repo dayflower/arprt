@@ -281,6 +281,13 @@ func writeJSON(path string, v any) error {
 	return atomicWrite(path, b)
 }
 
+// WriteJSONAtomic persists internal scheduler records with the same durability
+// guarantees as artifact pointers. The caller owns the parent directory.
+func WriteJSONAtomic(path string, v any) error { return writeJSON(path, v) }
+
+// WriteAtomic persists an immutable context before its Job is submitted.
+func WriteAtomic(path string, b []byte) error { return atomicWrite(path, b) }
+
 func atomicWrite(path string, b []byte) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".pending-")

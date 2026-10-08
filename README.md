@@ -1,11 +1,11 @@
 # arprt
 
-A TRMNL BYOS Kubernetes controller with explicit HTTP GET and POST screen delivery,
+A TRMNL BYOS Kubernetes controller with explicit HTTP GET, POST and asynchronous Job screen delivery,
 Secret authentication with setup-generated keys and persistent PNG artifacts. Initial device support is
 **TRMNL OG (2-bit), firmware 1.8.17, 800 × 480 / gray4**. Phase 2 software and
 physical-device acceptance completed on 2026-10-07; see [Phase 2](notes/003-PHASE2.md),
 [the plan](notes/000-PLAN.md), and [contracts](notes/001-PHASE0.md).
-Device-aware POST implementation, validation and real-device delivery are recorded in [Phase 3](notes/004-PHASE3.md).
+Device-aware POST implementation, validation and real-device delivery are recorded in [Phase 3](notes/004-PHASE3.md). Job scheduling, collection and recovery are recorded in [Phase 4](notes/007-PHASE4.md).
 
 ## Build and checks
 
@@ -24,19 +24,23 @@ cluster. For a full local-cluster check with a cluster-accessible image:
 
 ```sh
 python3 hack/cluster-smoke.py --image <registry>/arprt:<tag>
+python3 hack/job-smoke.py --image <registry>/arprt:<tag>
 ```
 
-This script refuses to overwrite existing arprt CRDs. It creates an isolated
+The scripts reuse identical installed CRDs and refuse to change mismatched schemas. The HTTP check creates an isolated
 namespace, tests pairing, display, both proxy path modes, image authentication,
 key generation/reuse, GitOps re-apply, PVC restart, renderer outage, initial-image responses and scoped RBAC, then
-removes its resources. It does not configure a physical TRMNL or public ingress.
+removes its resources. The Job check covers default/custom paths, interval refresh,
+controller restart, failures, timeout, obsolete assignments and same-node RWO mounts.
+Neither configures a physical TRMNL or public ingress.
 
 ## Installation and pairing
 
 The initial Kubernetes baseline is **1.36.0 or newer within minor 1.36**, Linux,
 one active controller, and a POSIX PVC supporting same-node ReadWriteOnce,
-atomic rename and fsync. Other minors, multiple replicas, ReadWriteOncePod and
-multi-node storage failover are unverified. The supplied Deployment runs as
+atomic rename and fsync. Other minors, multiple replicas and
+multi-node storage failover are unverified. Job mode rejects ReadWriteOncePod
+and ReadWriteMany. The supplied Deployment runs as
 UID/GID 1000 with Recreate rollout and namespace-only RBAC.
 
 Examples use `arprt` for both the namespace and the public URL prefix. These
@@ -242,15 +246,51 @@ compatible prior success, including an older screen definition. A newer attempt
 supersedes earlier in-flight responses, and changed assignments, UIDs or targets
 cannot publish obsolete output or borrow another device's fallback.
 
-Future Job rendering will use a context snapshot taken at scheduling time,
-refresh asynchronously at `refreshInterval` (default 30m), and serve completed
-output without waiting for a Job on each display request. Job execution is not
-implemented yet; its telemetry will reflect the scheduled snapshot.
+Job rendering uses an immutable context snapshot taken at scheduling time,
+refreshes asynchronously at `refreshInterval` (default 30m), and serves completed
+output without waiting for a Job on each display request. Telemetry changes update
+future snapshots; they do not trigger Jobs on every poll. Initial target discovery,
+screen definition, target and assignment changes trigger rendering.
+
+Install the [existing-image Job example](examples/job/screens.yaml):
+
+```sh
+kubectl apply --validate=strict -k examples/job
+kubectl -n arprt patch trmnldevice living-room --type=merge \
+  -p '{"spec":{"screenRef":{"name":"job-bands"}}}'
+```
+
+The unmodified `busybox:1.37.0` image reads the context file and writes a supplied
+PNG using its ordinary CLI. Assign `job-bands-custom` to exercise distinct
+`/input/context.json` and `/work/weather.png` parents. Both use a ConfigMap for
+non-sensitive image input; Kubernetes clients and upload SDKs are unnecessary.
+
+Job containers run as UID/GID 1000 with a read-only root filesystem, dropped
+capabilities, no privilege escalation, and no ServiceAccount token. The writable
+mount covers the entire output parent: choose a dedicated work directory that
+contains no required image files. Context is a read-only file mount; its parent
+may differ or be nested under the output directory. Supply paths to the
+renderer CLI explicitly; the controller does not interpret or rewrite arguments.
+Additional writable locations such as `/tmp` are not provided.
+
+The controller validates the full shared RWO PVC mount at startup and requires
+renderer Pod affinity to the controller in the same namespace and node. Job
+`backoffLimit` is zero; controller retries use new attempts with exponential
+backoff from 5s to 5m. A pair has one active attempt, with at most four active Jobs
+by default. Jobs have a 120s deadline and default CPU/memory limits of 500m/256Mi
+(requests 50m/64Mi); `renderer.resources` overrides those values. Collection
+requires Job completion, a successful renderer termination, and a valid PNG.
+Symlinks escaping the output directory, special files and malformed output fail
+collection. Changed UIDs, assignment, revision or target reject old completions.
+Compatible prior output remains available on failure.
 
 Immutable URLs and short firmware filenames survive restart. Issued URLs remain
 fetchable even after reassignment; a recreated device UID never inherits access.
-This phase retains artifacts and issuance records indefinitely, exceeding the
-24-hour minimum; bounded retention/GC is deferred to later phases.
+When Job scheduling is enabled, maintenance runs every minute. Finished Jobs
+and run directories are retained for at least one hour; active attempts remain
+protected. Compatible latest successes are kept, issued URLs retain their bytes
+for at least 24h after last issuance, and older unreferenced artifacts are removed.
+HTTP-only local mode keeps its existing artifacts without scheduled maintenance.
 
 ## Runtime and conditions
 
@@ -264,13 +304,19 @@ bin/arprt --namespace=arprt --artifact-root=/tmp/arprt-data \
 
 `WATCH_NAMESPACE` is the fallback for `--namespace`; `POD_NAMESPACE`, when set,
 must match. `PUBLIC_BASE_URL` is the fallback for `--public-base-url`.
+The supplied Deployment enables Job rendering with `--job-pvc=arprt-data` and
+Downward API `POD_NAME`. `--controller-pod` can supply that Pod name explicitly.
+The controller must mount the entire claim at `--artifact-root`; subtree mounts,
+RWOP, RWX and block volumes are rejected for Job mode. Outside a Pod, omit
+`--job-pvc` for HTTP-only development; Job screens report `JobSchedulingDisabled`.
+`--job-concurrency` (4) and `--job-deadline-seconds` (120) bound execution.
 BYOS listens on `:8080`; probes listen on `:8081`. SIGINT/SIGTERM stops serving
 and the manager within its 20-second shutdown budget. Metrics remain disabled.
 
 Device conditions report `IdentityReady`, `IdentityUnique`, `AuthenticationReady`,
 `AssignmentReady`, `TargetKnown`, `TelemetryValid`, `RenderReady` and `Ready`.
-Screen `Ready` reports the last requested render outcome for its current
-revision; it does not attest renderer availability before the first request.
+Screen `Ready` reports the last render outcome for its current
+revision; it does not attest readiness of every assigned device pair.
 A stale image can keep device `Ready=True` with `StaleImageAvailable`, while
 `RenderReady=False` and screen `Ready=False` expose rendering failure.
 
@@ -281,7 +327,10 @@ the device's current e-paper content and uses the firmware's fast-poll backoff.
 Successful display returns JSON `status: 0`; renderer failures never return the
 firmware's reset-triggering JSON `status: 500`.
 
-Job execution, playlists and automatic discovery remain
-unavailable and report actionable conditions. Public declaration/default and
+Playlists and automatic discovery remain unavailable and report actionable conditions.
+Job render conditions include `JobPending`, `JobFailed`, `JobTimedOut`,
+`JobCreationFailed`, `JobLost`, `RunUnavailable`, `CollectionFailed` and `ImageReady`. Job display polls preserve
+the reconciler's failure reason; finished Job status/logs remain available for diagnosis.
+Public declaration/default and
 Render Context v1 contracts from Phase 1 remain unchanged. Use strict Kubernetes
 field validation; structural CRDs otherwise prune unknown source/reference keys.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Exercise HTTP GET BYOS delivery on the current cluster in an isolated namespace.
 
-Requires kubectl and a controller image available to the cluster. Refuses to
-change pre-existing arprt CRDs and removes only resources created by this run.
+Requires kubectl and a controller image available to the cluster. Reuses
+identical installed CRDs and removes only resources created by this run.
 """
 import argparse
 import base64
@@ -61,13 +61,19 @@ def main():
     namespace = 'arprt-phase2-' + uuid.uuid4().hex[:8]
     created_crds = []
     created_namespace = False
-    for name in CRDS:
-        if kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'name').stdout.strip():
-            raise RuntimeError('refusing to change pre-existing arprt CRDs')
     try:
         for name in CRDS:
             plural, group = name.split('.', 1)
-            kubectl('create', '--validate=strict', '-f', str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml')))
+            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
+            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
+            if existing:
+                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
+                actual = json.loads(existing)['spec']
+                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
+                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
+                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
+                continue
+            kubectl('create', '--validate=strict', '-f', path)
             created_crds.append(name)
             kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
         kubectl('create', 'namespace', namespace)
@@ -112,7 +118,7 @@ def main():
                 (namespace, 'patch', 'secret/unrelated', False), (namespace, 'delete', 'secret/living-room-auth', False),
                 (namespace, 'create', 'secrets', False), (namespace, 'update', 'secret/living-room-identity', False),
                 ('default', 'patch', 'secret/living-room-auth', False),
-                ('default', 'list', CRDS[0], False), (namespace, 'create', 'jobs', False),
+                ('default', 'list', CRDS[0], False), (namespace, 'create', 'jobs', True),
             ]:
                 answer = kubectl('auth', 'can-i', verb, resource, '--as=' + account, '-n', ns, check=False)
                 if (answer.stdout.strip() == 'yes') != allowed:
@@ -219,7 +225,7 @@ def main():
             kubectl('-n', namespace, 'scale', 'deployment/renderer', '--replicas=0')
             wait(lambda: not json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app=renderer', '-o', 'json').stdout)['items'])
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
-            patch_args(['--namespace=$(POD_NAMESPACE)', '--proxy-strips-prefix=true'])
+            patch_args(['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--proxy-strips-prefix=true'])
             kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
             stripped = prefix.removeprefix('/arprt')
             with forwarded(namespace, 8080, directory) as base:

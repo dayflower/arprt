@@ -42,8 +42,9 @@ func set(conditions *[]metav1.Condition, generation int64, kind string, status m
 }
 
 type ScreenReconciler struct {
-	Client client.Client
-	Reader client.Reader
+	Client     client.Client
+	Reader     client.Reader
+	JobEnabled bool
 }
 
 func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -59,11 +60,14 @@ func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		before := screen.DeepCopy()
 		reason, message := "AwaitingRender", "HTTP renders on the next authenticated display request"
 		if screen.Spec.Source.Job != nil {
-			reason, message = ReasonUnsupportedFeature, "Job execution requires Phase 4"
+			reason, message = "JobPending", "Waiting for an assigned device with a verified target"
+			if !r.JobEnabled {
+				reason, message = "JobSchedulingDisabled", "Configure --job-pvc and --controller-pod to enable Job rendering"
+			}
 		}
 		screen.Status.ObservedGeneration = screen.Generation
 		existing := meta.FindStatusCondition(screen.Status.Conditions, ConditionReady)
-		if reason != "AwaitingRender" || existing == nil || existing.ObservedGeneration != screen.Generation {
+		if existing == nil || existing.ObservedGeneration != screen.Generation || reason == "JobSchedulingDisabled" {
 			set(&screen.Status.Conditions, screen.Generation, ConditionReady, metav1.ConditionFalse, reason, message)
 		}
 		if reflect.DeepEqual(before.Status, screen.Status) {
@@ -137,10 +141,10 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		resolved, err := r.Resolver.Resolve(ctx, &device)
 		switch {
 		case err == nil:
-			if resolved.Spec.Source.HTTP == nil || (resolved.Spec.Source.HTTP.Method != "" && resolved.Spec.Source.HTTP.Method != "GET" && resolved.Spec.Source.HTTP.Method != "POST") {
-				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Assign HTTP GET or POST; Job execution requires Phase 4")
+			if resolved.Spec.Source.HTTP == nil && resolved.Spec.Source.Job == nil {
+				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Assign an HTTP or Job screen")
 			} else {
-				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionTrue, ReasonAssignmentResolved, "Same-namespace HTTP screen resolved")
+				set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionTrue, ReasonAssignmentResolved, "Same-namespace screen resolved")
 			}
 		case errors.Is(err, assignment.ErrPlaylistDeferred), errors.Is(err, assignment.ErrDiscoveryDeferred):
 			set(&device.Status.Conditions, device.Generation, ConditionAssignmentReady, metav1.ConditionFalse, ReasonUnsupportedFeature, "Playlists and automatic discovery require Phase 5")

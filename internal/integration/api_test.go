@@ -314,7 +314,7 @@ func TestAPIAndController(t *testing.T) {
 		if c.Get(ctx, client.ObjectKeyFromObject(job), job) != nil {
 			return false
 		}
-		return reason(job.Status.Conditions, controller.ConditionReady) == controller.ReasonUnsupportedFeature
+		return reason(job.Status.Conditions, controller.ConditionReady) == "JobSchedulingDisabled"
 	})
 	verifyDelivery(t, c)
 	verifyIdentityAPI(t, c)

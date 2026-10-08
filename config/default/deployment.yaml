@@ -27,7 +27,7 @@ spec:
         - name: controller
           image: arprt:dev
           imagePullPolicy: IfNotPresent
-          args: [--namespace=$(POD_NAMESPACE)]
+          args: [--namespace=$(POD_NAMESPACE), --job-pvc=arprt-data]
           env:
             - name: PUBLIC_BASE_URL
               valueFrom:
@@ -38,6 +38,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
             - name: byos
               containerPort: 8080

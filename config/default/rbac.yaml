@@ -8,6 +8,15 @@ kind: Role
 metadata:
   name: arprt
 rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims]
+    verbs: [get, list]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, patch]
   - apiGroups: [""]
     resources: [secrets]
     resourceNames: [living-room-auth, living-room-identity]

@@ -357,14 +357,27 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	if assigned.Spec.Source.HTTP == nil || (assigned.Spec.Source.HTTP.Method != "" && assigned.Spec.Source.HTTP.Method != "GET" && assigned.Spec.Source.HTTP.Method != "POST") {
-		s.outcome(ctx, d, now, boolPtr(false), false, "UnsupportedFeature", "Assign an HTTP GET or POST screen; Job execution requires Phase 4")
+	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
+		s.outcome(ctx, d, now, boolPtr(false), false, "UnsupportedFeature", "Assign an HTTP or Job screen")
 		reply(w, 200, 202)
 		return
 	}
 	var m artifact.Metadata
 	var renderErr error
-	if assigned.Spec.Source.HTTP.Method == "POST" {
+	if assigned.Spec.Source.Job != nil {
+		// Polling only reads completed output. Scheduling belongs to reconciliation.
+		m, renderErr = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target})
+		if errors.Is(renderErr, artifact.ErrNotFound) {
+			renderErr = errors.New("Job image pending")
+		}
+		revision, _ := screen.InputRevision(assigned.Spec)
+		if m.ImageDigest != "" && (m.InputRevision != revision || m.ScreenGeneration != assigned.Generation) {
+			renderErr = errors.New("Job update pending")
+		}
+		if c := meta.FindStatusCondition(d.Status.Conditions, "RenderReady"); c != nil && c.Status == metav1.ConditionFalse {
+			renderErr = errors.New("Job output pending or failed")
+		}
+	} else if assigned.Spec.Source.HTTP.Method == "POST" {
 		var snapshot render.Context
 		// mutate returned the direct status snapshot, and this explicit overlay
 		// keeps current request telemetry independent of informer propagation.
@@ -407,9 +420,16 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 	if renderErr != nil {
 		reason, message = "RenderFailed", "HTTP rendering failed; check renderer availability and the PNG contract"
 	}
-	s.screenOutcome(ctx, assigned, renderErr == nil, reason, message)
+	if assigned.Spec.Source.Job != nil {
+		message = "Validated Job image available"
+		if renderErr != nil {
+			reason, message = "JobPending", "Job output is pending or failed; check RenderReady and Job status"
+		}
+	} else {
+		s.screenOutcome(ctx, assigned, renderErr == nil, reason, message)
+	}
 	if m.ImageDigest == "" {
-		s.outcome(ctx, d, now, boolPtr(true), false, reason, message)
+		s.outcome(ctx, d, now, boolPtr(true), false, reason, message, assigned.Spec.Source.Job != nil)
 		reply(w, 200, 202)
 		return
 	}
@@ -419,18 +439,21 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 	}
 	if renderErr != nil {
 		reason, message = "StaleImageAvailable", "Renderer failed; serving the previous compatible image"
+		if assigned.Spec.Source.Job != nil {
+			message = "Job output pending or failed; serving the previous compatible image"
+		}
 	}
-	s.outcome(ctx, d, now, boolPtr(true), true, reason, message)
+	s.outcome(ctx, d, now, boolPtr(true), true, reason, message, assigned.Spec.Source.Job != nil)
 	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + m.ImageDigest + ".png", Filename: m.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
 }
 func boolPtr(b bool) *bool { return &b }
-func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Time, assigned *bool, ready bool, reason, message string) {
+func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Time, assigned *bool, ready bool, reason, message string, asynchronous ...bool) {
 	_ = s.mutate(ctx, d, func(current *api.TrmnlDevice) {
 		if current.Status.LastSeenAt == nil || !current.Status.LastSeenAt.Equal(&seen) {
 			return
 		}
 		if assigned != nil {
-			condition(current, "AssignmentReady", *assigned, "AssignmentResolved", "Same-namespace HTTP screen resolved")
+			condition(current, "AssignmentReady", *assigned, "AssignmentResolved", "Same-namespace screen resolved")
 			if !*assigned {
 				condition(current, "AssignmentReady", false, reason, message)
 			}
@@ -442,7 +465,11 @@ func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Ti
 			if !renderReady {
 				renderReason = "RenderFailed"
 			}
-			condition(current, "RenderReady", renderReady, renderReason, message)
+			// The Job reconciler owns asynchronous render outcomes, including
+			// actionable failure reasons. Display only updates serving readiness.
+			if len(asynchronous) == 0 || !asynchronous[0] {
+				condition(current, "RenderReady", renderReady, renderReason, message)
+			}
 		}
 	})
 }

@@ -1,0 +1,47 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: job-bands
+spec:
+  refreshInterval: 30m
+  source:
+    job:
+      renderer:
+        image: busybox:1.37.0
+        command: [sh, -ec]
+        args:
+          - >-
+            test -r /trmnl/context.json;
+            test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token;
+            printf '%s' "$IMAGE_PNG" | base64 -d > /trmnl/output.png
+        env:
+          - name: IMAGE_PNG
+            valueFrom:
+              configMapKeyRef:
+                name: job-example-image
+                key: image.png.b64
+---
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: job-bands-custom
+spec:
+  refreshInterval: 30m
+  source:
+    job:
+      contextPath: /input/context.json
+      imagePath: /work/weather.png
+      renderer:
+        image: busybox:1.37.0
+        command: [sh, -ec]
+        args:
+          - >-
+            test -r /input/context.json;
+            test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token;
+            printf '%s' "$IMAGE_PNG" | base64 -d > /work/weather.png
+        env:
+          - name: IMAGE_PNG
+            valueFrom:
+              configMapKeyRef:
+                name: job-example-image
+                key: image.png.b64
