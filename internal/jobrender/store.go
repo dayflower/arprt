@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
@@ -214,33 +215,69 @@ func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
 	return b, nil
 }
 
+// recordPolicy preserves the callers' existing key and decoding-error contracts.
+// Startup migration and reconciliation accept both Phase 4 device and pair keys;
+// maintenance accepts only pair keys and reports malformed JSON generically.
+type recordPolicy uint8
+
+const (
+	migrationCompatibleRecords recordPolicy = iota
+	currentPairRecords
+)
+
 func (s *Store) records() ([]state, error) {
-	entries, err := os.ReadDir(filepath.Join(s.Root, "jobs"))
+	var records []state
+	err := s.walkRecords(migrationCompatibleRecords, func(_ os.DirEntry, st *state) error {
+		records = append(records, *st)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	var records []state
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".json" {
+	return records, nil
+}
+
+// walkRecords validates one entry immediately before visiting it, in ReadDir
+// order. Maintenance receives pending entries with nil state so cleanup stays
+// interleaved with record effects and errors under the reconciler's mutex.
+func (s *Store) walkRecords(policy recordPolicy, visit func(os.DirEntry, *state) error) error {
+	entries, err := os.ReadDir(filepath.Join(s.Root, "jobs"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if policy == currentPairRecords && strings.HasPrefix(entry.Name(), ".pending-") {
+			if err := visit(entry, nil); err != nil {
+				return err
+			}
 			continue
 		}
-		b, err := readStateFile(filepath.Join(s.Root, "jobs", e.Name()))
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		b, err := readStateFile(filepath.Join(s.Root, "jobs", entry.Name()))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		var st state
 		if err := json.Unmarshal(b, &st); err != nil {
-			return nil, err
+			if policy == currentPairRecords {
+				return errors.New("corrupt scheduler metadata")
+			}
+			return err
 		}
 		if err := validateState(&st); err != nil {
-			return nil, err
+			return err
 		}
-		if e.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName, st.ScreenName)) && e.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName)) {
-			return nil, errors.New("invalid scheduler key")
+		if entry.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName, st.ScreenName)) &&
+			(policy != migrationCompatibleRecords || entry.Name() != filepath.Base(s.path(st.Namespace, st.DeviceName))) {
+			return errors.New("invalid scheduler key")
 		}
-		records = append(records, st)
+		if err := visit(entry, &st); err != nil {
+			return err
+		}
 	}
-	return records, nil
+	return nil
 }
 
 func readStateFile(path string) ([]byte, error) {

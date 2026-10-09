@@ -2,7 +2,6 @@ package jobrender
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -448,14 +447,10 @@ func (r *Reconciler) Start(ctx context.Context) error {
 func (r *Reconciler) maintenance(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	entries, err := os.ReadDir(filepath.Join(r.Store.Root, "jobs"))
-	if err != nil {
-		return err
-	}
 	active := map[string]bool{}
 	queued := 0
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".pending-") {
+	err := r.Store.walkRecords(currentPairRecords, func(entry os.DirEntry, st *state) error {
+		if st == nil { // Pending-file policy remains under the maintenance lock.
 			info, err := entry.Info()
 			if err != nil {
 				return err
@@ -465,24 +460,7 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 					return err
 				}
 			}
-			continue
-		}
-		if filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		b, err := readStateFile(filepath.Join(r.Store.Root, "jobs", entry.Name()))
-		if err != nil {
-			return err
-		}
-		var st state
-		if err = json.Unmarshal(b, &st); err != nil {
-			return errors.New("corrupt scheduler metadata")
-		}
-		if err = validateState(&st); err != nil {
-			return err
-		}
-		if entry.Name() != filepath.Base(r.Store.path(st.Namespace, st.DeviceName, st.ScreenName)) {
-			return errors.New("invalid scheduler key")
+			return nil
 		}
 		if st.Active == nil && !st.Due.After(r.now()) {
 			queued++
@@ -491,15 +469,15 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !same(&st, desired) {
+		if !same(st, desired) {
 			if st.Active != nil {
-				done, err := r.cancel(ctx, &st)
+				done, err := r.cancel(ctx, st)
 				if err != nil {
 					return err
 				}
 				if !done {
 					active[st.Active.ID] = true
-					continue
+					return nil
 				}
 			}
 			if err = os.Remove(filepath.Join(r.Store.Root, "jobs", entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -508,6 +486,10 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		} else if st.Active != nil {
 			active[st.Active.ID] = true
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	observe.Queue.Set(float64(queued))
 	var jobs batchv1.JobList
