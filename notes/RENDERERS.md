@@ -10,7 +10,7 @@ pairing](../README.md#installation-and-pairing) for initial setup.
 
 | Source | Use when | Delivery behavior |
 | --- | --- | --- |
-| HTTP GET | Output depends on the screen and display target, without device telemetry | Render on demand; `refreshInterval` bounds fresh reuse |
+| HTTP GET | Output depends on the screen and display target including rotation, without device telemetry | Render on demand; `refreshInterval` bounds fresh reuse |
 | HTTP POST | Output needs device name, model/firmware or current telemetry | Render synchronously for each single-screen request or new cycling turn |
 | Kubernetes Job | An existing container CLI writes an image, or rendering should run asynchronously | Render on an interval; display serves completed output |
 
@@ -25,6 +25,24 @@ Renderers produce an OG-compatible 800 × 480 gray4 PNG. The exact HTTP headers,
 query merge, shared execution budget, Context fields/versioning and PNG constraints
 are maintained in [PROTOCOL](PROTOCOL.md#http-renderer-contract). The controller
 performs no image conversion; configure your encoder for the accepted format.
+
+## Device rotation
+
+Set `TrmnlDevice.spec.rotation` to `0`, `90`, `180` or `270` (clockwise degrees;
+omitted means `0`). For example:
+
+```sh
+kubectl -n arprt patch trmnldevice living-room --type=merge \
+  -p '{"spec":{"rotation":90}}'
+```
+
+GET/POST receive the `rotation` query parameter. POST and Job also receive
+`renderTarget.rotation` in Render Context; zero is omitted and should default to
+`0`. Renderers handle layout and rotation and always return an 800 × 480 PNG.
+The HTTP examples support all four rotations. The BusyBox Job example copies a
+fixed input PNG and does not rotate it; use a renderer that reads the setting
+when output must follow device rotation. A rotation change requires compatible
+output for that angle before delivery can resume.
 
 ## HTTP GET example
 

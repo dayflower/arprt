@@ -14,7 +14,8 @@ The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
 
 - `TrmnlScreen` defines exactly one HTTP or Job source and applicable freshness.
 - `TrmnlDevice` selects a single screen, an ordered playlist, or discovery, with
-  an auth Secret and optional direct/Secret-backed hardware identity.
+  an auth Secret, optional direct/Secret-backed hardware identity and desired
+  clockwise content rotation (`spec.rotation`, default 0; 0/90/180/270).
 - `TrmnlPlaylist` defines 1–64 distinct screen names in explicit order.
 
 All references and discovery stay in the device namespace. Capabilities,
@@ -25,8 +26,13 @@ Source and assignment exclusivity, identity-source immutability and path/duratio
 constraints are enforced by structural schema/CEL. Unknown fields require strict
 API writes to reject rather than prune; see DEVELOP.
 
-Render Target is width/height/semantic palette; device model is not part of format
-identity when capabilities are equivalent. Render Context adds allowlisted device
+Render Target is physical width/height, semantic palette and desired rotation;
+device model is not part of rendering identity when capabilities are equivalent.
+Rotation participates in exact-target cache and fallback compatibility for every
+source. Changing rotation triggers Job rescheduling and invalidates cycle replay;
+output from another rotation cannot supply fallback. Display status remains
+observed hardware capabilities, and issued immutable URLs remain authorized
+under the existing retention rules. Render Context adds allowlisted device
 information, with the same schema for POST and Job. Renderers do not need
 Kubernetes clients, upload SDKs or controller credentials. Job arguments are
 passed through: the renderer's CLI says where to write, while `imagePath` says

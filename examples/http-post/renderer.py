@@ -62,11 +62,15 @@ def render(context):
     target, device = context['renderTarget'], context['device']
     if context['version'] != 'v1' or not device['name'] or any(target.get(key) != value for key, value in {'width': 800, 'height': 480, 'palette': 'gray4'}.items()):
         raise ValueError('Expected Render Context v1 for 800 x 480 / gray4')
-    pixels = [bytearray([3]) * 800 for _ in range(480)]
+    rotation = target.get('rotation', 0)
+    if type(rotation) is not int or rotation not in (0, 90, 180, 270):
+        raise ValueError('Expected rotation 0, 90, 180 or 270')
+    width, height = (480, 800) if rotation in (90, 270) else (800, 480)
+    pixels = [bytearray([3]) * width for _ in range(height)]
 
     def text(value, x, y, scale=4, shade=0):
         for letter in str(value).upper():
-            if x + 5 * scale > 780:
+            if x + 5 * scale > width - 20:
                 break
             for dy, row in enumerate(FONT.get(letter, FONT['?']).split()):
                 for dx, bit in enumerate(row):
@@ -75,7 +79,7 @@ def render(context):
                             pixels[yy][x + dx * scale:x + (dx + 1) * scale] = bytes([shade]) * scale
             x += 6 * scale
 
-    text('DEVICE STATUS', 32, 28, 6)
+    text('DEVICE STATUS', 32, 28, 6 if width == 800 else 5)
     text(device['name'], 32, 95, 4, 1)
     text('MODEL: ' + device.get('model', 'unknown'), 32, 154)
     text('FW: ' + device.get('firmware', {}).get('version', 'unknown'), 32, 208)
@@ -84,9 +88,12 @@ def render(context):
     text('BATTERY: ' + ('UNKNOWN' if voltage is None else f'{voltage:.2f} V'), 32, 274)
     text('RSSI: ' + ('UNKNOWN' if rssi is None else f'{rssi} DBM'), 32, 340)
     # Calibration strip retains all four shades; voltage is never guessed as %.
+    band_width = (width - 64) // 4
     for row in pixels[412:448]:
         for shade in range(4):
-            row[32 + shade * 184:32 + (shade + 1) * 184] = bytes([shade]) * 184
+            row[32 + shade * band_width:32 + (shade + 1) * band_width] = bytes([shade]) * band_width
+    for _ in range(rotation // 90):
+        pixels = [bytearray(row) for row in zip(*pixels[::-1])]
     rows = bytearray()
     for row in pixels:
         rows.append(0)  # PNG filter None
@@ -109,6 +116,8 @@ class Renderer(BaseHTTPRequestHandler):
             target = context['renderTarget']
             if any(query.get(key) != [str(target[key])] for key in ('width', 'height', 'palette')):
                 raise ValueError('Query and context targets differ')
+            if query.get('rotation', ['0']) != [str(target.get('rotation', 0))]:
+                raise ValueError('Query and context rotations differ')
             body = render(context)
         except (ValueError, KeyError, TypeError, AttributeError):
             self.send_error(400, 'Invalid Render Context v1 or target query')

@@ -128,9 +128,11 @@ same `KUBECONFIG`. `make cluster-smoke` runs all four scripts. The CI workflow
 contains the pinned kind version and full setup/cleanup recipe.
 
 The HTTP check covers setup/key reuse, MAC modes, authentication, both proxy
-prefix modes, telemetry, GET reuse, restart, stale output and initial pending.
+prefix modes, telemetry, rotation, GET reuse, restart, stale output and initial
+pending.
 Job checks add actual containers, token absence, same-node mounts, paths,
-immutable snapshots, interval refresh, recovery, failures and obsolete work.
+immutable snapshots, rotation changes, interval refresh, recovery, failures and
+obsolete work.
 Playlist checks add mixed-source order, preparation before selection, retry/restart
 and membership edits. Operations checks add corruption, capacity pressure,
 redaction, HTTP-only GC and installation of the supplied examples.

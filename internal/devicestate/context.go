@@ -5,8 +5,8 @@ import (
 	"github.com/dayflower/arprt/internal/render"
 )
 
-// Observation exports only approved status fields. Spec, credentials, identity,
-// labels and annotations cannot enter the transport-independent context.
+// Observation exports only approved status fields; desired rotation is added
+// separately to Target. Credentials, identity, labels and annotations are excluded.
 func Observation(status api.TrmnlDeviceStatus) render.Observation {
 	var o render.Observation
 	if status.Device != nil {
@@ -19,4 +19,13 @@ func Observation(status api.TrmnlDeviceStatus) render.Observation {
 		o.RSSI = status.Network.RSSI
 	}
 	return o
+}
+
+// Target combines observed physical capabilities with desired rendering intent.
+// Display status remains hardware observations; rotation comes only from spec.
+func Target(d *api.TrmnlDevice) render.Target {
+	if d.Status.Display == nil {
+		return render.Target{}
+	}
+	return render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette, Rotation: d.Spec.Rotation}
 }

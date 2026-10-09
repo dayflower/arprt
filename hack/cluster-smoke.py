@@ -217,6 +217,21 @@ def main():
                     raise RuntimeError('anonymous display image accepted')
                 if display(base, prefix) != first:
                     raise RuntimeError('fresh artifact was not reused')
+                for rotation in (90, 180, 270):
+                    kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+                            '-p', json.dumps({'spec': {'rotation': rotation}}))
+                    rotated = display(base, prefix)
+                    rotated_path = rotated['image_url'].removeprefix('https://byos.example.test')
+                    if rotated['status'] != 0 or fetch(base, rotated_path)[2] == image:
+                        raise RuntimeError('GET renderer did not apply desired rotation')
+                    if display(base, prefix) != rotated:
+                        raise RuntimeError('rotated GET output was not reused')
+                    if fetch(base, image_path)[2] != image:
+                        raise RuntimeError('rotation change revoked an issued image')
+                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+                        '-p', json.dumps({'spec': {'rotation': 0}}))
+                if display(base, prefix) != first:
+                    raise RuntimeError('default rotation lost original compatible output')
             state = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)['status']
             if state['battery']['voltage'] != 3.91 or state['network']['rssi'] != -48 or token in json.dumps(state):
                 raise RuntimeError('telemetry or credential exclusion failed')
@@ -245,7 +260,7 @@ def main():
                 status, _, body = fetch(base, stripped + '/api/display')
                 if status != 200 or json.loads(body) != {'status': 202}:
                     raise RuntimeError('replacement resource borrowed an obsolete image')
-            print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, reuse, PVC restart, outage, initial pending and scoped RBAC')
+            print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, rotation, reuse, PVC restart, outage, initial pending and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

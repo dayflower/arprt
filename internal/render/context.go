@@ -11,11 +11,19 @@ type Target struct {
 	Width   int32  `json:"width"`
 	Height  int32  `json:"height"`
 	Palette string `json:"palette"`
+	// Rotation is clockwise content rotation; zero is omitted for compatibility
+	// with existing v1 contexts and persisted artifact keys.
+	Rotation int32 `json:"rotation,omitempty"`
 }
 
 func (t Target) Validate() error {
 	if t.Width <= 0 || t.Height <= 0 {
 		return errors.New("render target dimensions must be positive")
+	}
+	switch t.Rotation {
+	case 0, 90, 180, 270:
+	default:
+		return errors.New("render target rotation must be 0, 90, 180 or 270")
 	}
 	switch t.Palette {
 	case "bw", "gray4", "gray16", "bwry":

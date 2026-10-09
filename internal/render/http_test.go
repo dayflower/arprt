@@ -72,7 +72,7 @@ func TestHTTPGETContract(t *testing.T) {
 	b := fixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("width") != "800" || len(q["width"]) != 1 || q.Get("height") != "480" || q.Get("palette") != "gray4" || len(q["key"]) != 2 {
+		if q.Get("width") != "800" || len(q["width"]) != 1 || q.Get("height") != "480" || q.Get("palette") != "gray4" || q.Get("rotation") != "270" || len(q["rotation"]) != 1 || len(q["key"]) != 2 {
 			t.Errorf("query not normalized: %v", q)
 		}
 		if r.Method != "GET" || r.Header.Get("Accept") != "image/png" || r.Header.Get("Access-Token") != "" || r.ContentLength > 0 {
@@ -82,7 +82,9 @@ func TestHTTPGETContract(t *testing.T) {
 		_, _ = w.Write(b)
 	}))
 	defer server.Close()
-	out, err := (HTTPGET{URL: server.URL + "?key=a&key=b&width=1&width=2&palette=bw"}).Execute(context.Background(), Request{Target: og})
+	target := og
+	target.Rotation = 270
+	out, err := (HTTPGET{URL: server.URL + "?key=a&key=b&width=1&width=2&palette=bw&rotation=90&rotation=180"}).Execute(context.Background(), Request{Target: target})
 	if err != nil || !bytes.Equal(out.PNG, b) {
 		t.Fatal(err)
 	}
@@ -157,15 +159,15 @@ func TestHTTPPOSTContextContract(t *testing.T) {
 			t.Error("POST did not send complete context and content negotiation")
 		}
 		q := r.URL.Query()
-		if q.Get("width") != "800" || len(q["width"]) != 1 || q.Get("height") != "480" || q.Get("palette") != "gray4" || len(q["key"]) != 2 {
+		if q.Get("width") != "800" || len(q["width"]) != 1 || q.Get("height") != "480" || q.Get("palette") != "gray4" || q.Get("rotation") != "90" || len(q["rotation"]) != 1 || len(q["key"]) != 2 {
 			t.Error("query target diverged from context or removed custom values")
 		}
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(b)
 	}))
 	defer s.Close()
-	executor := HTTPPOST{URL: s.URL + "?width=1&width=2&height=3&palette=bw&key=a&key=b"}
-	if _, err := executor.Execute(context.Background(), Request{Target: og, Context: &snapshot}); err != nil {
+	executor := HTTPPOST{URL: s.URL + "?width=1&width=2&height=3&palette=bw&rotation=180&rotation=270&key=a&key=b"}
+	if _, err := executor.Execute(context.Background(), Request{Target: snapshot.RenderTarget, Context: &snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []Request{{Target: og}, {Target: Target{Width: 799, Height: 480, Palette: "gray4"}, Context: &snapshot}, {Target: og, Context: &Context{Version: "v2", RenderTarget: og, Device: Device{Name: "device"}}}} {

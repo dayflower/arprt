@@ -14,9 +14,9 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/maintenance"
 	"github.com/dayflower/arprt/internal/observe"
-	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -88,7 +88,7 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 	if s.Spec.Source.Job == nil || !s.DeletionTimestamp.IsZero() {
 		return &d, s, nil, nil
 	}
-	t := render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}
+	t := devicestate.Target(&d)
 	if t.Validate() != nil || t.Palette != "gray4" || t.Width != 800 || t.Height != 480 {
 		return &d, s, nil, nil
 	}

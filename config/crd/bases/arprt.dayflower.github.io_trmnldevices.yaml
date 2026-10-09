@@ -91,6 +91,18 @@ spec:
                 required:
                 - name
                 type: object
+              rotation:
+                default: 0
+                description: |-
+                  Rotation requests clockwise content rotation in degrees. Renderers apply it
+                  while preserving the physical display dimensions of the output PNG.
+                enum:
+                - 0
+                - 90
+                - 180
+                - 270
+                format: int32
+                type: integer
               screenRef:
                 description: LocalReference always refers to a resource in the object's
                   namespace.

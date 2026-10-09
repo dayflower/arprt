@@ -174,6 +174,49 @@ func TestJobWatchAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+
+	// Changing desired rotation wakes Job scheduling without another display poll
+	// or waiting for the old 5-minute freshness interval.
+	editAssignment(func(current *api.TrmnlDevice) { current.Spec.Rotation = 90 })
+	eventually(t, func() bool {
+		if c.List(ctx, &jobs, client.InNamespace(d.Namespace)) != nil {
+			return false
+		}
+		for _, candidate := range jobs.Items {
+			if candidate.UID == originalUID || !candidate.DeletionTimestamp.IsZero() {
+				continue
+			}
+			runID := strings.TrimPrefix(candidate.Name, "arprt-render-")
+			b, err := os.ReadFile(filepath.Join(root, "runs", runID, "context.json"))
+			var rotated render.Context
+			if err == nil && json.Unmarshal(b, &rotated) == nil && rotated.RenderTarget.Rotation == 90 {
+				return rotated.RenderTarget.Width == 800 && rotated.RenderTarget.Height == 480
+			}
+		}
+		return false
+	})
+	// Emulate cancellation of the prepared render before discovery coverage;
+	// envtest has no garbage collector for foreground Job deletion.
+	editAssignment(func(current *api.TrmnlDevice) { current.Spec.Rotation = 0 })
+	eventually(t, func() bool {
+		if c.List(ctx, &jobs, client.InNamespace(d.Namespace)) != nil {
+			return false
+		}
+		for i := range jobs.Items {
+			candidate := &jobs.Items[i]
+			if candidate.UID != originalUID {
+				if candidate.DeletionTimestamp.IsZero() {
+					return false
+				}
+				candidate.Finalizers = nil
+				if c.Update(ctx, candidate) != nil {
+					return false
+				}
+			}
+		}
+		return true
+	})
+
 	editAssignment(func(current *api.TrmnlDevice) { current.Spec.ScreenRef = nil })
 	second := s.DeepCopy()
 	second.Name = "second"

@@ -48,3 +48,7 @@ See the [indexed PNG fixture](../phase2/README.md) for the other accepted encodi
 and [dated acceptance evidence](../../notes/DEVELOP.md#recorded-acceptance-baseline)
 for physical-device verification. Directory names are retained to preserve existing
 test/example paths; they do not indicate an unfinished implementation phase.
+
+The complete Render Context fixture includes `renderTarget.rotation: 90`; the
+no-telemetry fixture omits rotation to demonstrate the default of 0. Final PNG
+dimensions remain 800 × 480 for every rotation.

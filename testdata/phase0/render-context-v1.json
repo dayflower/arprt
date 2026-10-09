@@ -1,6 +1,6 @@
 {
   "version": "v1",
-  "renderTarget": {"width": 800, "height": 480, "palette": "gray4"},
+  "renderTarget": {"width": 800, "height": 480, "palette": "gray4", "rotation": 90},
   "device": {
     "name": "living-room",
     "model": "og",

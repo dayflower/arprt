@@ -8,8 +8,8 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/observe"
-	"github.com/dayflower/arprt/internal/render"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,7 +81,7 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 			return err
 		}
 		for _, s := range eligible.Screens {
-			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}}
+			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: devicestate.Target(&d)}
 			if s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST") {
 				u.DeviceUID = string(d.UID)
 			}

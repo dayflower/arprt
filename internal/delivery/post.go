@@ -14,6 +14,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -126,7 +127,7 @@ func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice
 	if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
 		return artifact.Metadata{}, artifact.ErrObsolete
 	}
-	if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Status.Display == nil || *currentDevice.Status.Display != (api.DisplayStatus{Width: u.Target.Width, Height: u.Target.Height, Palette: u.Target.Palette}) {
+	if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Status.Display == nil || devicestate.Target(&currentDevice) != u.Target {
 		return artifact.Metadata{}, artifact.ErrObsolete
 	}
 	if eligible, err := (assignment.Explicit{Reader: p.Reader}).Contains(work, &currentDevice, s); err != nil || !eligible {

@@ -40,6 +40,10 @@ func (s *Server) observeDisplay(ctx context.Context, d *api.TrmnlDevice, o Obser
 			fw = current.Status.Device.FirmwareVersion
 		}
 		target, model, fw, targetErr = o.Target(model, fw)
+		if targetErr == nil {
+			target.Rotation = current.Spec.Rotation
+			targetErr = target.Validate()
+		}
 		// A slower earlier request cannot overwrite later observations.
 		if current.Status.LastSeenAt != nil && current.Status.LastSeenAt.After(now.Time) {
 			targetErr = artifact.ErrObsolete

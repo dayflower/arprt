@@ -201,7 +201,7 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.TrmnlDevice, selec
 	// network call. Never issue an image selected for a superseded assignment.
 	var current api.TrmnlDevice
 	var currentScreen api.TrmnlScreen
-	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || current.Status.Display == nil || *current.Status.Display != (api.DisplayStatus{Width: target.Width, Height: target.Height, Palette: target.Palette}) {
+	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || current.Status.Display == nil || devicestate.Target(&current) != target {
 		return errDisplayPending
 	}
 	if s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen) != nil || currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {

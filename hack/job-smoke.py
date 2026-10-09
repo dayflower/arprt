@@ -108,7 +108,17 @@ def main():
 
             def latest():
                 result = kubectl('-n', namespace, 'exec', 'observer', '--', 'sh', '-c', 'cat /data/latest/*.json', check=False)
-                return json.loads(result.stdout) if result.returncode == 0 else {}
+                if result.returncode != 0:
+                    return {}
+                # Multiple rotations retain separate latest-success records.
+                decoder, remaining = json.JSONDecoder(), result.stdout.strip()
+                current_unit = state().get('unit')
+                while remaining:
+                    record, end = decoder.raw_decode(remaining)
+                    if record.get('unit') == current_unit:
+                        return record
+                    remaining = remaining[end:].lstrip()
+                return {}
 
             def jobs():
                 return json.loads(kubectl('-n', namespace, 'get', 'jobs', '-o', 'json').stdout)['items']
@@ -215,13 +225,31 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 if display(base)['status'] != 0:
                     raise RuntimeError('recovered artifact not delivered')
+            # Rotation schedules a fresh context, isolates old fallback and
+            # preserves images already issued to the device.
+            apply(screen('sleep 15; grep -q \'"rotation":90\' /trmnl/context.json; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'))
+            kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+                    '-p', json.dumps({'spec': {'rotation': 90}}))
+            wait(lambda: state().get('unit', {}).get('target', {}).get('rotation') == 90 and state().get('active'), 30)
+            rotated_attempt = state()['active']['id']
+            with forwarded(namespace, 8080, directory) as base:
+                if display(base) != {'status': 202}:
+                    raise RuntimeError('rotated Job borrowed another rotation fallback')
+                if fetch(base, path) != (ROOT / 'testdata/phase0/target-gray4.png').read_bytes():
+                    raise RuntimeError('rotation change revoked issued Job image')
+                wait(lambda: latest().get('attemptID') == rotated_attempt, 60)
+                snapshot = json.loads(read('runs/' + rotated_attempt + '/context.json'))
+                if snapshot['renderTarget'] != {'width': 800, 'height': 480, 'palette': 'gray4', 'rotation': 90}:
+                    raise RuntimeError('Job rotation or physical dimensions differ')
+                if display(base)['status'] != 0:
+                    raise RuntimeError('rotated Job output unavailable')
             account = 'system:serviceaccount:' + namespace + ':arprt'
             for ns, verb, resource, allowed in [(namespace, 'create', 'jobs', True), ('default', 'create', 'jobs', False),
                     (namespace, 'list', 'secrets', False), (namespace, 'create', 'pods', False)]:
                 result = kubectl('auth', 'can-i', verb, resource, '-n', ns, '--as=' + account, check=False)
                 if (result.stdout.strip() == 'yes') != allowed:
                     raise RuntimeError('RBAC scope mismatch')
-            print('PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC')
+            print('PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

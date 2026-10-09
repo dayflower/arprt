@@ -159,6 +159,11 @@ type HardwareIDSecretReference struct {
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID) || self.hardwareID == oldSelf.hardwareID)",message="hardwareID source is immutable; replace the device to change identity"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef) && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef == oldSelf.hardwareIDSecretRef)",message="hardwareIDSecretRef source is immutable; replace the device to change identity"
 type TrmnlDeviceSpec struct {
+	// Rotation requests clockwise content rotation in degrees. Renderers apply it
+	// while preserving the physical display dimensions of the output PNG.
+	// +kubebuilder:default=0
+	// +kubebuilder:validation:Enum=0;90;180;270
+	Rotation int32 `json:"rotation,omitempty"`
 	// HardwareID optionally restricts registration to this canonical uppercase MAC.
 	// +kubebuilder:validation:MaxLength=17
 	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`

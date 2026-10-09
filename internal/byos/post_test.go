@@ -229,7 +229,7 @@ func TestPOSTLateAttemptAndTimeout(t *testing.T) {
 }
 
 func TestPOSTChangedInputsCannotPublish(t *testing.T) {
-	for _, change := range []string{"target", "screen-definition", "screen-uid", "device-uid", "assignment"} {
+	for _, change := range []string{"target", "screen-definition", "screen-uid", "device-uid", "assignment", "rotation"} {
 		t.Run(change, func(t *testing.T) {
 			s, c, screen, d, snapshot := postPair(t)
 			b := pngFixture(t)
@@ -272,6 +272,12 @@ func TestPOSTChangedInputsCannotPublish(t *testing.T) {
 				}
 				device.UID, device.ResourceVersion = "replacement", ""
 				if err := c.Create(context.Background(), device); err != nil {
+					t.Fatal(err)
+				}
+			case "rotation":
+				device.Spec.Rotation = 90
+				device.Generation++
+				if err := c.Update(context.Background(), device); err != nil {
 					t.Fatal(err)
 				}
 			case "assignment":

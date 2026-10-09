@@ -119,7 +119,8 @@ and internal metadata.
 GET receives target query parameters and `Accept: image/png` only. POST receives
 the same query plus `Content-Type: application/json` and Render Context v1.
 Preserve non-target query values, including repeated values; replace all lowercase
-`width`, `height`, `palette` values. Query and JSON targets must agree. Never
+`width`, `height`, `palette`, `rotation` values. `rotation` is always sent as
+`0`, `90`, `180` or `270`. Query and JSON targets must agree. Never
 forward device headers, credentials, cookies or arbitrary inbound headers.
 
 Require HTTP 200 and `image/png`; reject redirects. GET/POST share eight execution
@@ -137,16 +138,22 @@ serialization examples used by tests.
 | --- | --- |
 | `version` | Required `"v1"` |
 | `renderTarget.width`, `.height`, `.palette` | Required dimensions and semantic palette |
+| `renderTarget.rotation` | Optional clockwise content rotation in degrees: `0`, `90`, `180`, `270`; omitted means `0` |
 | `device.name` | Required device resource name |
 | `device.model`, `.firmware.version` | Optional known observations |
 | `device.battery.voltage`, `.percent` | Optional valid measurements; percentage only if explicitly measured |
 | `device.network.rssi` | Optional valid measurement |
 
-Missing optional values and empty optional objects are omitted, not null or
-fabricated zero. Actual valid zero is retained. Hardware ID, credentials, Secret
+Missing optional observations and empty optional objects are omitted, not null
+or fabricated zero. Actual valid zero measurements are retained. Hardware ID, credentials, Secret
 references, Kubernetes objects, namespace, arbitrary metadata and header dumps
-are excluded. Target is separate from device context so format identity does not
-depend on telemetry or model when capabilities are equivalent.
+are excluded. Target is separate from device context so rendering identity does
+not depend on telemetry or model when capabilities are equivalent. Rotation comes from
+`TrmnlDevice.spec.rotation`, rather than observations. Zero rotation is omitted
+from JSON to preserve compatibility with existing contexts and artifact keys.
+Renderers apply clockwise content rotation themselves: for `90`/`270`, lay out
+content on a logical 480 × 800 canvas, then rotate into the required physical
+800 × 480 PNG. Width/height always describe the final PNG.
 
 POST overlays current authenticated observations on valid known state without
 waiting for informer propagation. Job snapshots are copied at scheduling and

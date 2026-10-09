@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -547,5 +548,57 @@ func TestMaintenanceDropsPointersForPreviousTransport(t *testing.T) {
 	}
 	if _, err = r.Repository.Latest(ctx, desired.Unit); !errors.Is(err, artifact.ErrNotFound) {
 		t.Fatal("former pair pointer retained")
+	}
+}
+
+func TestRotationChangeReschedulesAndDiscardsObsoleteOutput(t *testing.T) {
+	for _, completed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("completed-%t", completed), func(t *testing.T) {
+			r, d, _, _ := fixture(t)
+			step(t, r, d)
+			original := load(t, r, d)
+			finish(t, r, d, png(t), false)
+			if completed {
+				step(t, r, d)
+			}
+			deletePods(t, r)
+			if err := r.Client.Get(context.Background(), client.ObjectKeyFromObject(d), d); err != nil {
+				t.Fatal(err)
+			}
+			d.Spec.Rotation = 90
+			d.Generation++
+			if err := r.Client.Update(context.Background(), d); err != nil {
+				t.Fatal(err)
+			}
+			step(t, r, d)
+			step(t, r, d)
+			changed := load(t, r, d)
+			if changed.Active == nil || changed.Active.ID == original.Active.ID || changed.Unit.Target.Rotation != 90 {
+				t.Fatal("rotation change did not immediately schedule a new attempt")
+			}
+			contextBytes, err := os.ReadFile(filepath.Join(r.Store.run(changed.Active.ID), "context.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var snapshot render.Context
+			if err := json.Unmarshal(contextBytes, &snapshot); err != nil || snapshot.RenderTarget != changed.Unit.Target {
+				t.Fatal("rotation missing from immutable Job context", err)
+			}
+			if _, err := r.Repository.Latest(context.Background(), changed.Unit); !errors.Is(err, artifact.ErrNotFound) {
+				t.Fatal("new rotation inherited old output", err)
+			}
+			_, err = r.Repository.Latest(context.Background(), original.Unit)
+			if !completed && !errors.Is(err, artifact.ErrNotFound) {
+				t.Fatal("obsolete Job output published", err)
+			}
+			if completed && err != nil {
+				t.Fatal("prior completed output lost", err)
+			}
+			finish(t, r, d, png(t), false)
+			step(t, r, d)
+			if _, err := r.Repository.Latest(context.Background(), changed.Unit); err != nil {
+				t.Fatal("rotated Job output was not published", err)
+			}
+		})
 	}
 }

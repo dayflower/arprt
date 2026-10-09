@@ -46,6 +46,7 @@ func TargetURL(raw string, target Target) (string, error) {
 	q.Set("width", strconv.Itoa(int(target.Width)))
 	q.Set("height", strconv.Itoa(int(target.Height)))
 	q.Set("palette", target.Palette)
+	q.Set("rotation", strconv.Itoa(int(target.Rotation)))
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }

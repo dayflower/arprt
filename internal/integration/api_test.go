@@ -114,6 +114,9 @@ func TestAPIAndController(t *testing.T) {
 		name   string
 		mutate func(*api.TrmnlDevice)
 	}{
+		{"rotation-negative", func(d *api.TrmnlDevice) { d.Spec.Rotation = -90 }},
+		{"rotation-arbitrary", func(d *api.TrmnlDevice) { d.Spec.Rotation = 45 }},
+		{"rotation-full-turn", func(d *api.TrmnlDevice) { d.Spec.Rotation = 360 }},
 		{"assignment-conflict", func(d *api.TrmnlDevice) { d.Spec.PlaylistRef = &api.LocalReference{Name: "playlist"} }},
 		{"invalid-mac", func(d *api.TrmnlDevice) { d.Spec.HardwareID = "02:aa:00:00:00:01" }},
 		{"missing-secret", func(d *api.TrmnlDevice) { d.Spec.AuthSecretRef.Name = "" }},
@@ -127,6 +130,27 @@ func TestAPIAndController(t *testing.T) {
 			}
 		})
 	}
+
+	for _, rotation := range []int32{0, 90, 180, 270} {
+		d := validDevice(fmt.Sprintf("rotation-%d", rotation))
+		d.Spec.Rotation = rotation
+		if err := c.Create(ctx, d); err != nil {
+			t.Fatal("valid rotation rejected", err)
+		}
+		var stored unstructured.Unstructured
+		stored.SetGroupVersionKind(api.GroupVersion.WithKind("TrmnlDevice"))
+		if err := c.Get(ctx, client.ObjectKeyFromObject(d), &stored); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := unstructured.NestedInt64(stored.Object, "spec", "rotation")
+		if err != nil || !found || got != int64(rotation) {
+			t.Fatalf("rotation admission/default: %v %v %v", got, found, err)
+		}
+		if err := c.Delete(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	// Unknown source keys cannot survive strict API writes. CRDs normally prune
 	// unknown fields, so every installation/example command uses validation=strict.
 	for _, raw := range []string{

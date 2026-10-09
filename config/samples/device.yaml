@@ -3,6 +3,8 @@ kind: TrmnlDevice
 metadata:
   name: living-room
 spec:
+  # Clockwise content rotation; omitted means 0. Renderer output stays 800x480.
+  rotation: 0
   authSecretRef:
     name: living-room-auth
   screenRef:
