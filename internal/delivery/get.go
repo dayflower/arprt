@@ -105,6 +105,8 @@ func (g *GET) image(ctx context.Context, s *api.TrmnlScreen, u artifact.Unit) (a
 		return old, err
 	}
 	// Re-read desired state directly before publication, without informer delay.
+	// GET artifacts are shared by screen/target, so publication is independent
+	// of any one device's current assignment.
 	var current api.TrmnlScreen
 	if err := g.Reader.Get(ctx, client.ObjectKeyFromObject(s), &current); err != nil {
 		return artifact.Metadata{}, artifact.ErrObsolete

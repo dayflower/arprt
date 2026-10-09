@@ -207,6 +207,8 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.TrmnlDevice, selec
 	if s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen) != nil || currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
 		return errDisplayPending
 	}
+	// Membership alone misses playlist order and other assignment edits that
+	// invalidate the selected turn, including replay.
 	currentSet, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, &current)
 	if err != nil || currentSet.Fingerprint != selected.fingerprint {
 		return errDisplayPending

@@ -119,6 +119,8 @@ func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice
 		return old, renderErr
 	}
 	// Re-read both desired state and observed target without informer delay.
+	// Pair-owned publication requires assignment membership; BYOS separately
+	// checks the complete assignment fingerprint before issuing the image.
 	var currentScreen api.TrmnlScreen
 	var currentDevice api.TrmnlDevice
 	if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {

@@ -41,7 +41,10 @@ type Reconciler struct {
 	Config     Config
 	Recorder   events.EventRecorder
 	Now        func() time.Time
-	mu         sync.Mutex // Also serializes maintenance with publication and preparation.
+	// mu covers complete reconciliation and maintenance operations so cleanup
+	// cannot remove runs or artifacts between preparation, publication and
+	// durable bookkeeping.
+	mu sync.Mutex
 }
 
 func (r *Reconciler) now() time.Time {
