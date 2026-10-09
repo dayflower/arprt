@@ -162,3 +162,7 @@ Membership/order changes reset to the first eligible screen. See
 | Build, generate, test or review acceptance evidence | [DEVELOP](notes/DEVELOP.md) |
 | Change rendering, authentication, persistence or GC | [DESIGN](notes/DESIGN.md) |
 | Change BYOS, Render Context or image compatibility | [PROTOCOL](notes/PROTOCOL.md) |
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
