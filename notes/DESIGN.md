@@ -1,1176 +1,245 @@
-# TRMNL BYOS Kubernetes Controller
-
-Phase 0 decisions are recorded in [001-PHASE0.md](001-PHASE0.md).
-That contract defines the initial single-namespace PVC topology, verified
-TRMNL OG / firmware 1.8.17 behavior, routing, authentication, defaults and validation.
-Examples below use the agreed `arprt.dayflower.github.io/v1alpha1` API group.
-
-Operational limits, monitoring, storage recovery and the initial release support
-boundary are recorded in [Phase 6](009-PHASE6.md).
-
-## 1. Overview
-
-This project provides a Kubernetes-native controller for operating TRMNL devices using the TRMNL BYOS protocol.
-
-The primary goals are:
-
-- Manage TRMNL devices declaratively with Kubernetes CRDs.
-- Define screens independently from physical devices.
-- Support multiple rendering mechanisms.
-- Support both synchronous HTTP-based rendering and asynchronous Kubernetes Job-based rendering.
-- Keep renderer implementations independent from Kubernetes whenever possible.
-- Allow existing container images and HTTP services to be reused as renderers.
-- Hide artifact storage, caching, deduplication, and other controller implementation details from the public CRD API.
-- Support devices with different display dimensions, palettes, and capabilities.
-
-The primary resources are expected to be:
-
-- `TrmnlScreen`
-- `TrmnlDevice`
-- `TrmnlPlaylist` — optional
-
-The controller also exposes the HTTP endpoints required by the TRMNL BYOS protocol.
-
----
-
-## 2. Device Connection to the BYOS Server
-
-A TRMNL device is configured through Wi-Fi Pairing Mode using a custom server URL.
-
-The custom server URL may contain a path prefix.
-
-For example:
-
-```text
-http://192.168.0.2:2300/devices/arprt/living-room
-```
-
-The TRMNL firmware appends its API paths to this base URL.
-
-The resulting requests therefore look like:
-
-```text
-/devices/arprt/living-room/api/setup
-/devices/arprt/living-room/api/display
-```
-
-A trailing slash should not be included in the configured custom server URL.
-
-This path-based structure provides a straightforward mapping between a physical device and a Kubernetes resource:
-
-```text
-/devices/arprt/living-room/api/display
-              │
-              ▼
-namespace arprt / TrmnlDevice living-room
-```
-
-TRMNL devices may also send a device identity through HTTP headers or other protocol fields.
-
-`spec.hardwareID` optionally restricts the device to a literal MAC;
-`spec.hardwareIDSecretRef` can instead select a same-namespace Secret key.
-Leaving both unset learns the MAC during successful setup. `spec.authSecretRef`
-remains required and references a named auth Secret. Setup generates its key if
-the declared Secret has no `apiKey`, and reuses a valid existing key. Registration
-is pinned to the device UID on the PVC, with a mirror in `status.hardwareID`.
-See [optional MAC registration](005-OPTIONAL-MAC.md) for source immutability,
-Secret changes, namespace uniqueness and recovery. Setup stays enabled by default;
-see [automatic credentials](006-AUTOMATIC-KEYS.md) for persistence and GitOps behavior.
-Display and image requests validate both registered identity and credentials.
-The namespace in the route must match the controller's single watched namespace.
-See the Phase 0 contract for proxy prefixes and the firmware's image-URL prefix check.
-
-For the initial design, the URL path is the preferred canonical mapping to a `TrmnlDevice` resource.
-
-Authentication credentials, access tokens, and other secrets must not be exposed through device status or renderer context.
-
----
-
-## 3. Core Resource Model
-
-### 3.1 `TrmnlScreen`
-
-A `TrmnlScreen` describes **what can be displayed and how it is rendered**.
-
-It is independent from any specific physical TRMNL device.
-
-A screen may use different rendering sources, initially:
-
-- HTTP
-- Kubernetes Job
-
-Example:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: weather
-spec:
-  refreshInterval: 30m
-
-  source:
-    job:
-      renderer:
-        image: example/weather-renderer:latest
-```
-
----
-
-### 3.2 `TrmnlDevice`
-
-A `TrmnlDevice` represents a physical TRMNL device.
-
-It is responsible for:
-
-- screen or playlist assignment
-- observed device capabilities
-- display characteristics
-- telemetry
-- last-seen state
-- firmware information
-
-Example:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlDevice
-metadata:
-  name: living-room
-
-spec:
-  hardwareID: "02:00:00:00:00:01"
-  authSecretRef:
-    name: living-room-auth
-  screenRef:
-    name: weather
-
-status:
-  display:
-    width: 800
-    height: 480
-    palette: gray4
-
-  device:
-    model: og
-    firmwareVersion: "1.8.17"
-
-  battery:
-    voltage: 3.91
-
-  network:
-    rssi: -48
-
-  lastSeenAt: "2026-10-07T00:00:00Z"
-```
-
-Capabilities and telemetry reported by the device are observed state and therefore belong in `status`, rather than `spec`.
-
----
-
-### 3.3 `TrmnlPlaylist`
-
-A playlist is optional.
-
-It explicitly defines the sequence of screens presented to a device.
-
-Example:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlPlaylist
-metadata:
-  name: living-room
-spec:
-  screens:
-    - name: weather
-    - name: power
-    - name: calendar
-```
-
-A device may refer either to a single screen or to a playlist.
-
-Conceptually:
-
-```text
-screenRef XOR playlistRef
-```
-
-Example:
-
-```yaml
-spec:
-  playlistRef:
-    name: living-room
-```
-
-If neither is specified, the controller may automatically discover available `TrmnlScreen` resources and cycle through them.
-
-The ordering, durable advancement, retry window, unavailable-screen policy and
-bounded Job preparation contract are defined in [Phase 5](008-PHASE5.md).
-
-This provides a simple default experience:
-
-```text
-No assignment
-    ↓
-Automatically discover screens
-```
-
-while still allowing explicit configuration when required.
-
----
-
-## 4. Rendering Unit
-
-A rendered image cannot generally be associated with a `TrmnlScreen` alone.
-
-Different devices may have different:
-
-- display width
-- display height
-- palette
-- other display capabilities
-
-Therefore the basic rendering unit is:
-
-```text
-Screen × Device
-```
-
-For example:
-
-```text
-weather × living-room
-    800 × 480 / gray4
-
-weather × desk
-    1200 × 825 / gray16
-```
-
-For asynchronous renderers, the controller maintains a rendered artifact for each required screen/device combination.
-
-The device fetch operation must not normally trigger a Job renderer immediately.
-
-Instead:
-
-```text
-TrmnlScreen
-      +
-TrmnlDevice
-      ↓
-asynchronous rendering
-      ↓
-latest rendered artifact
-      ↓
-device GET /api/display
-```
-
-The latest available successful artifact is returned to the device.
-
-A future implementation may deduplicate artifacts between devices with identical rendering characteristics.
-
-However, the public API should initially model rendering conceptually as `Screen × Device`.
-
----
-
-## 5. Render Target
-
-Display properties that directly affect image generation are represented as the **render target**.
-
-The initial render target contains:
-
-```text
-width
-height
-palette
-```
-
-Example:
-
-```json
-{
-  "width": 800,
-  "height": 480,
-  "palette": "gray4"
-}
-```
-
-Palette values should use semantic identifiers rather than merely a color count.
-
-Examples:
-
-```text
-bw
-gray4
-gray16
-bwry
-```
-
-A physical device model should normally not be part of the render target if two different models have identical rendering capabilities.
-
-For example:
-
-```text
-model=trmnl-og
-```
-
-should not unnecessarily produce a different cache key from another device with the same width, height, and palette.
-
----
-
-## 6. Render Context
-
-Renderers sometimes require information beyond the display target.
-
-Examples include:
-
-- device name
-- battery state
-- RSSI
-- firmware version
-- device capabilities
-
-Renderers should not need direct Kubernetes API access to obtain this information.
-
-Direct Kubernetes access is intentionally avoided because it would:
-
-- make renderers Kubernetes-aware
-- require ServiceAccounts and RBAC
-- make existing container images harder to reuse
-- tightly couple renderer implementations to the controller
-
-Environment variables are also not the primary mechanism because the environment-variable contract would grow whenever new device information is added.
-
-Instead, the controller provides a structured **Render Context**.
-
----
-
-## 7. Render Context v1
-
-An example Render Context is:
-
-```json
-{
-  "version": "v1",
-
-  "renderTarget": {
-    "width": 800,
-    "height": 480,
-    "palette": "gray4"
-  },
-
-  "device": {
-    "name": "living-room",
-    "model": "og",
-
-    "battery": {
-      "voltage": 3.91
-    },
-
-    "network": {
-      "rssi": -48
-    },
-
-    "firmware": {
-      "version": "1.8.17"
-    }
-  }
-}
-```
-
-The top-level separation between `renderTarget` and `device` is intentional.
-
-`renderTarget` represents inputs that directly define the rendered output format.
-
-`device` contains physical-device identity, telemetry, and other contextual information.
-
----
-
-## 8. Render Context Versioning
-
-The context contains an explicit version:
-
-```json
-{
-  "version": "v1"
-}
-```
-
-Compatibility rules for a given major context version are:
-
-- New optional fields may be added.
-- Existing fields must retain their meaning.
-- Existing fields should not be removed.
-- Renderers must ignore unknown fields.
-- Breaking semantic changes require a new context version.
-
-For example:
-
-```text
-v1
-v2
-```
-
-The same Render Context schema is used by all device-aware rendering transports.
-
-This is an important design goal:
-
-```text
-Job renderer
-    /path/context.json
-             │
-             ▼
-      Render Context v1
-             ▲
-             │
-HTTP POST request body
-```
-
-Renderer authors therefore need to understand only one context schema.
-
-The transport differs, but the data model does not.
-
----
-
-## 9. HTTP Rendering
-
-HTTP renderers are synchronous renderer services.
-
-The controller supports two HTTP modes:
-
-- `GET`
-- `POST`
-
-These methods have specific semantics and are not simply arbitrary HTTP method choices.
-
----
-
-## 10. HTTP GET Renderer
-
-A GET renderer is device-independent.
-
-It receives only render-target characteristics.
-
-Example resource:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: photo
-spec:
-  source:
-    http:
-      url: http://photo-renderer.default.svc/render
-      method: GET
-```
-
-The controller invokes:
-
-```http
-GET /render?width=800&height=480&palette=gray4
-Accept: image/png
-```
-
-The query parameters are generated automatically by the controller.
-
-The renderer does not receive:
-
-- device identity
-- battery status
-- RSSI
-- other dynamic telemetry
-
-GET therefore means:
-
-> The rendered result depends only on the screen definition and render target characteristics.
-
-This allows normal HTTP caching infrastructure such as:
-
-- reverse proxies
-- HTTP caches
-- CDNs
-- shared controller caches
-
-to reuse the same rendered image.
-
-For example, two devices with:
-
-```text
-width=800
-height=480
-palette=gray4
-```
-
-may use the exact same renderer URL.
-
-A conceptual cache key is therefore:
-
-```text
-Screen + width + height + palette
-```
-
-rather than:
-
-```text
-Screen + Device
-```
-
----
-
-## 11. HTTP POST Renderer
-
-A POST renderer is device-aware.
-
-Example:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: device-status
-spec:
-  source:
-    http:
-      url: http://status-renderer.default.svc/render
-      method: POST
-```
-
-The controller invokes:
-
-```http
-POST /render?width=800&height=480&palette=gray4
-Content-Type: application/json
-Accept: image/png
-```
-
-The request body is the complete Render Context:
-
-```json
-{
-  "version": "v1",
-
-  "renderTarget": {
-    "width": 800,
-    "height": 480,
-    "palette": "gray4"
-  },
-
-  "device": {
-    "name": "living-room",
-    "battery": {
-      "voltage": 3.91
-    },
-    "network": {
-      "rssi": -48
-    }
-  }
-}
-```
-
-The duplication of render target values between the query string and JSON body is intentional.
-
-The two representations have different roles:
-
-```text
-Query parameters
-    routing
-    caching
-    cheap inspection
-
-JSON body
-    complete structured context
-```
-
-POST therefore means:
-
-> The rendered output may depend on full device-specific context.
-
-POST rendering is normally performed synchronously with the device request and may therefore use telemetry received in that request.
-
-The initial implementation renders every authenticated display request with
-the current telemetry overlaid on known valid state. POST has no fresh artifact
-reuse or context coalescing; `refreshInterval` must be omitted. A failed attempt
-may serve the same screen/device UID pair's previous successful image only when
-the current assignment and exact render target remain compatible.
-
----
-
-## 12. Job Rendering
-
-Job renderers are asynchronous renderers executed inside Kubernetes.
-
-Example:
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: weather
-
-spec:
-  refreshInterval: 30m
-
-  source:
-    job:
-      renderer:
-        image: example/weather-renderer:latest
-        args:
-          - "--context"
-          - "/work/context.json"
-          - "--output"
-          - "/work/weather.png"
-
-      contextPath: /work/context.json
-      imagePath: /work/weather.png
-```
-
-The renderer definition should resemble a Kubernetes container specification where useful.
-
-Expected fields include at least:
-
-```yaml
-renderer:
-  image:
-  command:
-  args:
-  env:
-  envFrom:
-  resources:
-```
-
-This makes existing container images easier to reuse.
-
----
-
-## 13. Job Renderer Context
-
-Before executing the renderer, the controller creates a Render Context snapshot.
-
-It writes the JSON file to `contextPath`.
-
-For example:
-
-```text
-/work/context.json
-```
-
-The renderer may read that file if required.
-
-If `contextPath` is omitted, the default is:
-
-```text
-/trmnl/context.json
-```
-
-The renderer is not required to consume the context.
-
-For example, an existing renderer may only need dimensions supplied through its own command-line arguments.
-
----
-
-## 14. Job Renderer Image Output
-
-The renderer writes its result to `imagePath`.
-
-Example:
-
-```yaml
-imagePath: /work/weather.png
-```
-
-If omitted, the default is:
-
-```text
-/trmnl/output.png
-```
-
-The controller provides writable storage that makes the output available for artifact collection.
-
-The path specified by `imagePath` must reside on writable storage provided by the controller.
-
-Renderer authors should avoid choosing a path whose mounted parent directory contains files required by the renderer image, because the controller may mount a writable volume at that location.
-
-The explicit `imagePath` field and renderer command-line arguments may contain the same path.
-
-For example:
-
-```yaml
-source:
-  job:
-    renderer:
-      image: example/weather-renderer:latest
-      args:
-        - "-o"
-        - "/work/weather.png"
-
-    imagePath: /work/weather.png
-```
-
-This duplication is intentional.
-
-The renderer arguments tell the renderer **where to write**.
-
-`imagePath` tells the controller **where to collect the rendered image**.
-
-The controller does not need to understand the renderer's command-line interface.
-
----
-
-## 15. Job Execution Unit
-
-A Job renderer is conceptually executed for:
-
-```text
-TrmnlScreen × TrmnlDevice
-```
-
-Each execution receives a context snapshot created from the latest state known by the controller.
-
-For example:
-
-```text
-weather × living-room
-weather × desk
-```
-
-may result in separate Job executions.
-
-The controller is responsible for:
-
-- determining when rendering is necessary
-- constructing the Job
-- providing the Render Context
-- providing writable artifact storage
-- collecting the generated image
-- recording successful rendered artifacts
-- handling failed renders
-
-A `CronJob` is not required.
-
-Scheduling is controlled by the `TrmnlScreen` reconciliation logic using fields such as:
-
-```yaml
-refreshInterval: 30m
-```
-
-This keeps rendering lifecycle management inside the controller.
-
----
-
-## 16. Dynamic Telemetry and Job Rendering
-
-Job rendering is asynchronous relative to the physical device's `/api/display` request.
-
-Therefore dynamic telemetry embedded in a Job-rendered image may be older than the telemetry from the most recent device request.
-
-Example:
-
-```text
-09:00
-Job starts
-battery = 73%
-
-09:05
-Device requests /api/display
-battery = 71%
-
-Controller returns image rendered at 09:00.
-Image still shows 73%.
-```
-
-This is expected behavior.
-
-The contract is:
-
-> Dynamic values in the Render Context are a snapshot of the latest controller-known state at the time rendering begins. They are not guaranteed to represent real-time device state when the image is displayed.
-
-HTTP POST rendering differs because it may run synchronously with the device request and therefore use the telemetry received by that request.
-
----
-
-## 17. Rendered Artifacts
-
-A rendered image is an internal controller artifact.
-
-It should not initially be represented as a Kubernetes CRD.
-
-Conceptually, an artifact contains metadata such as:
-
-```text
-screen UID
-device UID or render-target key
-render target
-rendered timestamp
-context digest
-image digest
-content type
-storage location
-```
-
-The actual image may be stored using an implementation-defined mechanism such as:
-
-- controller-local persistent storage
-- PVC-backed storage
-- object storage
-
-The public CRD API should not expose this storage implementation.
-
-Both rendering mechanisms ultimately produce the same internal artifact type:
-
-```text
-HTTP renderer ─┐
-               ├──▶ Rendered Artifact ───▶ BYOS
-Job renderer ──┘
-```
-
-This keeps the device-serving layer independent from how an image was produced.
-
----
-
-## 18. Render Failure Behavior
-
-A failed render should normally not invalidate the last successfully rendered image.
-
-For example:
-
-```text
-Current successful artifact
-        ↓
-new render starts
-        ↓
-render fails
-        ↓
-keep current successful artifact
-```
-
-This is especially important for e-paper devices, where displaying stale but valid information is generally preferable to displaying nothing.
-
-Failure information may be exposed through `TrmnlScreen`, `TrmnlDevice`, events, metrics, or logs as appropriate.
-
----
-
-## 19. Caching and Deduplication
-
-Caching and artifact deduplication should initially remain controller implementation details.
-
-They should not require explicit CRD configuration.
-
-### GET renderers
-
-GET semantics guarantee that the renderer depends only on render-target characteristics.
-
-The controller may therefore safely reuse artifacts across devices with the same target:
-
-```text
-Screen
-+
-width
-+
-height
-+
-palette
-```
-
-Example:
-
-```text
-Device A ─┐
-          │ 800×480 gray4
-Device B ─┼────────────────▶ same cached render
-          │
-Device C ─┘
-```
-
-### POST renderers
-
-POST renderers receive complete device-specific context.
-
-They should initially be treated as:
-
-```text
-Screen × Device
-```
-
-for rendering and caching purposes.
-
-### Job renderers
-
-Job renderers also receive complete Render Context and should initially use:
-
-```text
-Screen × Device
-```
-
-as their rendering unit.
-
-Future versions may introduce an explicit optimization hint allowing a Job renderer to declare that it depends only on the render target.
-
-Such a feature should only be added when a concrete use case requires it.
-
----
-
-## 20. What Should Remain Outside the Public CRD API
-
-The public API should remain focused on user intent.
-
-The following concepts should initially remain controller implementation details:
-
-- render instances
-- rendered artifact resources
-- artifact storage layout
-- cache entries
-- cache keys
-- HTTP cache implementation
-- Job names
-- temporary Pods
-- temporary volumes
-- artifact upload mechanisms
-- artifact deduplication
-- renderer execution bookkeeping
-
-The public API should initially consist primarily of:
-
-```text
-TrmnlScreen
-TrmnlDevice
-TrmnlPlaylist
-
-Render Context v1
-HTTP renderer protocol
-Job renderer protocol
-```
-
----
-
-## 21. Controller Responsibilities
-
-The controller is responsible for:
-
-- exposing the TRMNL BYOS endpoints
-- resolving a device request to a `TrmnlDevice`
-- collecting and storing device telemetry
-- updating `TrmnlDevice.status`
-- resolving screen or playlist assignment
-- discovering screens when no explicit assignment exists
-- determining render target characteristics
-- creating Render Context snapshots
-- invoking HTTP renderers
-- scheduling and creating renderer Jobs
-- collecting Job-generated images
-- storing rendered artifacts
-- selecting the latest successful artifact
-- serving image URLs to TRMNL devices
-- caching and deduplicating renders where safe
-- retaining the previous successful artifact after render failures
-
----
-
-## 22. Renderer Responsibilities
-
-Renderers should remain as independent as possible from Kubernetes and from the controller implementation.
-
-An HTTP renderer needs to understand only one of:
-
-```text
-GET + render-target query parameters
-```
-
-or:
-
-```text
-POST + render-target query parameters + Render Context v1
-```
-
-A Job renderer needs to understand only:
-
-```text
-optional Render Context JSON file
-
-and
-
-write one image file to the configured path
-```
-
-A renderer does not need to:
-
-- query the Kubernetes API
-- know about `TrmnlDevice`
-- know about `TrmnlScreen`
-- know where artifacts are permanently stored
-- know how TRMNL BYOS endpoints work
-- know how playlists are resolved
-
----
-
-## 23. Initial `TrmnlScreen` Examples
-
-### Device-independent HTTP renderer
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: photo
-
-spec:
-  source:
-    http:
-      url: http://photo-renderer.default.svc/render
-      method: GET
-```
-
-### Device-aware HTTP renderer
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: device-status
-
-spec:
-  source:
-    http:
-      url: http://device-status.default.svc/render
-      method: POST
-```
-
-### Job renderer using defaults
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: weather
-
-spec:
-  refreshInterval: 30m
-
-  source:
-    job:
-      renderer:
-        image: example/weather-renderer:latest
-```
-
-Defaults:
-
-```text
-contextPath = /trmnl/context.json
-imagePath   = /trmnl/output.png
-```
-
-### Job renderer using an existing container interface
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
-metadata:
-  name: weather
-
-spec:
-  refreshInterval: 30m
-
-  source:
-    job:
-      renderer:
-        image: example/weather-renderer:latest
-        args:
-          - "--context"
-          - "/work/context.json"
-          - "--output"
-          - "/work/weather.png"
-
-      contextPath: /work/context.json
-      imagePath: /work/weather.png
-```
-
----
-
-## 24. Initial `TrmnlDevice` Example
-
-```yaml
-apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlDevice
-metadata:
-  name: living-room
-
-spec:
-  hardwareID: "02:00:00:00:00:01"
-  authSecretRef:
-    name: living-room-auth
-  screenRef:
-    name: weather
-
-status:
-  display:
-    width: 800
-    height: 480
-    palette: gray4
-
-  device:
-    model: og
-    firmwareVersion: "1.8.17"
-
-  battery:
-    voltage: 3.91
-
-  network:
-    rssi: -48
-
-  lastSeenAt: "2026-10-07T00:00:00Z"
-
-  conditions:
-    - type: Ready
-      status: "True"
-```
-
-The corresponding device may use:
-
-```text
-http://controller:2300/devices/arprt/living-room
-```
-
-as its TRMNL Custom Server URL.
-
----
-
-## 25. Design Principles
-
-The current design is guided by the following principles.
-
-### Declarative
-
-Screens, devices, and playlists are managed as Kubernetes resources.
-
-### Renderer-agnostic
-
-The controller does not know whether a renderer uses Prometheus, Kubernetes metrics, an external weather service, a calendar API, or static files.
-
-### Kubernetes-independent renderers
-
-Renderers should not need Kubernetes API access.
-
-### Existing-image friendly
-
-Existing container images and HTTP services should be reusable with minimal adaptation.
-
-### Transport-independent context
-
-Job and HTTP POST renderers use the same Render Context schema.
-
-### Minimal public API
-
-Caching, storage, temporary Jobs, and artifact lifecycle are implementation details rather than user-facing resources.
-
-### Safe optimization
-
-Caching and deduplication are performed automatically only when renderer semantics make them safe.
-
-### Graceful degradation
-
-The latest successful rendered artifact remains usable when a subsequent render fails.
-
-### Extensible
-
-The API begins with a deliberately small surface and leaves room for additional render sources, device capabilities, playlist behavior, and optimization hints in future versions.
+# Current design
+
+arprt maps declarative TRMNL resources to synchronous HTTP or asynchronous Job
+rendering, validated persistent artifacts and authenticated BYOS delivery.
+[PROTOCOL](PROTOCOL.md) owns wire/context/image details;
+[DEVELOP](DEVELOP.md) maps packages and checks;
+[README](../README.md) owns installation and support limits;
+[OPERATIONS](OPERATIONS.md) owns configuration/recovery and
+[RENDERERS](RENDERERS.md) owns renderer examples and usage.
+
+## Public API and boundaries
+
+The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
+
+- `TrmnlScreen` defines exactly one HTTP or Job source and applicable freshness.
+- `TrmnlDevice` selects a single screen, an ordered playlist, or discovery, with
+  an auth Secret and optional direct/Secret-backed hardware identity.
+- `TrmnlPlaylist` defines 1–64 distinct screen names in explicit order.
+
+All references and discovery stay in the device namespace. Capabilities,
+telemetry, registration observations and screen-cycle progress belong in status.
+Artifact layout, execution state, cache keys, temporary Jobs/Pods and storage
+backend selection remain internal; they do not require artifact/execution CRDs.
+Source and assignment exclusivity, identity-source immutability and path/duration
+constraints are enforced by structural schema/CEL. Unknown fields require strict
+API writes to reject rather than prune; see DEVELOP.
+
+Render Target is width/height/semantic palette; device model is not part of format
+identity when capabilities are equivalent. Render Context adds allowlisted device
+information, with the same schema for POST and Job. Renderers do not need
+Kubernetes clients, upload SDKs or controller credentials. Job arguments are
+passed through: the renderer's CLI says where to write, while `imagePath` says
+where the controller collects. The controller never interprets arbitrary CLIs.
+
+## Rendering and assignment
+
+| Source | Timing and sharing | Ownership/context |
+| --- | --- | --- |
+| GET | On demand after miss, expiry or definition change; default freshness 5m. Concurrent work coalesces; equal current definitions/targets share fresh output. | Namespace + screen UID + exact target; no device context |
+| POST | Each new authenticated single-screen display request; no fresh reuse or context coalescing. Explicit `refreshInterval` is rejected. | Namespace + screen UID + device UID + exact target; current request overlaid on valid known state |
+| Job | Scheduled independently of display; initial readiness, definition/assignment/target changes and interval refresh (default 30m). | Same pair ownership as POST; immutable scheduling snapshot |
+
+Device polling and artifact freshness are independent. GET/POST share bounded
+HTTP execution; display reads completed Job output and never creates or waits
+for a Job. Telemetry changes affect future Job snapshots without starting work
+on every poll. Default normalization and input revisions live in
+[screen/input.go](../internal/screen/input.go); revisions include context and
+collector contract versions and exclude metadata/status/credentials.
+
+With `screenRef`, one existing screen is selected. With `playlistRef`, missing
+or deleting entries are skipped while remaining order is preserved. With neither,
+discovery selects the first 64 nondeleting screens sorted by name. A missing
+playlist or empty eligible set returns initial pending. Selection does not skip
+a screen merely because its renderer currently has no image.
+
+Playlist/discovery uses `status.screenCycle` to persist the successful turn,
+target, revision, image digest/filename and serving time. A compatible stale
+image counts as success; without a compatible image the selected turn holds.
+Issuance and the new turn are durable before the response is acknowledged.
+
+BYOS has no verified unique display-request ID. During `device-refresh-seconds`
+after a recorded turn, replay the same image and filename, including across
+restart and early manual polls. The window begins after rendering and durable
+turn recording, uses microsecond timestamps and is not extended by replay.
+Telemetry is still observed. **POST in playlist/discovery renders on a new turn,
+not on replay**; a single `screenRef` retains per-request rendering.
+
+The assignment fingerprint includes device UID/generation, assignment identity
+and ordered screen names/UIDs. A fingerprint change resets selection to the
+first eligible screen. Definition edits invalidate replay without resetting
+membership/order; changed targets cannot reuse incompatible output.
+All eligible Job pairs are scheduled independently of the current turn, bounded
+by the global concurrency limit; work can remain queued before its first image.
+Removing eligibility cancels work and stops future attempts.
+
+## Publication, fallback and authorization
+
+Immutable blobs are addressed by full image digest, with persisted short firmware
+filenames. Latest-success metadata records the rendering unit, screen generation,
+input revision, attempt ID/sequence, target, timestamps, image facts and, for
+device-aware rendering, context digest. Publish validated image/metadata before
+atomically replacing the success pointer on the same filesystem, with file and
+directory fsync. Failed work preserves the previous compatible success.
+
+| Operation | Required eligibility |
+| --- | --- |
+| Fresh GET reuse | Same screen UID, definition revision, generation and exact target, within freshness interval |
+| New output publication | Current relevant UIDs, definition, target and attempt ordering; POST/Job also require current pair eligibility |
+| Stale fallback | Same screen UID, exact current target, current assignment and device UID for POST/Job; a prior definition may qualify |
+| Fetching an issued immutable URL | Current identity/token and issuance to the original current device UID, within retained data; reassignment does not itself revoke an issued URL |
+
+Fresh reuse, stale selection and fetching an already-issued URL have different
+rules. A different selected screen, replacement UID, incompatible target or
+deleted resource cannot supply fallback. The digest is an integrity identifier,
+not an access grant; each receiving UID must be issued access even for shared GET.
+Recreating a resource name never transfers identity or issued-image authorization.
+
+GET publication is independent of a particular device's assignment because its
+output is shared by screen/target. POST publication checks pair membership.
+BYOS separately rechecks the complete assignment fingerprint, including order,
+plus current device/screen state, target, identity and token before issuance.
+Membership checks alone cannot authorize a previously selected playlist turn.
+Use direct API reads for these gates; informer propagation is not an authorization
+barrier. Secret changes do not increment device generation and require fresh reads.
+
+POST attempts are ordered per screen/device pair across targets before execution.
+A newer attempt supersedes older in-flight responses. Successful sequences resume
+from persisted metadata after restart; synchronous failed/incomplete work retries
+on a later poll without a restartable execution journal. GET joining callers can
+cancel independently; shared work follows manager shutdown. Generation/revision
+changes during a joined flight cannot be treated as fresh new-definition output.
+
+## Identity and credential persistence
+
+MAC source selection, direct value and Secret reference name/key are immutable.
+No source means learning the first eligible MAC during successful setup. Invalid
+or unavailable external identity sources never fall back to learning. Namespace
+uniqueness covers direct, Secret-backed and learned MACs; unbound automatic
+devices do not collide. Existing durable bindings reserve their MAC even if an
+external source becomes unavailable. Changing hardware requires a new device UID.
+
+The PVC binding is authoritative once present; `status.hardwareID` mirrors it and
+cannot replace it. Shared identity-service locking serializes cross-device claims.
+Persist the binding before the optimistic status patch and setup response.
+Repeated registration of the same MAC is idempotent. A status-write failure can
+be retried but cannot permit a different MAC. Existing explicit-MAC devices can
+establish durable registration on authenticated display without re-pairing.
+
+The operator declares each named auth Secret. Setup is enabled by default;
+`credentials.Ensure` generates 32 cryptographically random bytes as unpadded
+URL-safe base64 only for an absent `apiKey`. It patches that entry with a
+resourceVersion precondition and reads the saved winner on conflicts/retries.
+A present empty/invalid key is never silently overwritten. No Secret resource
+is created. Ordinary display/log/image authentication is read-only. Declaring
+Secrets in advance permits named get/patch rules; Kubernetes
+[create permission cannot be restricted by resource name](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#referring-to-resources).
+GitOps omits the generated key field. Operator procedures and error responses
+are in [OPERATIONS](OPERATIONS.md#setup-and-credentials) and PROTOCOL.
+
+Setup validates MAC eligibility before credential preparation, repeats checks
+on a fresh device when registering, persists the binding and status, and finally
+rechecks identity/key before returning success. Credential creation and MAC/status
+writes are separate durable steps, not an atomic multi-resource transaction.
+A failure may leave a saved key without completed registration; retries reuse it.
+Credential-write failure never registers a MAC, and incomplete registration
+never returns setup success or discloses the key.
+
+## Job lifecycle and collection
+
+Each eligible device/screen pair owns due time, retry state, monotonic sequence
+and at most one active attempt. Preparation persists the context, its digest,
+source snapshot and attempt record **before** the Kubernetes Job is created.
+Attempt IDs determine Job identity. Restart can recreate prepared work, adopt
+existing work or collect completed work without duplicating an active pair.
+Publication precedes clearing the active record so interrupted bookkeeping can
+replay publication idempotently.
+
+Recover active work before starting queued pairs; older due work is preferred.
+The global concurrency budget bounds active Jobs/run directories, not the number
+of persisted pairs. The legacy one-record-per-device scheduler format migrates
+by durable rename to namespace/device/screen records, preserving active attempts
+and context bytes; conflicting or invalid records are rejected rather than guessed.
+
+Missing submitted Jobs become `JobLost`; unconfirmed execution output cannot be
+trusted merely because a file exists. Failed, timed-out or obsolete attempts use
+new directories. Cancellation accounts for old Jobs/Pods before replacement work.
+`backoffLimit: 0` leaves retries to the controller. Bounded exponential backoff
+slows after seven consecutive failures to at least the screen interval and five
+minutes; success resets it. Definition changes can bypass obsolete backoff.
+
+Renderer Pods mount only their output directory writable and their immutable
+context file read-only. The entire output parent is hidden by the mount, so use
+a dedicated directory. Default and distinct/nested parents are supported;
+system paths, conflicting files and the reserved artifact root are rejected.
+There is no extra writable `/tmp`. Pods run as non-root with a read-only root,
+dropped capabilities, no privilege escalation and no ServiceAccount token.
+
+Collection requires Job `Complete=True` and successful renderer termination.
+Verify context integrity, open bounded output beneath its directory, reject
+escaping symlinks/special files and validate the complete PNG. Missing/partial
+output or exit failure never becomes success. Recheck desired pair state after
+collection and before publication. The reconciliation/maintenance lock spans
+preparation, publication and durable bookkeeping so cleanup cannot remove work
+between stages. Kubernetes resource GC does not remove arbitrary PVC directories.
+
+## Storage topology, retention and failure handling
+
+One active controller watches one configured namespace, using a POSIX filesystem
+PVC and Recreate rollout. Job mode requires the whole filesystem RWO claim mounted
+by the controller, with required same-namespace/same-node Pod affinity for renderers.
+RWO permits multiple Pods on one node; RWOP cannot support this topology, and RWX is unverified/rejected.
+Atomic rename, fsync and advisory exclusive writer locking are required. The lock
+does not establish multi-replica or multi-node failover support. Account for old
+renderers before moving the controller; local storage requires its original node.
+The [Kubernetes storage](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+and [Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/) references
+explain the underlying mount and lifecycle model.
+
+Maintenance runs every minute in both HTTP-only and Job modes. Protect active
+attempts, all eligible per-screen successes and image bytes/issuance for at least
+24h after last issuance. Issuance writes coalesce within one minute, with an
+extra retention minute preserving the minimum. Abandoned atomic writes and unused
+filename reservations expire after 24h. Removed pairs stop scheduling; completed Jobs and unused run/context data
+have a diagnostic hour, with run deletion waiting for their Jobs to disappear.
+Unreferenced older blobs, issuance, filenames and deleted-device identities are
+collected. Old API snapshots must not collect newly established bindings.
+
+Managed-byte/free-space admission covers publication, identity/issuance, scheduler
+metadata and attempts. Failure preserves protected successes and issued URLs;
+updating existing issuance may use reserve space. Admission is not a filesystem
+quota or renderer reservation. Operational defaults and sizing guidance belong
+in [OPERATIONS](OPERATIONS.md#capacity-and-retention). Invalid retention metadata aborts destructive artifact GC. Regenerable
+latest pointers can be discarded and corrupt blobs replaced by freshly validated
+bytes with the same digest. Identity, issuance and scheduler damage fails closed;
+never reconstruct ownership from image files or delete records to bypass it.
+
+Status writes are optimistic, status-only patches; transition times change only
+on condition status changes. Stable observations coalesce, while changed telemetry
+and screen-cycle transitions remain immediate. Device delivery readiness can
+remain true for stale output while rendering readiness is false. Screen readiness
+reports its last outcome, not every pair; cycling Job outcomes are not aggregated
+into a single device RenderReady. `DeviceSeen` is independent of image usability.
+
+Request concurrency, HTTP execution, metadata reads and retry counters are bounded.
+Metrics have fixed labels; logs/Events exclude keys, MACs, raw headers, arbitrary
+firmware messages and context/output contents. Screen authors are trusted namespace
+operators who can select endpoints, images and explicit renderer env/envFrom;
+these never implicitly receive device credentials. See
+[OPERATIONS](OPERATIONS.md#network-and-namespace-trust) for the network trust
+boundary and [recovery](OPERATIONS.md#recovery-and-troubleshooting) for backup/restore
+and shutdown procedures.
+
+The Kubernetes support floor follows the tested dependency minor and API matrix,
+as described by the selected controller-runtime's
+[compatibility policy](https://github.com/kubernetes-sigs/controller-runtime/blob/v0.24.1/README.md#versioning-maintenance-and-compatibility).
+CEL/API availability alone does not establish older-client/server compatibility;
+other minors are unverified rather than declared inherently incompatible.
+
+## Scope of future work
+
+Additional device/firmware targets, image conversion, target-only Job sharing,
+advanced playlist timing/weighting, automatic creation of unknown devices,
+arbitrary Pod specifications, additional backends and multiple active controllers
+need concrete requirements and compatibility/recovery validation. These are
+outside the current support contract, not an implementation queue.

@@ -1,4 +1,4 @@
-# Phase 0 contract fixtures
+# BYOS and Render Context fixtures
 
 These are synthetic fixtures for the initial controller contract, informed by
 official TRMNL firmware `v1.8.17`, commit
@@ -6,15 +6,16 @@ official TRMNL firmware `v1.8.17`, commit
 The `02:00:00:00:00:01` MAC, `.test` host, friendly ID and API key are fabricated.
 The API key is a readable fixture marker, not production-strength key material.
 The public URL prefix and namespace in these fixtures both use `arprt`.
-See [the contract and source links](../../notes/001-PHASE0.md).
+See [the contract and source links](../../notes/PROTOCOL.md).
 
 Firmware sources establish the request headers, response handling and image
 fetch behavior. Error responses and Render Context examples record controller
 design choices. They are expected contract data, not claims about responses
-captured from an existing controller. No production tests consume these files
-yet; the following uses are planned for Phases 1 and 2.
+captured from an existing controller. Context JSON and PNG fixtures are consumed
+by current unit/integration tests and smoke scripts. The HTTP request/response
+examples document expected wire behavior; this table describes each file's role.
 
-| Files | Intended check |
+| Files | Purpose |
 | --- | --- |
 | `setup-request.http`, `display-request.http` | Parse identity, firmware, dimensions and telemetry; preserve the configured external path prefix |
 | `setup-image-request.http`, `display-image-request.http` | Setup logo needs no auth headers; display image carries identity / token on the device URL prefix |
@@ -43,4 +44,7 @@ yet; the following uses are planned for Phases 1 and 2.
   retained without inventing a percentage. `render-context-no-telemetry.json`
   illustrates omission of unavailable values / objects.
 
-Physical-device acceptance and additional encoding fixtures belong to Phase 2.
+See the [indexed PNG fixture](../phase2/README.md) for the other accepted encoding
+and [dated acceptance evidence](../../notes/DEVELOP.md#recorded-acceptance-baseline)
+for physical-device verification. Directory names are retained to preserve existing
+test/example paths; they do not indicate an unfinished implementation phase.
