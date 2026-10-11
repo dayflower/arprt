@@ -22,7 +22,7 @@ var (
 )
 
 // Read never provisions or repairs credentials during ordinary authentication.
-func Read(ctx context.Context, reader client.Reader, d *api.TrmnlDevice) (string, error) {
+func Read(ctx context.Context, reader client.Reader, d *api.ArprtDevice) (string, error) {
 	var secret corev1.Secret
 	if d.Spec.AuthSecretRef.Name == "" || reader.Get(ctx, client.ObjectKey{Namespace: d.Namespace, Name: d.Spec.AuthSecretRef.Name}, &secret) != nil {
 		return "", ErrUnavailable
@@ -52,7 +52,7 @@ func value(secret *corev1.Secret) (string, error) {
 // Ensure is used only by setup after validating the hardware identity. The
 // operator declares the named Secret, and setup fills only an absent apiKey.
 // Optimistic patches prevent concurrent requests from replacing a winning key.
-func Ensure(ctx context.Context, reader client.Reader, writer client.Client, d *api.TrmnlDevice) (string, error) {
+func Ensure(ctx context.Context, reader client.Reader, writer client.Client, d *api.ArprtDevice) (string, error) {
 	if d.Spec.AuthSecretRef.Name == "" {
 		return "", ErrUnavailable
 	}
@@ -60,7 +60,7 @@ func Ensure(ctx context.Context, reader client.Reader, writer client.Client, d *
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var current api.TrmnlDevice
+		var current api.ArprtDevice
 		if reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || current.Generation != d.Generation || !reflect.DeepEqual(current.Spec, d.Spec) || !current.DeletionTimestamp.IsZero() || current.UID == "" {
 			return ErrUnavailable
 		}

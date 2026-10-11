@@ -35,7 +35,7 @@ func TestPendingDisplayPreservesStatusOwnership(t *testing.T) {
 				}
 			}
 			if scenario.unsupportedSource {
-				var sc api.TrmnlScreen
+				var sc api.ArprtScreen
 				if err := c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "screen"}, &sc); err != nil {
 					t.Fatal(err)
 				}
@@ -106,7 +106,7 @@ func TestReplayPreservesRenderOutcomesAndObservesTelemetry(t *testing.T) {
 	if err := c.Status().Update(ctx, d); err != nil {
 		t.Fatal(err)
 	}
-	var sc api.TrmnlScreen
+	var sc api.ArprtScreen
 	if err := c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "screen"}, &sc); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestReplayPreservesRenderOutcomesAndObservesTelemetry(t *testing.T) {
 			t.Fatal("replay changed serving or render outcome", kind)
 		}
 	}
-	var afterScreen api.TrmnlScreen
+	var afterScreen api.ArprtScreen
 	if err := c.Get(ctx, client.ObjectKeyFromObject(&sc), &afterScreen); err != nil {
 		t.Fatal(err)
 	}

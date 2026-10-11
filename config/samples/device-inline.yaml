@@ -1,5 +1,5 @@
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlDevice
+kind: ArprtDevice
 metadata:
   name: living-room
 spec:

@@ -60,32 +60,32 @@ func TestAPIAndController(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	validScreen := func(name string) *api.TrmnlScreen {
-		return &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render?key=a&key=b"}}}}
+	validScreen := func(name string) *api.ArprtScreen {
+		return &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render?key=a&key=b"}}}}
 	}
-	validDevice := func(name string) *api.TrmnlDevice {
-		return &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "device-auth"}, ScreenRef: &api.LocalReference{Name: "photo"}}}
+	validDevice := func(name string) *api.ArprtDevice {
+		return &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "device-auth"}, ScreenRef: &api.LocalReference{Name: "photo"}}}
 	}
 	for i, mutation := range []struct {
 		name   string
-		mutate func(*api.TrmnlScreen)
+		mutate func(*api.ArprtScreen)
 	}{
-		{"no-source", func(s *api.TrmnlScreen) { s.Spec.Source = api.ScreenSource{} }},
-		{"two-sources", func(s *api.TrmnlScreen) {
+		{"no-source", func(s *api.ArprtScreen) { s.Spec.Source = api.ScreenSource{} }},
+		{"two-sources", func(s *api.ArprtScreen) {
 			s.Spec.Source.Job = &api.JobSource{Renderer: api.RendererContainer{Image: "renderer:v1"}}
 		}},
-		{"method", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.Method = "PUT" }},
-		{"post-interval", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.Method = "POST"; s.Spec.RefreshInterval = "5m" }},
-		{"interval-zero", func(s *api.TrmnlScreen) { s.Spec.RefreshInterval = "0s" }},
-		{"interval-big", func(s *api.TrmnlScreen) { s.Spec.RefreshInterval = "24h1s" }},
-		{"interval-fraction", func(s *api.TrmnlScreen) { s.Spec.RefreshInterval = "1.5s" }},
-		{"interval-no-unit", func(s *api.TrmnlScreen) { s.Spec.RefreshInterval = "30" }},
-		{"url-relative", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "/render" }},
-		{"url-scheme", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "ftp://host/render" }},
-		{"url-no-host", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "http:///render" }},
-		{"url-userinfo", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "https://user:secret@host/render" }},
-		{"url-fragment", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "https://host/render#fragment" }},
-		{"url-escaping", func(s *api.TrmnlScreen) { s.Spec.Source.HTTP.URL = "https://host/render?x=%XX" }},
+		{"method", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.Method = "PUT" }},
+		{"post-interval", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.Method = "POST"; s.Spec.RefreshInterval = "5m" }},
+		{"interval-zero", func(s *api.ArprtScreen) { s.Spec.RefreshInterval = "0s" }},
+		{"interval-big", func(s *api.ArprtScreen) { s.Spec.RefreshInterval = "24h1s" }},
+		{"interval-fraction", func(s *api.ArprtScreen) { s.Spec.RefreshInterval = "1.5s" }},
+		{"interval-no-unit", func(s *api.ArprtScreen) { s.Spec.RefreshInterval = "30" }},
+		{"url-relative", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "/render" }},
+		{"url-scheme", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "ftp://host/render" }},
+		{"url-no-host", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "http:///render" }},
+		{"url-userinfo", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "https://user:secret@host/render" }},
+		{"url-fragment", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "https://host/render#fragment" }},
+		{"url-escaping", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.URL = "https://host/render?x=%XX" }},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
 			s := validScreen(fmt.Sprintf("invalid-%d", i))
@@ -112,15 +112,15 @@ func TestAPIAndController(t *testing.T) {
 	}
 	for i, mutation := range []struct {
 		name   string
-		mutate func(*api.TrmnlDevice)
+		mutate func(*api.ArprtDevice)
 	}{
-		{"rotation-negative", func(d *api.TrmnlDevice) { d.Spec.Rotation = -90 }},
-		{"rotation-arbitrary", func(d *api.TrmnlDevice) { d.Spec.Rotation = 45 }},
-		{"rotation-full-turn", func(d *api.TrmnlDevice) { d.Spec.Rotation = 360 }},
-		{"assignment-conflict", func(d *api.TrmnlDevice) { d.Spec.PlaylistRef = &api.LocalReference{Name: "playlist"} }},
-		{"invalid-mac", func(d *api.TrmnlDevice) { d.Spec.HardwareID = "02:aa:00:00:00:01" }},
-		{"missing-secret", func(d *api.TrmnlDevice) { d.Spec.AuthSecretRef.Name = "" }},
-		{"bad-reference", func(d *api.TrmnlDevice) { d.Spec.ScreenRef.Name = "../other" }},
+		{"rotation-negative", func(d *api.ArprtDevice) { d.Spec.Rotation = -90 }},
+		{"rotation-arbitrary", func(d *api.ArprtDevice) { d.Spec.Rotation = 45 }},
+		{"rotation-full-turn", func(d *api.ArprtDevice) { d.Spec.Rotation = 360 }},
+		{"assignment-conflict", func(d *api.ArprtDevice) { d.Spec.PlaylistRef = &api.LocalReference{Name: "playlist"} }},
+		{"invalid-mac", func(d *api.ArprtDevice) { d.Spec.HardwareID = "02:aa:00:00:00:01" }},
+		{"missing-secret", func(d *api.ArprtDevice) { d.Spec.AuthSecretRef.Name = "" }},
+		{"bad-reference", func(d *api.ArprtDevice) { d.Spec.ScreenRef.Name = "../other" }},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
 			d := validDevice(fmt.Sprintf("bad-device-%d", i))
@@ -138,7 +138,7 @@ func TestAPIAndController(t *testing.T) {
 			t.Fatal("valid rotation rejected", err)
 		}
 		var stored unstructured.Unstructured
-		stored.SetGroupVersionKind(api.GroupVersion.WithKind("TrmnlDevice"))
+		stored.SetGroupVersionKind(api.GroupVersion.WithKind("ArprtDevice"))
 		if err := c.Get(ctx, client.ObjectKeyFromObject(d), &stored); err != nil {
 			t.Fatal(err)
 		}
@@ -154,8 +154,8 @@ func TestAPIAndController(t *testing.T) {
 	// Unknown source keys cannot survive strict API writes. CRDs normally prune
 	// unknown fields, so every installation/example command uses validation=strict.
 	for _, raw := range []string{
-		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlScreen","metadata":{"name":"unknown-source","namespace":"arprt"},"spec":{"source":{"http":{"url":"http://host/render"},"unknown":{}}}}`,
-		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlDevice","metadata":{"name":"cross-namespace","namespace":"arprt"},"spec":{"hardwareID":"02:00:00:00:00:01","authSecretRef":{"name":"key","namespace":"other"}}}`,
+		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"ArprtScreen","metadata":{"name":"unknown-source","namespace":"arprt"},"spec":{"source":{"http":{"url":"http://host/render"},"unknown":{}}}}`,
+		`{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"ArprtDevice","metadata":{"name":"cross-namespace","namespace":"arprt"},"spec":{"hardwareID":"02:00:00:00:00:01","authSecretRef":{"name":"key","namespace":"other"}}}`,
 	} {
 		var obj unstructured.Unstructured
 		if err := json.Unmarshal([]byte(raw), &obj.Object); err != nil {
@@ -183,7 +183,7 @@ func TestAPIAndController(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKeyFromObject(job), job); err != nil {
 		t.Fatal(err)
 	}
-	if job.Spec.Source.Job.ContextPath != "/trmnl/context.json" || job.Spec.Source.Job.ImagePath != "/trmnl/output.png" {
+	if job.Spec.Source.Job.ContextPath != "/arprt/context.json" || job.Spec.Source.Job.ImagePath != "/arprt/output.png" {
 		t.Fatal("job path defaults missing")
 	}
 	for i, interval := range []string{"1s", "24h", "1h30m", "0h0m1s"} {

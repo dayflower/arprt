@@ -23,8 +23,8 @@ func TestCollectRetainsDesiredRotationAndIssuedImages(t *testing.T) {
 	if err := api.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "device", UID: "device-uid"}, Spec: api.TrmnlDeviceSpec{Rotation: 90, ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.TrmnlDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
-	s := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "screen", UID: "screen-uid"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{Method: "GET"}}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "device", UID: "device-uid"}, Spec: api.ArprtDeviceSpec{Rotation: 90, ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.ArprtDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
+	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "screen", UID: "screen-uid"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{Method: "GET"}}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, s).Build()
 	root := t.TempDir()
 	repo, err := artifact.NewPVC(root)

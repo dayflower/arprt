@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: trmnlscreens.arprt.dayflower.github.io
+  name: arprtscreens.arprt.dayflower.github.io
 spec:
   group: arprt.dayflower.github.io
   names:
-    kind: TrmnlScreen
-    listKind: TrmnlScreenList
-    plural: trmnlscreens
+    kind: ArprtScreen
+    listKind: ArprtScreenList
+    plural: arprtscreens
     shortNames:
-    - tscreen
-    singular: trmnlscreen
+    - ascreen
+    singular: arprtscreen
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -144,7 +144,7 @@ spec:
                       is a dedicated writable mount.
                     properties:
                       contextPath:
-                        default: /trmnl/context.json
+                        default: /arprt/context.json
                         maxLength: 512
                         pattern: ^/([^/\x00]+/)*[^/\x00]+$
                         type: string
@@ -152,7 +152,7 @@ spec:
                         - message: path must be a clean absolute POSIX file path
                           rule: '!self.split(''/'').exists(p, p == ''.'' || p == ''..'')'
                       imagePath:
-                        default: /trmnl/output.png
+                        default: /arprt/output.png
                         maxLength: 512
                         pattern: ^/([^/\x00]+/)*[^/\x00]+$
                         type: string

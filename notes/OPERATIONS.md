@@ -8,7 +8,7 @@ defines device responses and image/context contracts.
 
 ## Hardware identity
 
-`TrmnlDevice.spec` accepts at most one of:
+`ArprtDevice.spec` accepts at most one of:
 
 ```yaml
 hardwareID: "02:00:00:00:00:01"  # synthetic direct-MAC example
@@ -234,7 +234,7 @@ recovered by the next controller from their durable snapshots and API status.
 | Corrupt image/latest pointer | The affected unit is regenerated on the next render; other valid units and issuance remain intact |
 | Existing URL returns 404 | Confirm device UID, authentication, retention window and blob integrity; an old URL cannot recover missing bytes without its original validated output |
 
-Inspect `kubectl -n arprt get trmnldevices,trmnlscreens,trmnlplaylists -o yaml`,
+Inspect `kubectl -n arprt get arprtdevices,arprtscreens,arprtplaylists -o yaml`,
 `kubectl -n arprt get jobs,pods`, and `kubectl -n arprt get events`.
 Avoid publishing Secret values, raw device requests or renderer logs containing
 private data. A syntactically corrupt latest pointer is regenerable; corrupt

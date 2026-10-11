@@ -21,11 +21,11 @@ func TestOrderingScopeEditsAndRetryWindow(t *testing.T) {
 	_ = api.AddToScheme(scheme)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
 	for _, s := range []struct{ ns, name string }{{"a", "z"}, {"a", "b"}, {"other", "a"}} {
-		if err := c.Create(ctx, &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: s.ns, Name: s.name, UID: types.UID(s.ns + s.name)}}); err != nil {
+		if err := c.Create(ctx, &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: s.ns, Name: s.name, UID: types.UID(s.ns + s.name)}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}, Status: api.TrmnlDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}, Status: api.ArprtDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
 	r := Explicit{Reader: c}
 	set, err := r.Eligible(ctx, d)
 	if err != nil || len(set.Screens) != 2 || set.Screens[0].Name != "b" {
@@ -46,7 +46,7 @@ func TestOrderingScopeEditsAndRetryWindow(t *testing.T) {
 	}
 	d.UID = ""
 
-	if err := c.Create(ctx, &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "a", UID: "aa"}}); err != nil {
+	if err := c.Create(ctx, &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "a", UID: "aa"}}); err != nil {
 		t.Fatal(err)
 	}
 	changed, _ := r.Eligible(ctx, d)
@@ -56,7 +56,7 @@ func TestOrderingScopeEditsAndRetryWindow(t *testing.T) {
 	if s, _ := changed.Select(d, now, 5*time.Second); s.Name != "a" {
 		t.Fatal("membership change did not reset")
 	}
-	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "list", UID: "list"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "z"}, {Name: "missing"}, {Name: "b"}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "list", UID: "list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "z"}, {Name: "missing"}, {Name: "b"}}}}
 	if err := c.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +89,10 @@ func TestDiscoveryFanoutBound(t *testing.T) {
 	_ = api.AddToScheme(scheme)
 	objects := []client.Object{}
 	for i := 0; i < MaxScreens+3; i++ {
-		objects = append(objects, &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: fmt.Sprintf("screen-%03d", i)}})
+		objects = append(objects, &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: fmt.Sprintf("screen-%03d", i)}})
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-	set, err := (Explicit{Reader: c}).Eligible(context.Background(), &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}})
+	set, err := (Explicit{Reader: c}).Eligible(context.Background(), &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}})
 	if err != nil || len(set.Screens) != MaxScreens || set.Screens[MaxScreens-1].Name != "screen-063" {
 		t.Fatal(set, err)
 	}

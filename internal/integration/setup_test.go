@@ -25,7 +25,7 @@ import (
 func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	t.Helper()
 	ctx := context.Background()
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "automatic-key", Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "automatic-key"}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "automatic-key", Namespace: "arprt"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "automatic-key"}}}
 	if err := c.Create(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	if err := c.Create(ctx, locked); err != nil {
 		t.Fatal(err)
 	}
-	updateDevice(t, c, d, false, func(current *api.TrmnlDevice) {
+	updateDevice(t, c, d, false, func(current *api.ArprtDevice) {
 		current.Spec.AuthSecretRef.Name = locked.Name
 	})
 	if code, key := setup(); code != 503 || key != "" {
@@ -118,7 +118,7 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 	if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
 		t.Fatal(err)
 	}
-	updateDevice(t, c, d, false, func(current *api.TrmnlDevice) {
+	updateDevice(t, c, d, false, func(current *api.ArprtDevice) {
 		current.Spec.AuthSecretRef.Name = operator.Name
 	})
 	if code, key := setup(); code != 200 || key != string(operator.Data["apiKey"]) {
@@ -128,7 +128,7 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 
 // The manager is running during these scenarios. Test mutations must tolerate
 // its status patches instead of failing on an unrelated resourceVersion change.
-func updateDevice(t *testing.T, c client.Client, d *api.TrmnlDevice, status bool, mutate func(*api.TrmnlDevice)) {
+func updateDevice(t *testing.T, c client.Client, d *api.ArprtDevice, status bool, mutate func(*api.ArprtDevice)) {
 	t.Helper()
 	ctx := context.Background()
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {

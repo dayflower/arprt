@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: trmnlplaylists.arprt.dayflower.github.io
+  name: arprtplaylists.arprt.dayflower.github.io
 spec:
   group: arprt.dayflower.github.io
   names:
-    kind: TrmnlPlaylist
-    listKind: TrmnlPlaylistList
-    plural: trmnlplaylists
+    kind: ArprtPlaylist
+    listKind: ArprtPlaylistList
+    plural: arprtplaylists
     shortNames:
-    - tplaylist
-    singular: trmnlplaylist
+    - aplaylist
+    singular: arprtplaylist
   scope: Namespaced
   versions:
   - name: v1alpha1
@@ -38,7 +38,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: TrmnlPlaylistSpec defines a bounded, explicitly ordered screen
+            description: ArprtPlaylistSpec defines a bounded, explicitly ordered screen
               cycle.
             properties:
               screens:

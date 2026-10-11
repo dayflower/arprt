@@ -26,7 +26,7 @@ import (
 
 // prepareAttempt leaves Active nil when work must wait or fails. On success,
 // context, sequence and Active are durable before advance can submit a Job.
-func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state) (ctrl.Result, error) {
+func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
 	source, err := normalize(*s.Spec.Source.Job)
 	if err != nil {
 		return r.failed(ctx, d, s, st, "InvalidJobPaths")
@@ -74,7 +74,7 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.TrmnlDevice, s *
 }
 
 // submitPrepared only handles an absent Job; existing Jobs recover separately.
-func (r *Reconciler) submitPrepared(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state) (ctrl.Result, error) {
+func (r *Reconciler) submitPrepared(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
 	a := st.Active
 	if a.Submitted {
 		return r.failed(ctx, d, s, st, "JobLost")
@@ -144,7 +144,7 @@ func (r *Reconciler) recoverSubmission(st *state, job *batchv1.Job) error {
 	return nil
 }
 
-func (r *Reconciler) observeJob(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state, job *batchv1.Job) (ctrl.Result, error) {
+func (r *Reconciler) observeJob(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job) (ctrl.Result, error) {
 	a := st.Active
 	complete, failed := terminal(job)
 	if failed {
@@ -171,7 +171,7 @@ func (r *Reconciler) observeJob(ctx context.Context, d *api.TrmnlDevice, s *api.
 	return r.collectSuccessful(ctx, d, s, st, job)
 }
 
-func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state, job *batchv1.Job) (ctrl.Result, error) {
+func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job) (ctrl.Result, error) {
 	a := st.Active
 	pods, err := r.pods(ctx, st)
 	if err != nil {
@@ -210,7 +210,7 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.TrmnlDevice, 
 
 // publishCompleted publishes before clearing Active so an interrupted save can
 // recover the same attempt and publication metadata.
-func (r *Reconciler) publishCompleted(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state, job *batchv1.Job, b []byte) (ctrl.Result, error) {
+func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job, b []byte) (ctrl.Result, error) {
 	a := st.Active
 	renderedAt := r.now()
 	if job.Status.CompletionTime != nil {

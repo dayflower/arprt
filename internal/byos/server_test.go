@@ -35,8 +35,8 @@ func newTestServer(t *testing.T, renderer string) (*Server, client.Client, strin
 	scheme := runtime.NewScheme()
 	_ = api.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "auth"}, ScreenRef: &api.LocalReference{Name: "screen"}}}
-	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "screen", UID: "screen-1", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer, Method: "GET"}}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "auth"}, ScreenRef: &api.LocalReference{Name: "screen"}}}
+	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "screen", UID: "screen-1", Generation: 1}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer, Method: "GET"}}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(d, screen).WithObjects(d, screen, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "auth"}, Data: map[string][]byte{"apiKey": []byte(token)}}).Build()
 	root := t.TempDir()
 	repo, err := artifact.NewPVC(root)
@@ -69,9 +69,9 @@ func decodeDisplay(t *testing.T, w *httptest.ResponseRecorder) DisplayResponse {
 	}
 	return result
 }
-func loadDevice(t *testing.T, c client.Client) *api.TrmnlDevice {
+func loadDevice(t *testing.T, c client.Client) *api.ArprtDevice {
 	t.Helper()
-	var d api.TrmnlDevice
+	var d api.ArprtDevice
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "living-room"}, &d); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestSetupDisplayPersistenceOutage(t *testing.T) {
 	if request(s, "GET", imagePath, auth(), nil).Code != 200 {
 		t.Fatal("issuance lost on restart")
 	}
-	var screen api.TrmnlScreen
+	var screen api.ArprtScreen
 	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen)
 	screen.Spec.RefreshInterval = "1s"
 	screen.Generation++
@@ -248,7 +248,7 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 			return render.Output{PNG: b}, nil
 		})
 	}
-	var sc api.TrmnlScreen
+	var sc api.ArprtScreen
 	_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &sc)
 	target := render.Target{Width: 800, Height: 480, Palette: "gray4"}
 	var wg sync.WaitGroup
@@ -370,7 +370,7 @@ func TestSharedGETIssuanceAndMalformedRefresh(t *testing.T) {
 	if request(s, "GET", path+"/images/"+digest+".png", headers, nil).Code != 200 {
 		t.Fatal("shared image not issued")
 	}
-	var screen api.TrmnlScreen
+	var screen api.ArprtScreen
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func identityMode(t *testing.T, c client.Client, mode string) *api.TrmnlDevice {
+func identityMode(t *testing.T, c client.Client, mode string) *api.ArprtDevice {
 	t.Helper()
 	d := loadDevice(t, c)
 	if mode != "inline" {
@@ -120,7 +120,7 @@ func TestIdentityModesAndRestart(t *testing.T) {
 				}
 				// A cleared or incorrectly changed status cannot release a durable binding.
 				d = loadDevice(t, c)
-				d.Status = api.TrmnlDeviceStatus{}
+				d.Status = api.ArprtDeviceStatus{}
 				if err := c.Status().Update(context.Background(), d); err != nil {
 					t.Fatal(err)
 				}
@@ -155,7 +155,7 @@ func TestIdentityModesAndRestart(t *testing.T) {
 				}
 				d.UID = "replacement-uid"
 				d.ResourceVersion = ""
-				d.Status = api.TrmnlDeviceStatus{}
+				d.Status = api.ArprtDeviceStatus{}
 				if err := c.Create(context.Background(), d); err != nil {
 					t.Fatal(err)
 				}
@@ -212,7 +212,7 @@ func TestConcurrentAutoRegistrationAndMixedDuplicates(t *testing.T) {
 	second.Name = "second"
 	second.UID = "device-2"
 	second.ResourceVersion = ""
-	second.Status = api.TrmnlDeviceStatus{}
+	second.Status = api.ArprtDeviceStatus{}
 	if err := c.Create(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestConcurrentAutoRegistrationAndMixedDuplicates(t *testing.T) {
 	if successes.Load() != 1 {
 		t.Fatal("simultaneous claims were not exclusive", successes.Load())
 	}
-	for _, d := range []*api.TrmnlDevice{first, second} {
+	for _, d := range []*api.ArprtDevice{first, second} {
 		if _, err := s.Repository.Binding(context.Background(), string(d.UID)); err != nil && !errors.Is(err, artifact.ErrNotFound) {
 			t.Fatal(err)
 		}

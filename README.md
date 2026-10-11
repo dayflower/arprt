@@ -1,7 +1,10 @@
-# ARPRT - A TRMNL BYOS Kubernetes controller
+# ARPRT - An unofficial Kubernetes controller for TRMNL BYOS
 
 Render your TRMNL screens with HTTP GET, POST or Kubernetes Jobs, and cycle
 through them with ordered playlists or automatic discovery.
+
+ARPRT is an independent, unofficial project. It is not affiliated with or
+endorsed by TRMNL.
 
 ## Security and support boundary
 
@@ -26,6 +29,11 @@ Build with `make build` or `make docker-build IMAGE=arprt:dev`. Tooling, generat
 `make verify` and API/cluster checks are in [DEVELOP](notes/DEVELOP.md).
 
 ## Installation and pairing
+
+The public resources are `ArprtDevice`, `ArprtScreen` and `ArprtPlaylist` in
+`arprt.dayflower.github.io/v1alpha1`. This naming is for new installations;
+upgrading or migrating an existing installation using the former resource names
+is not supported. Install into a fresh namespace with a new artifact PVC.
 
 Examples use `arprt` for both the namespace and external URL prefix. These are
 independent: device URLs are `<publicBaseURL>/devices/<namespace>/<device-name>`.
@@ -79,8 +87,8 @@ Run commands from the repository root and substitute your private overlay path.
 7. Confirm four gray bands on the device and inspect status:
 
    ```sh
-   kubectl -n arprt get trmnldevices,trmnlscreens
-   kubectl -n arprt get trmnldevice living-room -o yaml
+   kubectl -n arprt get arprtdevices,arprtscreens
+   kubectl -n arprt get arprtdevice living-room -o yaml
    ```
 
 Preserve `ID`/`Access-Token` headers and avoid logging them or setup response
@@ -165,7 +173,7 @@ For example:
 
 ```yaml
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlPlaylist
+kind: ArprtPlaylist
 metadata:
   name: living-room
 spec:

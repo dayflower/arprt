@@ -11,7 +11,7 @@ import (
 //go:embed setup-logo.png
 var setupLogo []byte
 
-func (s *Server) image(w http.ResponseWriter, r *http.Request, d *api.TrmnlDevice, endpoint string) {
+func (s *Server) image(w http.ResponseWriter, r *http.Request, d *api.ArprtDevice, endpoint string) {
 	ctx := r.Context()
 	digest := strings.TrimSuffix(strings.TrimPrefix(endpoint, "images/"), ".png")
 	allowed, err := s.Repository.Authorized(ctx, string(d.UID), digest)

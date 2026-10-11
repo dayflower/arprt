@@ -19,12 +19,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func fixture(t *testing.T) (client.Client, *api.TrmnlDevice) {
+func fixture(t *testing.T) (client.Client, *api.ArprtDevice) {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	_ = api.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "living-room", UID: "device-1", Generation: 1}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}}}
 	s := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "auth", Labels: map[string]string{"keep": "label"}}, Data: map[string][]byte{"other": []byte("preserve")}}
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, s).Build(), d
 }

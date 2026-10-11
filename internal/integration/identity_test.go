@@ -27,7 +27,7 @@ func verifyIdentityAPI(t *testing.T, c client.Client) {
 	ctx := context.Background()
 	for _, mode := range []string{"inline", "secret", "auto"} {
 		t.Run("identity-schema-"+mode, func(t *testing.T) {
-			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "identity-schema-" + mode, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "credentials"}}}
+			d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "identity-schema-" + mode, Namespace: "arprt"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "credentials"}}}
 			if mode == "inline" {
 				d.Spec.HardwareID = "02:00:00:00:00:20"
 			}
@@ -38,22 +38,22 @@ func verifyIdentityAPI(t *testing.T, c client.Client) {
 				t.Fatal("valid identity source rejected", err)
 			}
 			original := d.DeepCopy()
-			for _, mutation := range []func(*api.TrmnlDevice){
-				func(d *api.TrmnlDevice) {
+			for _, mutation := range []func(*api.ArprtDevice){
+				func(d *api.ArprtDevice) {
 					d.Spec.HardwareID = "02:00:00:00:00:21"
 					d.Spec.HardwareIDSecretRef = nil
 				},
-				func(d *api.TrmnlDevice) { d.Spec.HardwareID = ""; d.Spec.HardwareIDSecretRef = nil },
-				func(d *api.TrmnlDevice) {
+				func(d *api.ArprtDevice) { d.Spec.HardwareID = ""; d.Spec.HardwareIDSecretRef = nil },
+				func(d *api.ArprtDevice) {
 					d.Spec.HardwareID = ""
 					d.Spec.HardwareIDSecretRef = &api.HardwareIDSecretReference{Name: "changed", Key: "different"}
 				},
-				func(d *api.TrmnlDevice) {
+				func(d *api.ArprtDevice) {
 					if d.Spec.HardwareIDSecretRef != nil {
 						d.Spec.HardwareIDSecretRef.Name = "changed"
 					}
 				},
-				func(d *api.TrmnlDevice) {
+				func(d *api.ArprtDevice) {
 					if d.Spec.HardwareIDSecretRef != nil {
 						d.Spec.HardwareIDSecretRef.Key = "different"
 					}
@@ -84,7 +84,7 @@ func verifyIdentityAPI(t *testing.T, c client.Client) {
 		{"hardwareIDSecretRef": map[string]any{"name": "identity", "key": "mac", "namespace": "other"}},
 	} {
 		source["authSecretRef"] = map[string]any{"name": "credentials"}
-		obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": api.GroupVersion.String(), "kind": "TrmnlDevice", "metadata": map[string]any{"name": fmt.Sprintf("invalid-identity-%d", i), "namespace": "arprt"}, "spec": source}}
+		obj := &unstructured.Unstructured{Object: map[string]any{"apiVersion": api.GroupVersion.String(), "kind": "ArprtDevice", "metadata": map[string]any{"name": fmt.Sprintf("invalid-identity-%d", i), "namespace": "arprt"}, "spec": source}}
 		if err := c.Create(ctx, obj, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
 			t.Fatal("invalid identity source accepted", i)
 		}
@@ -109,7 +109,7 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 		t.Run("identity-registration-"+mode, func(t *testing.T) {
 			id := fmt.Sprintf("02:00:00:00:00:%02X", 0x30+i)
 			name := "identity-registration-" + mode
-			d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: name}}}
+			d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "arprt"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: name}}}
 			if mode == "inline" {
 				d.Spec.HardwareID = id
 			}
@@ -158,8 +158,8 @@ func verifyIdentityRegistration(t *testing.T, c client.Client) {
 				t.Fatal("registration changed spec or lost status identity")
 			}
 			// Persisted identity protects against status loss and a different next MAC.
-			updateDevice(t, c, d, true, func(current *api.TrmnlDevice) {
-				current.Status = api.TrmnlDeviceStatus{}
+			updateDevice(t, c, d, true, func(current *api.ArprtDevice) {
+				current.Status = api.ArprtDeviceStatus{}
 			})
 			if got := setup("02:00:00:00:00:40"); got != 403 {
 				t.Fatal("status loss allowed another MAC", got)

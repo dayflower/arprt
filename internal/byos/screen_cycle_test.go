@@ -54,8 +54,8 @@ func TestMixedScreenCycleRestartRetriesAndPending(t *testing.T) {
 			}))
 			defer renderer.Close()
 			s, c, root := newTestServer(t, renderer.URL)
-			post := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: "POST"}}}}
-			job := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "job", UID: "job-uid", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "unused"}}}}}
+			post := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: "POST"}}}}
+			job := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "job", UID: "job-uid", Generation: 1}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "unused"}}}}}
 			for _, obj := range []client.Object{post, job} {
 				if err := c.Create(ctx, obj); err != nil {
 					t.Fatal(err)
@@ -65,7 +65,7 @@ func TestMixedScreenCycleRestartRetriesAndPending(t *testing.T) {
 			d.Spec.ScreenRef = nil
 			order := []string{"screen-1", "post-uid", "job-uid"}
 			if mode == "playlist" {
-				p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle", UID: "playlist-uid"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "missing"}, {Name: "screen"}, {Name: "post"}, {Name: "job"}}}}
+				p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle", UID: "playlist-uid"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "missing"}, {Name: "screen"}, {Name: "post"}, {Name: "job"}}}}
 				if err := c.Create(ctx, p); err != nil {
 					t.Fatal(err)
 				}
@@ -121,7 +121,7 @@ func TestMixedScreenCycleRestartRetriesAndPending(t *testing.T) {
 				s = restarted
 			}
 			// Removing the last selected resource resets membership deterministically.
-			var selected api.TrmnlScreen
+			var selected api.ArprtScreen
 			name := "screen"
 			if mode == "discovery" {
 				name = "job"
@@ -152,7 +152,7 @@ func TestScreenCycleEditDuringPOSTRejectsResult(t *testing.T) {
 	defer renderer.Close()
 	s, c, _ := newTestServer(t, renderer.URL)
 	sc := postScreen(t, c)
-	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: types.UID("list")}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: sc.Name}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: types.UID("list")}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: sc.Name}}}}
 	if err := c.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -190,8 +190,8 @@ func TestScreenCycleFailureHoldsTurnAndUsesOnlyItsOwnStaleImage(t *testing.T) {
 	}))
 	defer renderer.Close()
 	s, c, _ := newTestServer(t, renderer.URL)
-	post := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: "POST"}}}}
-	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: "list"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "screen"}, {Name: "post"}}}}
+	post := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: "POST"}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: "list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "screen"}, {Name: "post"}}}}
 	for _, obj := range []client.Object{post, p} {
 		if err := c.Create(ctx, obj); err != nil {
 			t.Fatal(err)

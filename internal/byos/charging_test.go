@@ -57,7 +57,7 @@ func TestPowerObservations(t *testing.T) {
 func TestChargingDeliveryCurrentInputsAndCache(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	enableOverlay(t, c, false, "battery")
-	var screen api.TrmnlScreen
+	var screen api.ArprtScreen
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 		t.Fatal(err)
 	}

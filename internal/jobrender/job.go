@@ -64,10 +64,10 @@ func (c Config) ValidateTopology(ctx context.Context, r client.Reader, root stri
 
 func normalize(source api.JobSource) (api.JobSource, error) {
 	if source.ContextPath == "" {
-		source.ContextPath = "/trmnl/context.json"
+		source.ContextPath = "/arprt/context.json"
 	}
 	if source.ImagePath == "" {
-		source.ImagePath = "/trmnl/output.png"
+		source.ImagePath = "/arprt/output.png"
 	}
 	for _, p := range []string{source.ContextPath, source.ImagePath} {
 		if !path.IsAbs(p) || path.Clean(p) != p || p == "/" || strings.ContainsRune(p, 0) {
@@ -117,7 +117,7 @@ func (c Config) job(st *state) *batchv1.Job {
 			resources.Requests[k] = v
 		}
 	}
-	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "TrmnlDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
+	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
 		BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(c.DeadlineSeconds), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false),
 			SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), FSGroup: ptr.To(int64(1000)), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},

@@ -1,5 +1,5 @@
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: photo
 spec:
@@ -8,7 +8,7 @@ spec:
       url: http://photo-renderer.arprt.svc/render?theme=light
 ---
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: device-status
 spec:
@@ -18,7 +18,7 @@ spec:
       url: http://status-renderer.arprt.svc/render
 ---
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: weather
 spec:

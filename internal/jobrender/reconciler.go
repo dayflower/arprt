@@ -54,8 +54,8 @@ func (r *Reconciler) now() time.Time {
 	return time.Now().UTC()
 }
 
-func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenName ...string) (*api.TrmnlDevice, *api.TrmnlScreen, *state, error) {
-	var d api.TrmnlDevice
+func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenName ...string) (*api.ArprtDevice, *api.ArprtScreen, *state, error) {
+	var d api.ArprtDevice
 	if err := r.Reader.Get(ctx, key, &d); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil, nil
@@ -108,7 +108,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	defer r.mu.Unlock()
 	// Process eligible and previously scheduled pairs, including removals.
 	names := map[string]bool{}
-	var d api.TrmnlDevice
+	var d api.ArprtDevice
 	if err := r.Reader.Get(ctx, req.NamespacedName, &d); err != nil && !apierrors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	} else if err == nil {
@@ -299,7 +299,7 @@ func (r *Reconciler) cancel(ctx context.Context, st *state) (bool, error) {
 	return true, nil
 }
 
-func (r *Reconciler) advance(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state) (ctrl.Result, error) {
+func (r *Reconciler) advance(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
 	a := st.Active
 	if a.TerminalReason != "" {
 		return r.failed(ctx, d, s, st, a.TerminalReason)
@@ -318,7 +318,7 @@ func (r *Reconciler) advance(ctx context.Context, d *api.TrmnlDevice, s *api.Trm
 	return r.observeJob(ctx, d, s, st, &job)
 }
 
-func (r *Reconciler) failed(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, st *state, reason string) (ctrl.Result, error) {
+func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, reason string) (ctrl.Result, error) {
 	if st.Active != nil {
 		st.Active.TerminalReason = reason
 		if err := r.Store.save(st); err != nil {
@@ -367,7 +367,7 @@ func (r *Reconciler) failed(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 	return ctrl.Result{RequeueAfter: delay}, nil
 }
 
-func (r *Reconciler) report(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen, ready bool, reason string) error {
+func (r *Reconciler) report(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, ready bool, reason string) error {
 	ctrl.LoggerFrom(ctx).Info("Job render state", "namespace", d.Namespace, "device", d.Name, "screen", s.Name, "reason", reason)
 	status := metav1.ConditionFalse
 	if ready {
@@ -393,9 +393,9 @@ func (r *Reconciler) report(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 			before := current.DeepCopyObject().(client.Object)
 			condition := metav1.Condition{Type: "RenderReady", Status: status, Reason: reason, Message: message, ObservedGeneration: current.GetGeneration()}
 			switch v := current.(type) {
-			case *api.TrmnlDevice:
+			case *api.ArprtDevice:
 				meta.SetStatusCondition(&v.Status.Conditions, condition)
-			case *api.TrmnlScreen:
+			case *api.ArprtScreen:
 				condition.Type = "Ready"
 				meta.SetStatusCondition(&v.Status.Conditions, condition)
 				v.Status.ObservedGeneration = v.Generation
@@ -414,7 +414,7 @@ func (r *Reconciler) report(ctx context.Context, d *api.TrmnlDevice, s *api.Trmn
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		var devices api.TrmnlDeviceList
+		var devices api.ArprtDeviceList
 		if err := r.Client.List(ctx, &devices, client.InNamespace(obj.GetNamespace())); err != nil {
 			return nil
 		}
@@ -424,7 +424,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		return requests
 	})
-	return ctrl.NewControllerManagedBy(mgr).Named("job-renderer").For(&api.TrmnlDevice{}).Owns(&batchv1.Job{}).Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Watches(&api.TrmnlPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).Named("job-renderer").For(&api.ArprtDevice{}).Owns(&batchv1.Job{}).Watches(&api.ArprtScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Watches(&api.ArprtPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }
 
 func (r *Reconciler) NeedLeaderElection() bool { return false }

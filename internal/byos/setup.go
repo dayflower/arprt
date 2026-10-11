@@ -6,7 +6,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 )
 
-func (s *Server) setup(w http.ResponseWriter, r *http.Request, d *api.TrmnlDevice, id string) {
+func (s *Server) setup(w http.ResponseWriter, r *http.Request, d *api.ArprtDevice, id string) {
 	ctx := r.Context()
 	// Secret changes do not increment generation. Re-read external inputs
 	// after registration and return only the persisted, current key.

@@ -68,7 +68,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, 405, 405)
 		return
 	}
-	var d api.TrmnlDevice
+	var d api.ArprtDevice
 	if err := s.Reader.Get(ctx, client.ObjectKey{Namespace: s.Config.Namespace, Name: name}, &d); err != nil || !d.DeletionTimestamp.IsZero() {
 		if err != nil && !apierrors.IsNotFound(err) {
 			reply(w, 503, 503)

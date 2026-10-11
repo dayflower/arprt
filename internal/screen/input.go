@@ -10,7 +10,7 @@ import (
 )
 
 // EffectiveInterval resolves conditional defaults without defaulting POST.
-func EffectiveInterval(spec api.TrmnlScreenSpec) (time.Duration, error) {
+func EffectiveInterval(spec api.ArprtScreenSpec) (time.Duration, error) {
 	if spec.Source.HTTP != nil && spec.Source.HTTP.Method == "POST" {
 		return 0, nil
 	}
@@ -26,7 +26,7 @@ func EffectiveInterval(spec api.TrmnlScreenSpec) (time.Duration, error) {
 // InputRevision excludes metadata, status and credentials. Kubernetes admission
 // validates the input; normalizing defaults gives explicit/omitted defaults the
 // same revision. Transport and collection semantic changes bump these versions.
-func InputRevision(spec api.TrmnlScreenSpec) (string, error) {
+func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 	s := spec.DeepCopy()
 	s.Overlay = EffectiveOverlay(s.Overlay)
 	if s.Source.HTTP != nil && s.Source.HTTP.Method == "" {
@@ -34,10 +34,10 @@ func InputRevision(spec api.TrmnlScreenSpec) (string, error) {
 	}
 	if s.Source.Job != nil {
 		if s.Source.Job.ContextPath == "" {
-			s.Source.Job.ContextPath = "/trmnl/context.json"
+			s.Source.Job.ContextPath = "/arprt/context.json"
 		}
 		if s.Source.Job.ImagePath == "" {
-			s.Source.Job.ImagePath = "/trmnl/output.png"
+			s.Source.Job.ImagePath = "/arprt/output.png"
 		}
 	}
 	interval, err := EffectiveInterval(*s)
@@ -49,7 +49,7 @@ func InputRevision(spec api.TrmnlScreenSpec) (string, error) {
 		s.RefreshInterval = ""
 	}
 	b, err := json.Marshal(struct {
-		Spec             *api.TrmnlScreenSpec `json:"spec"`
+		Spec             *api.ArprtScreenSpec `json:"spec"`
 		ContextVersion   string               `json:"contextVersion"`
 		CollectorVersion string               `json:"collectorVersion"`
 	}{s, "v1", "v1"})

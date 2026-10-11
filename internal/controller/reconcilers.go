@@ -49,7 +49,7 @@ type ScreenReconciler struct {
 
 func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var screen api.TrmnlScreen
+		var screen api.ArprtScreen
 		reader := r.Reader
 		if reader == nil {
 			reader = r.Client
@@ -79,7 +79,7 @@ func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 }
 
 func (r *ScreenReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&api.TrmnlScreen{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).For(&api.ArprtScreen{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }
 
 type DeviceReconciler struct {
@@ -93,7 +93,7 @@ type DeviceReconciler struct {
 
 func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var device api.TrmnlDevice
+		var device api.ArprtDevice
 		reader := r.Reader
 		if reader == nil {
 			reader = r.Client
@@ -207,7 +207,7 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Any identity edit/delete can change duplicate-ID readiness for other devices.
 	// Screen create/edit/delete can resolve or invalidate explicit assignments.
 	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		var devices api.TrmnlDeviceList
+		var devices api.ArprtDeviceList
 		if err := r.Client.List(ctx, &devices, client.InNamespace(obj.GetNamespace())); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "Unable to enqueue device assignments")
 			return nil
@@ -218,14 +218,14 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		return requests
 	})
-	return ctrl.NewControllerManagedBy(mgr).Named("trmnldevice").
-		Watches(&api.TrmnlDevice{}, enqueue, builder.WithPredicates(predicate.Funcs{
+	return ctrl.NewControllerManagedBy(mgr).Named("arprtdevice").
+		Watches(&api.ArprtDevice{}, enqueue, builder.WithPredicates(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
-				oldDevice, oldOK := e.ObjectOld.(*api.TrmnlDevice)
-				newDevice, newOK := e.ObjectNew.(*api.TrmnlDevice)
+				oldDevice, oldOK := e.ObjectOld.(*api.ArprtDevice)
+				newDevice, newOK := e.ObjectNew.(*api.ArprtDevice)
 				return oldOK && newOK && (oldDevice.Generation != newDevice.Generation || oldDevice.Status.HardwareID != newDevice.Status.HardwareID)
 			},
 		})).
-		Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&api.TrmnlPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+		Watches(&api.ArprtScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&api.ArprtPlaylist{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }

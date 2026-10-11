@@ -17,7 +17,7 @@ import (
 // Recover under the device gate before selection or corner reads. The status
 // and PVC are separate durable resources: only the complete proposed turn is
 // proof that a pending playlist advancement committed.
-func (s *Server) recoverCorner(ctx context.Context, d *api.TrmnlDevice) (artifact.CornerRecord, error) {
+func (s *Server) recoverCorner(ctx context.Context, d *api.ArprtDevice) (artifact.CornerRecord, error) {
 	r, err := s.Repository.Corner(ctx, string(d.UID))
 	if err != nil {
 		return r, err
@@ -25,7 +25,7 @@ func (s *Server) recoverCorner(ctx context.Context, d *api.TrmnlDevice) (artifac
 	if r.Pending == nil {
 		return r, nil
 	}
-	var current api.TrmnlDevice
+	var current api.ArprtDevice
 	if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
 		return r, err
 	}
@@ -46,7 +46,7 @@ func (s *Server) recoverCorner(ctx context.Context, d *api.TrmnlDevice) (artifac
 // The base success and render error stay separate from the issued candidate.
 // Only compositing/cache persistence failures fall back, before authorization
 // and Issue. Required delivery-state failures never use this fallback.
-func (s *Server) overlayImage(ctx context.Context, d *api.TrmnlDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
+func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
 	release := func() {}
 	if image.metadata.ImageDigest == "" {
 		return image, release, nil

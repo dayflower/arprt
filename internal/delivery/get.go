@@ -38,7 +38,7 @@ func NewGET(repo artifact.Repository, reader client.Reader) *GET {
 
 // Image returns eligible old output with a nonnil render error after a failed
 // refresh. Joining callers wait independently; one disconnect cannot cancel all.
-func (g *GET) Image(ctx context.Context, s *api.TrmnlScreen, target render.Target) (artifact.Metadata, error) {
+func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Target) (artifact.Metadata, error) {
 	unit := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), Target: target}
 	g.mu.Lock()
 	f, joined := g.flights[unit]
@@ -74,7 +74,7 @@ func (g *GET) Image(ctx context.Context, s *api.TrmnlScreen, target render.Targe
 	return f.meta, f.err
 }
 
-func (g *GET) image(ctx context.Context, s *api.TrmnlScreen, u artifact.Unit) (artifact.Metadata, error) {
+func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (artifact.Metadata, error) {
 	old, err := g.Repository.Latest(ctx, u)
 	if err != nil && !errors.Is(err, artifact.ErrNotFound) {
 		return artifact.Metadata{}, err
@@ -107,7 +107,7 @@ func (g *GET) image(ctx context.Context, s *api.TrmnlScreen, u artifact.Unit) (a
 	// Re-read desired state directly before publication, without informer delay.
 	// GET artifacts are shared by screen/target, so publication is independent
 	// of any one device's current assignment.
-	var current api.TrmnlScreen
+	var current api.ArprtScreen
 	if err := g.Reader.Get(ctx, client.ObjectKeyFromObject(s), &current); err != nil {
 		return artifact.Metadata{}, artifact.ErrObsolete
 	}

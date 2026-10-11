@@ -14,17 +14,17 @@ whether to use an overlay and which information to display.
 
 Public configuration describes display intent. Composite artifacts, cache keys
 and corner-cycle bookkeeping remain internal; no artifact or execution CRD is
-introduced. Configuration uses `TrmnlScreen.spec.overlay` and the controller option
+introduced. Configuration uses `ArprtScreen.spec.overlay` and the controller option
 `--overlay-time-zone`; see [README](../README.md#display-overlays) for examples.
 
 | Setting | Scope | Behavior and default |
 | --- | --- | --- |
-| Enablement | `TrmnlScreen` | An unspecified overlay is disabled. |
-| Displayed items | `TrmnlScreen` | Select render timestamp, battery and/or Wi-Fi signal strength. When enabled with no item selection specified, show all three. |
-| Position | `TrmnlScreen` | Select top-right, bottom-right, bottom-left or top-left; default to fixed top-right. |
-| Corner cycling | `TrmnlScreen` | Select a fixed corner or cycling through all four corners; fixed is the default. |
-| Scale | `TrmnlScreen` | Select automatic scaling or an explicit positive integer; default to automatic. |
-| Margin | `TrmnlScreen` | Nonnegative `margin.horizontal` and `margin.vertical` in unscaled bitmap pixels independently inset text/icons from the left/right and top/bottom edges in the logical viewing orientation; each defaults to 0. The white background extends to those edges. |
+| Enablement | `ArprtScreen` | An unspecified overlay is disabled. |
+| Displayed items | `ArprtScreen` | Select render timestamp, battery and/or Wi-Fi signal strength. When enabled with no item selection specified, show all three. |
+| Position | `ArprtScreen` | Select top-right, bottom-right, bottom-left or top-left; default to fixed top-right. |
+| Corner cycling | `ArprtScreen` | Select a fixed corner or cycling through all four corners; fixed is the default. |
+| Scale | `ArprtScreen` | Select automatic scaling or an explicit positive integer; default to automatic. |
+| Margin | `ArprtScreen` | Nonnegative `margin.horizontal` and `margin.vertical` in unscaled bitmap pixels independently inset text/icons from the left/right and top/bottom edges in the logical viewing orientation; each defaults to 0. The white background extends to those edges. |
 | Timestamp format | Fixed | `↻ YYYY-MM-DD HH:mm`, showing image generation time with a 24-hour clock and no seconds. |
 | Display time zone | Controller | An explicit IANA time-zone name, such as `Asia/Tokyo`; default to `UTC`. |
 
@@ -235,7 +235,7 @@ device or PNG support. An explicit integer scale overrides automatic scaling.
 ## Orientation and corner cycling
 
 Corners are expressed in the user's viewing orientation, accounting for
-`TrmnlDevice.spec.rotation`. Text and icons must appear upright in that
+`ArprtDevice.spec.rotation`. Text and icons must appear upright in that
 orientation. Renderers already rotate their output; composing the overlay must
 not rotate the base image a second time.
 

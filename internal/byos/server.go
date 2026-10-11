@@ -57,6 +57,6 @@ func NewServer(c Config, reader client.Reader, writer client.Client, repo artifa
 	return server, nil
 }
 
-func (s *Server) key(ctx context.Context, d *api.TrmnlDevice) (string, error) {
+func (s *Server) key(ctx context.Context, d *api.ArprtDevice) (string, error) {
 	return credentials.Read(ctx, s.Reader, d)
 }

@@ -46,7 +46,7 @@ func NewPOST(get *GET) *POST {
 
 // Image returns this pair's compatible prior success on failure, never another
 // device's output. There is no fresh cache reuse or context coalescing for POST.
-func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice, input render.Context) (artifact.Metadata, error) {
+func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice, input render.Context) (artifact.Metadata, error) {
 	s, d = s.DeepCopy(), d.DeepCopy()
 	if s.Spec.Source.HTTP == nil || s.Spec.Source.HTTP.Method != "POST" || d.UID == "" || d.Namespace != s.Namespace || input.Version != "v1" || input.Device.Name != d.Name {
 		return artifact.Metadata{}, errors.New("POST requires a screen/device pair and Render Context v1")
@@ -122,8 +122,8 @@ func (p *POST) Image(ctx context.Context, s *api.TrmnlScreen, d *api.TrmnlDevice
 	// Re-read both desired state and observed target without informer delay.
 	// Pair-owned publication requires assignment membership; BYOS separately
 	// checks the complete assignment fingerprint before issuing the image.
-	var currentScreen api.TrmnlScreen
-	var currentDevice api.TrmnlDevice
+	var currentScreen api.ArprtScreen
+	var currentDevice api.ArprtDevice
 	if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
 		return artifact.Metadata{}, artifact.ErrObsolete
 	}

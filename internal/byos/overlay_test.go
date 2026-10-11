@@ -22,7 +22,7 @@ import (
 
 func enableOverlay(t *testing.T, c client.Client, cycle bool, items ...api.OverlayItem) {
 	t.Helper()
-	var screen api.TrmnlScreen
+	var screen api.ArprtScreen
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestOverlayCurrentMeasurementsBaseSeparationAndSharedGET(t *testing.T) {
 	second.UID = "second-uid"
 	second.ResourceVersion = ""
 	second.Spec.HardwareID = "02:00:00:00:00:02"
-	second.Status = api.TrmnlDeviceStatus{}
+	second.Status = api.ArprtDeviceStatus{}
 	if err := c.Create(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestOverlayPersistenceFallbackAndRequiredIssuanceFailure(t *testing.T) {
 				s.Repository = &derivedErrorRepository{Repository: original}
 			}
 			if failure == "layout" {
-				var screen api.TrmnlScreen
+				var screen api.ArprtScreen
 				c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen)
 				scale := int32(100)
 				screen.Spec.Overlay.Scale = &scale
@@ -305,7 +305,7 @@ func (w committedCycleWriter) Patch(ctx context.Context, obj client.Object, patc
 	if err := w.SubResourceWriter.Patch(ctx, obj, patch, opts...); err != nil {
 		return err
 	}
-	if d, ok := obj.(*api.TrmnlDevice); ok && w.parent.fail && d.Status.ScreenCycle != nil {
+	if d, ok := obj.(*api.ArprtDevice); ok && w.parent.fail && d.Status.ScreenCycle != nil {
 		return errors.New("injected failure after status commitment")
 	}
 	return nil
@@ -381,7 +381,7 @@ func (c *overlayCycleErrorClient) Status() client.SubResourceWriter {
 type overlayCycleErrorWriter struct{ client.SubResourceWriter }
 
 func (w overlayCycleErrorWriter) Patch(ctx context.Context, obj client.Object, p client.Patch, opts ...client.SubResourcePatchOption) error {
-	if d, ok := obj.(*api.TrmnlDevice); ok && d.Status.ScreenCycle != nil {
+	if d, ok := obj.(*api.ArprtDevice); ok && d.Status.ScreenCycle != nil {
 		return errors.New("injected turn failure")
 	}
 	return w.SubResourceWriter.Patch(ctx, obj, p, opts...)
@@ -422,7 +422,7 @@ func TestConcurrentOverlayRequestsCommitOnePlaylistTurn(t *testing.T) {
 func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	enableOverlay(t, c, false, "battery", "wifi")
-	var screen api.TrmnlScreen
+	var screen api.ArprtScreen
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,7 @@ func TestOverlayFinalGateRunsAfterPersistenceAndFallback(t *testing.T) {
 			fixtureGET(s, pngFixture(t), &calls)
 			original := s.Repository
 			change := func() {
-				var screen api.TrmnlScreen
+				var screen api.ArprtScreen
 				if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
 					t.Fatal(err)
 				}

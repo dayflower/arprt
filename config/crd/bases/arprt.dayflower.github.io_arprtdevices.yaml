@@ -4,16 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: trmnldevices.arprt.dayflower.github.io
+  name: arprtdevices.arprt.dayflower.github.io
 spec:
   group: arprt.dayflower.github.io
   names:
-    kind: TrmnlDevice
-    listKind: TrmnlDeviceList
-    plural: trmnldevices
+    kind: ArprtDevice
+    listKind: ArprtDeviceList
+    plural: arprtdevices
     shortNames:
-    - tdevice
-    singular: trmnldevice
+    - adevice
+    singular: arprtdevice
   scope: Namespaced
   versions:
   - additionalPrinterColumns:

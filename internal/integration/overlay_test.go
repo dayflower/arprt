@@ -27,8 +27,8 @@ import (
 func verifyOverlayAPI(t *testing.T, c client.Client) {
 	t.Helper()
 	ctx := context.Background()
-	makeScreen := func(i int) *api.TrmnlScreen {
-		return &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: fmt.Sprintf("overlay-%d", i)}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
+	makeScreen := func(i int) *api.ArprtScreen {
+		return &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: fmt.Sprintf("overlay-%d", i)}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
 	}
 	scale := int32(2)
 	cases := []*api.ScreenOverlay{nil, {}, {Enabled: true}, {Enabled: true, Margin: &api.OverlayMargin{}}, {Enabled: true, Margin: &api.OverlayMargin{Horizontal: 8}}, {Enabled: true, Margin: &api.OverlayMargin{Vertical: 4}}, {Enabled: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 4}}, {Enabled: true, Items: &[]api.OverlayItem{}}, {Enabled: true, Items: &[]api.OverlayItem{"wifi", "timestamp"}}, {Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 8}}, {Enabled: true, Position: "bottom-left", Scale: &scale}}
@@ -76,7 +76,7 @@ func verifyOverlayAPI(t *testing.T, c client.Client) {
 			t.Fatal("invalid overlay accepted", setting, err)
 		}
 	}
-	raw := `{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"TrmnlScreen","metadata":{"name":"overlay-unknown","namespace":"other"},"spec":{"source":{"http":{"url":"http://renderer/render"}},"overlay":{"enabled":true,"unknown":true}}}`
+	raw := `{"apiVersion":"arprt.dayflower.github.io/v1alpha1","kind":"ArprtScreen","metadata":{"name":"overlay-unknown","namespace":"other"},"spec":{"source":{"http":{"url":"http://renderer/render"}},"overlay":{"enabled":true,"unknown":true}}}`
 	var obj unstructured.Unstructured
 	if err := json.Unmarshal([]byte(raw), &obj.Object); err != nil {
 		t.Fatal(err)
@@ -84,7 +84,7 @@ func verifyOverlayAPI(t *testing.T, c client.Client) {
 	if err := c.Create(ctx, &obj, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
 		t.Fatal("unknown overlay field accepted")
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "overlay-percent"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "overlay-key"}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "overlay-percent"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "overlay-key"}}}
 	if err := c.Create(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -122,10 +122,10 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 		w.Write(png)
 	}))
 	defer renderer.Close()
-	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery"}, Spec: api.TrmnlScreenSpec{Overlay: &api.ScreenOverlay{Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 4}}, Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL}}}}
+	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery"}, Spec: api.ArprtScreenSpec{Overlay: &api.ScreenOverlay{Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 4}}, Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL}}}}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-key"}, Data: map[string][]byte{"apiKey": []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}}
-	playlist := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-list"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: screen.Name}}}}
-	device := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-device"}, Spec: api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:10", AuthSecretRef: api.LocalReference{Name: secret.Name}, PlaylistRef: &api.LocalReference{Name: playlist.Name}}}
+	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: screen.Name}}}}
+	device := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-device"}, Spec: api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:10", AuthSecretRef: api.LocalReference{Name: secret.Name}, PlaylistRef: &api.LocalReference{Name: playlist.Name}}}
 	for _, obj := range []client.Object{screen, secret, playlist, device} {
 		if err := c.Create(ctx, obj); err != nil {
 			t.Fatal(err)

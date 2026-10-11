@@ -159,7 +159,7 @@ or fabricated zero. Actual valid zero measurements are retained. Hardware ID, cr
 references, Kubernetes objects, namespace, arbitrary metadata and header dumps
 are excluded. Target is separate from device context so rendering identity does
 not depend on telemetry or model when capabilities are equivalent. Rotation comes from
-`TrmnlDevice.spec.rotation`, rather than observations. Zero rotation is omitted
+`ArprtDevice.spec.rotation`, rather than observations. Zero rotation is omitted
 from JSON to preserve compatibility with existing contexts and artifact keys.
 Renderers apply clockwise content rotation themselves: for `90`/`270`, lay out
 content on a logical 480 × 800 canvas, then rotate into the required physical
@@ -191,7 +191,7 @@ Job file/mount/exit requirements are in [DESIGN](DESIGN.md#job-lifecycle-and-col
 
 ## Controller overlays
 
-`TrmnlScreen.spec.overlay` optionally draws timestamp, battery and Wi-Fi bitmaps
+`ArprtScreen.spec.overlay` optionally draws timestamp, battery and Wi-Fi bitmaps
 on new authenticated deliveries. Renderer output remains immutable base data;
 `/images/<digest>.png` always serves already persisted bytes. Disabled/empty
 settings return the original base filename and bytes. Compositing/persistence

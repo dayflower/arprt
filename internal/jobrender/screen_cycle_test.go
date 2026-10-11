@@ -28,9 +28,9 @@ func TestAllEligiblePairsBoundRemovalAndRetention(t *testing.T) {
 				t.Fatal(err)
 			}
 			d.Spec.ScreenRef = nil
-			var p *api.TrmnlPlaylist
+			var p *api.ArprtPlaylist
 			if mode == "playlist" {
-				p = &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "list", UID: "list-uid"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: other.Name}, {Name: s.Name}}}}
+				p = &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "list", UID: "list-uid"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: other.Name}, {Name: s.Name}}}}
 				if err := r.Client.Create(ctx, p); err != nil {
 					t.Fatal(err)
 				}

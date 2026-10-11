@@ -1,7 +1,9 @@
 # Development guide for agents
 
-arprt is a Go Kubernetes controller for TRMNL BYOS. Keep changes focused on the
-requested behavior and preserve the contracts below.
+arprt is an independent, unofficial Go Kubernetes controller for TRMNL BYOS.
+It is not affiliated with or endorsed by TRMNL. Preserve this distinction in
+project descriptions. Keep changes focused on the requested behavior and
+preserve the contracts below.
 
 ## Read according to the change
 

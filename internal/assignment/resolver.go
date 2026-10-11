@@ -22,20 +22,20 @@ const MaxScreens = 64
 var ErrEmpty = errors.New("assignment has no existing screens")
 
 type Resolver interface {
-	Resolve(context.Context, *api.TrmnlDevice) (*api.TrmnlScreen, error)
+	Resolve(context.Context, *api.ArprtDevice) (*api.ArprtScreen, error)
 }
 
 // Explicit resolves all three assignment modes. The name is retained for callers.
 type Explicit struct{ Reader client.Reader }
 
 type Set struct {
-	Screens     []*api.TrmnlScreen
+	Screens     []*api.ArprtScreen
 	Fingerprint string
 	Cycling     bool
 	Missing     int
 }
 
-func (r Explicit) Eligible(ctx context.Context, d *api.TrmnlDevice) (Set, error) {
+func (r Explicit) Eligible(ctx context.Context, d *api.ArprtDevice) (Set, error) {
 	set := Set{Cycling: d.Spec.ScreenRef == nil}
 	identity := "discovery"
 	var refs []api.LocalReference
@@ -44,7 +44,7 @@ func (r Explicit) Eligible(ctx context.Context, d *api.TrmnlDevice) (Set, error)
 		refs = []api.LocalReference{*d.Spec.ScreenRef}
 		identity = "screen/" + d.Spec.ScreenRef.Name
 	case d.Spec.PlaylistRef != nil:
-		var p api.TrmnlPlaylist
+		var p api.ArprtPlaylist
 		if err := r.Reader.Get(ctx, types.NamespacedName{Namespace: d.Namespace, Name: d.Spec.PlaylistRef.Name}, &p); err != nil {
 			return set, err
 		}
@@ -54,7 +54,7 @@ func (r Explicit) Eligible(ctx context.Context, d *api.TrmnlDevice) (Set, error)
 		identity = "playlist/" + string(p.UID)
 		refs = p.Spec.Screens
 	default:
-		var list api.TrmnlScreenList
+		var list api.ArprtScreenList
 		if err := r.Reader.List(ctx, &list, client.InNamespace(d.Namespace)); err != nil {
 			return set, err
 		}
@@ -73,7 +73,7 @@ func (r Explicit) Eligible(ctx context.Context, d *api.TrmnlDevice) (Set, error)
 		return set, errors.New("assignment exceeds 64 screens")
 	}
 	for _, ref := range refs {
-		var s api.TrmnlScreen
+		var s api.ArprtScreen
 		err := r.Reader.Get(ctx, types.NamespacedName{Namespace: d.Namespace, Name: ref.Name}, &s)
 		if apierrors.IsNotFound(err) {
 			if d.Spec.ScreenRef != nil {
@@ -105,7 +105,7 @@ func (r Explicit) Eligible(ctx context.Context, d *api.TrmnlDevice) (Set, error)
 }
 
 // Select holds the last successful turn during the retry window, then advances.
-func (set Set) Select(d *api.TrmnlDevice, now time.Time, interval time.Duration) (*api.TrmnlScreen, bool) {
+func (set Set) Select(d *api.ArprtDevice, now time.Time, interval time.Duration) (*api.ArprtScreen, bool) {
 	last := d.Status.ScreenCycle
 	if set.Cycling && last != nil && last.Assignment == set.Fingerprint && d.Status.Display != nil && last.Target == *d.Status.Display {
 		for i, s := range set.Screens {
@@ -119,7 +119,7 @@ func (set Set) Select(d *api.TrmnlDevice, now time.Time, interval time.Duration)
 	}
 	return set.Screens[0], false
 }
-func (r Explicit) Resolve(ctx context.Context, d *api.TrmnlDevice) (*api.TrmnlScreen, error) {
+func (r Explicit) Resolve(ctx context.Context, d *api.ArprtDevice) (*api.ArprtScreen, error) {
 	set, err := r.Eligible(ctx, d)
 	if err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (r Explicit) Resolve(ctx context.Context, d *api.TrmnlDevice) (*api.TrmnlSc
 	s, _ := set.Select(d, time.Now(), 0)
 	return s, nil
 }
-func (r Explicit) Contains(ctx context.Context, d *api.TrmnlDevice, s *api.TrmnlScreen) (bool, error) {
+func (r Explicit) Contains(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen) (bool, error) {
 	set, err := r.Eligible(ctx, d)
 	if err != nil {
 		return false, err

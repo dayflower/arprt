@@ -26,12 +26,12 @@ type PlaylistReconciler struct {
 
 func (r *PlaylistReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var p api.TrmnlPlaylist
+		var p api.ArprtPlaylist
 		if err := r.Reader.Get(ctx, req.NamespacedName, &p); err != nil {
 			return client.IgnoreNotFound(err)
 		}
 		before := p.DeepCopy()
-		d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace}, Spec: api.TrmnlDeviceSpec{PlaylistRef: &api.LocalReference{Name: p.Name}}}
+		d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace}, Spec: api.ArprtDeviceSpec{PlaylistRef: &api.LocalReference{Name: p.Name}}}
 		eligible, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, d)
 		ready, reason, message := metav1.ConditionTrue, "ReferencesResolved", "All same-namespace screen references exist"
 		if errors.Is(err, assignment.ErrEmpty) || apierrors.IsNotFound(err) || eligible.Missing > 0 {
@@ -50,7 +50,7 @@ func (r *PlaylistReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 func (r *PlaylistReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	enqueue := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		var list api.TrmnlPlaylistList
+		var list api.ArprtPlaylistList
 		if err := r.Client.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
 			return nil
 		}
@@ -60,5 +60,5 @@ func (r *PlaylistReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		return requests
 	})
-	return ctrl.NewControllerManagedBy(mgr).For(&api.TrmnlPlaylist{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Watches(&api.TrmnlScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).For(&api.ArprtPlaylist{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Watches(&api.ArprtScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).Complete(r)
 }

@@ -1,5 +1,5 @@
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: job-bands
 spec:
@@ -11,9 +11,9 @@ spec:
         command: [sh, -ec]
         args:
           - >-
-            test -r /trmnl/context.json;
+            test -r /arprt/context.json;
             test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token;
-            printf '%s' "$IMAGE_PNG" | base64 -d > /trmnl/output.png
+            printf '%s' "$IMAGE_PNG" | base64 -d > /arprt/output.png
         env:
           - name: IMAGE_PNG
             valueFrom:
@@ -22,7 +22,7 @@ spec:
                 key: image.png.b64
 ---
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: job-bands-custom
 spec:

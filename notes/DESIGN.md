@@ -1,6 +1,6 @@
 # Current design
 
-arprt maps declarative TRMNL resources to synchronous HTTP or asynchronous Job
+arprt maps declarative arprt resources to synchronous HTTP or asynchronous Job
 rendering, validated persistent artifacts and authenticated BYOS delivery.
 [PROTOCOL](PROTOCOL.md) owns wire/context/image details;
 [DEVELOP](DEVELOP.md) maps packages and checks;
@@ -12,12 +12,12 @@ rendering, validated persistent artifacts and authenticated BYOS delivery.
 
 The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
 
-- `TrmnlScreen` defines exactly one HTTP or Job source, applicable freshness and
+- `ArprtScreen` defines exactly one HTTP or Job source, applicable freshness and
   optional display overlay intent.
-- `TrmnlDevice` selects a single screen, an ordered playlist, or discovery, with
+- `ArprtDevice` selects a single screen, an ordered playlist, or discovery, with
   an auth Secret, optional direct/Secret-backed hardware identity and desired
   clockwise content rotation (`spec.rotation`, default 0; 0/90/180/270).
-- `TrmnlPlaylist` defines 1–64 distinct screen names in explicit order.
+- `ArprtPlaylist` defines 1–64 distinct screen names in explicit order.
 
 All references and discovery stay in the device namespace. Capabilities,
 telemetry, registration observations and screen-cycle progress belong in status.

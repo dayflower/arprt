@@ -54,11 +54,11 @@ still owns the base; controller drawing rotates only its own bitmap coordinates.
 
 ## Device rotation
 
-Set `TrmnlDevice.spec.rotation` to `0`, `90`, `180` or `270` (clockwise degrees;
+Set `ArprtDevice.spec.rotation` to `0`, `90`, `180` or `270` (clockwise degrees;
 omitted means `0`). For example:
 
 ```sh
-kubectl -n arprt patch trmnldevice living-room --type=merge \
+kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"rotation":90}}'
 ```
 
@@ -96,7 +96,7 @@ infers percentage from voltage. Install and assign it:
 ```sh
 kubectl apply --validate=strict -k examples/http-post
 kubectl -n arprt rollout status deployment/device-status-renderer
-kubectl -n arprt patch trmnldevice living-room --type=merge \
+kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"device-status"}}}'
 ```
 
@@ -124,7 +124,7 @@ Install the [existing-image Job examples](../examples/job/screens.yaml):
 
 ```sh
 kubectl apply --validate=strict -k examples/job
-kubectl -n arprt patch trmnldevice living-room --type=merge \
+kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"job-bands"}}}'
 ```
 
@@ -135,7 +135,7 @@ Assign `job-bands-custom` to exercise separate context/output parents.
 
 | Example | Context path | Image path |
 | --- | --- | --- |
-| `job-bands` | `/trmnl/context.json` (default) | `/trmnl/output.png` (default) |
+| `job-bands` | `/arprt/context.json` (default) | `/arprt/output.png` (default) |
 | `job-bands-custom` | `/input/context.json` | `/work/weather.png` |
 
 Supply paths explicitly in your renderer CLI. `contextPath`/`imagePath` describe

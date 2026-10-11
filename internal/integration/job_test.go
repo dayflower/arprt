@@ -93,8 +93,8 @@ func TestJobWatchAndRestart(t *testing.T) {
 		}
 	}
 	stop := start()
-	s := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "job-test"}, Spec: api.TrmnlScreenSpec{RefreshInterval: "5m", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0", Command: []string{"sh", "-c"}, Args: []string{"exit 0"}}}}}}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "job-test"}, Spec: api.TrmnlDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}, AuthSecretRef: api.LocalReference{Name: "auth"}}}
+	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "job-test"}, Spec: api.ArprtScreenSpec{RefreshInterval: "5m", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0", Command: []string{"sh", "-c"}, Args: []string{"exit 0"}}}}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "job-test"}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}, AuthSecretRef: api.LocalReference{Name: "auth"}}}
 	if err = c.Create(ctx, s); err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +112,10 @@ func TestJobWatchAndRestart(t *testing.T) {
 	}
 	eventually(t, func() bool { return c.List(ctx, &jobs, client.InNamespace(d.Namespace)) == nil && len(jobs.Items) == 1 })
 	job := jobs.Items[0]
+	owner := metav1.GetControllerOf(&job)
+	if owner == nil || owner.APIVersion != api.GroupVersion.String() || owner.Kind != "ArprtDevice" || owner.Name != d.Name || owner.UID != d.UID {
+		t.Fatalf("Job controller must reference the current device: %+v", owner)
+	}
 	originalUID := job.UID
 	id := strings.TrimPrefix(job.Name, "arprt-render-")
 	if _, err = os.Stat(filepath.Join(root, "runs", id, "context.json")); err != nil {
@@ -162,7 +166,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Screen creation must wake discovery devices without another display poll.
-	editAssignment := func(fn func(*api.TrmnlDevice)) {
+	editAssignment := func(fn func(*api.ArprtDevice)) {
 		t.Helper()
 		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
@@ -177,7 +181,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 
 	// Changing desired rotation wakes Job scheduling without another display poll
 	// or waiting for the old 5-minute freshness interval.
-	editAssignment(func(current *api.TrmnlDevice) { current.Spec.Rotation = 90 })
+	editAssignment(func(current *api.ArprtDevice) { current.Spec.Rotation = 90 })
 	eventually(t, func() bool {
 		if c.List(ctx, &jobs, client.InNamespace(d.Namespace)) != nil {
 			return false
@@ -197,7 +201,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 	})
 	// Emulate cancellation of the prepared render before discovery coverage;
 	// envtest has no garbage collector for foreground Job deletion.
-	editAssignment(func(current *api.TrmnlDevice) { current.Spec.Rotation = 0 })
+	editAssignment(func(current *api.ArprtDevice) { current.Spec.Rotation = 0 })
 	eventually(t, func() bool {
 		if c.List(ctx, &jobs, client.InNamespace(d.Namespace)) != nil {
 			return false
@@ -217,7 +221,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 		return true
 	})
 
-	editAssignment(func(current *api.TrmnlDevice) { current.Spec.ScreenRef = nil })
+	editAssignment(func(current *api.ArprtDevice) { current.Spec.ScreenRef = nil })
 	second := s.DeepCopy()
 	second.Name = "second"
 	second.ResourceVersion = ""
@@ -238,11 +242,11 @@ func TestJobWatchAndRestart(t *testing.T) {
 		return false
 	}
 	eventually(t, func() bool { return hasAttempt("exit 0 # discovered") })
-	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "cycle"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: second.Name}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "cycle"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: second.Name}}}}
 	if err := c.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	editAssignment(func(current *api.TrmnlDevice) { current.Spec.PlaylistRef = &api.LocalReference{Name: p.Name} })
+	editAssignment(func(current *api.ArprtDevice) { current.Spec.PlaylistRef = &api.LocalReference{Name: p.Name} })
 	third := s.DeepCopy()
 	third.Name = "third"
 	third.ResourceVersion = ""

@@ -18,8 +18,8 @@ Install the CRDs first, then apply your private normal overlay. Replace the
 ```sh
 kubectl apply --validate=strict -k config/crd
 kubectl wait --for=condition=Established \
-  crd/trmnlscreens.arprt.dayflower.github.io \
-  crd/trmnldevices.arprt.dayflower.github.io --timeout=30s
+  crd/arprtscreens.arprt.dayflower.github.io \
+  crd/arprtdevices.arprt.dayflower.github.io --timeout=30s
 kubectl apply --validate=strict -k /path/to/private-gateway-overlay
 ```
 

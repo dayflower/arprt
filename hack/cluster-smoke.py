@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-CRDS = ['trmnlscreens.arprt.dayflower.github.io', 'trmnldevices.arprt.dayflower.github.io', 'trmnlplaylists.arprt.dayflower.github.io']
+CRDS = ['arprtscreens.arprt.dayflower.github.io', 'arprtdevices.arprt.dayflower.github.io', 'arprtplaylists.arprt.dayflower.github.io']
 
 
 def kubectl(*args, check=True):
@@ -107,7 +107,7 @@ def main():
                 'selector': {'app': 'renderer'}, 'ports': [{'port': 8000, 'targetPort': 8000}]}})
             for sample in ['screens.yaml', 'device.yaml']:
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/samples' / sample))
-            kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
+            kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
                 'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m', 'overlay': None}}))
             # Secret reads are restricted to the supplied auth and MAC sources.
             account = 'system:serviceaccount:' + namespace + ':arprt'
@@ -168,7 +168,7 @@ def main():
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/default/auth-secret.yaml'))
                 if json.loads(fetch(base, prefix + '/api/setup')[2]).get('api_key') != token:
                     raise RuntimeError('GitOps re-apply reset the generated key')
-                device = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)
+                device = json.loads(kubectl('-n', namespace, 'get', 'arprtdevice', 'living-room', '-o', 'json').stdout)
                 if device['status']['hardwareID'] != headers['ID'] or 'hardwareID' in device['spec']:
                     raise RuntimeError('automatic MAC registration rewrote spec or failed to record status')
                 # Exercise all sources on live Kubernetes without changing source
@@ -191,7 +191,7 @@ def main():
                         raise RuntimeError('configured MAC setup failed')
                 if fetch(base, peer_prefix + '/pending-peer/api/setup')[0] != 503:
                     raise RuntimeError('duplicate automatic registration succeeded')
-                pending = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'pending-peer', '-o', 'json').stdout)
+                pending = json.loads(kubectl('-n', namespace, 'get', 'arprtdevice', 'pending-peer', '-o', 'json').stdout)
                 if pending.get('status', {}).get('hardwareID'):
                     raise RuntimeError('failed setup registered a duplicate MAC')
                 identity_secret['stringData']['mac'] = '02:00:00:00:00:03'
@@ -201,7 +201,7 @@ def main():
                         raise RuntimeError('Secret change replaced the registered MAC')
                 identity_secret['stringData']['mac'] = '02:00:00:00:00:02'
                 apply(identity_secret)
-                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--subresource=status', '--type=merge',
+                kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--subresource=status', '--type=merge',
                         '-p', json.dumps({'status': {'hardwareID': None}}))
                 if fetch(base, prefix + '/api/setup', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
                     raise RuntimeError('status loss allowed replacement of the PVC binding')
@@ -222,7 +222,7 @@ def main():
                 if display(base, prefix) != first:
                     raise RuntimeError('fresh artifact was not reused')
                 for rotation in (90, 180, 270):
-                    kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+                    kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--type=merge',
                             '-p', json.dumps({'spec': {'rotation': rotation}}))
                     rotated = display(base, prefix)
                     rotated_path = rotated['image_url'].removeprefix('https://byos.example.test')
@@ -232,18 +232,18 @@ def main():
                         raise RuntimeError('rotated GET output was not reused')
                     if fetch(base, image_path)[2] != image:
                         raise RuntimeError('rotation change revoked an issued image')
-                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+                kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--type=merge',
                         '-p', json.dumps({'spec': {'rotation': 0}}))
                 if display(base, prefix) != first:
                     raise RuntimeError('default rotation lost original compatible output')
-            state = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)['status']
+            state = json.loads(kubectl('-n', namespace, 'get', 'arprtdevice', 'living-room', '-o', 'json').stdout)['status']
             if state['battery']['voltage'] != 3.91 or state['network']['rssi'] != -48 or token in json.dumps(state):
                 raise RuntimeError('telemetry or credential exclusion failed')
             # Restart with prefix stripping and a renderer outage. PVC issuance and
             # stale success must survive; generated URLs retain the external prefix.
             kubectl('-n', namespace, 'scale', 'deployment/renderer', '--replicas=0')
             wait(lambda: not json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app=renderer', '-o', 'json').stdout)['items'])
-            kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
+            kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
             patch_args(['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--proxy-strips-prefix=true', '--overlay-time-zone=Asia/Tokyo'])
             kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
             stripped = prefix.removeprefix('/arprt')
@@ -258,7 +258,7 @@ def main():
                 if fetch(base, stripped + '/api/display', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
                     raise RuntimeError('PVC restart lost the registered MAC')
                 # Draw from stale renderer bytes, using embedded zoneinfo in scratch.
-                kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p',
+                kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p',
                         json.dumps({'spec': {'overlay': {'enabled': True, 'margin': {'horizontal': 12, 'vertical': 4}}}}))
                 composite = display(base, stripped)
                 composite_path = composite['image_url'].removeprefix('https://byos.example.test/arprt')
@@ -272,7 +272,7 @@ def main():
                 fractional = display(base, stripped)
                 if fractional['filename'] == composite['filename']:
                     raise RuntimeError('current fractional percentage did not change battery icon')
-                status = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)['status']
+                status = json.loads(kubectl('-n', namespace, 'get', 'arprtdevice', 'living-room', '-o', 'json').stdout)['status']
                 if status['battery']['percent'] != 20.5:
                     raise RuntimeError('fractional percentage lost in status')
                 # USB presence alone never establishes active charging.
@@ -297,13 +297,13 @@ def main():
                     raise RuntimeError('USB overrode explicit not-charging state')
                 headers.pop('USB-Connected')
                 headers.pop('Battery-Charging')
-                kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p',
+                kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p',
                         json.dumps({'spec': {'overlay': {'scale': 100}}}))
                 if display(base, stripped) != first or fetch(base, composite_path)[2] != composite_bytes:
                     raise RuntimeError('layout fallback or issued composite retention failed')
                 # Changing UID while the renderer is down must yield initial pending.
-                screen = json.loads(kubectl('-n', namespace, 'get', 'trmnlscreen', 'photo', '-o', 'json').stdout)
-                kubectl('-n', namespace, 'delete', 'trmnlscreen', 'photo')
+                screen = json.loads(kubectl('-n', namespace, 'get', 'arprtscreen', 'photo', '-o', 'json').stdout)
+                kubectl('-n', namespace, 'delete', 'arprtscreen', 'photo')
                 apply({'apiVersion': screen['apiVersion'], 'kind': screen['kind'], 'metadata': {'name': 'photo'}, 'spec': screen['spec']})
                 status, _, body = fetch(base, stripped + '/api/display')
                 if status != 200 or json.loads(body) != {'status': 202}:

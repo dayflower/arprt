@@ -102,15 +102,15 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 'a-get': {'http':{'url':'http://renderer:8080/render','method':'GET'}},
                 'b-post': {'http':{'url':'http://renderer:8080/render','method':'POST'}},
                 'c-job': {'job':{'renderer':{'image':'busybox:1.37.0','command':['sh','-ec'],
-                    'args':['test -r /trmnl/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'],
+                    'args':['test -r /arprt/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'],
                     'envFrom':[{'configMapRef':{'name':'input'}}]}}}}
             uids = {}
             for name, source in sources.items():
-                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'horizontal':12,'vertical':4}}}})
-                uids[name] = json.loads(kubectl('-n',namespace,'get','trmnlscreen',name,'-o','json').stdout)['metadata']['uid']
+                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'horizontal':12,'vertical':4}}}})
+                uids[name] = json.loads(kubectl('-n',namespace,'get','arprtscreen',name,'-o','json').stdout)['metadata']['uid']
             refs = [{'name':'b-post'},{'name':'missing'},{'name':'c-job'},{'name':'a-get'}]
-            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlPlaylist','metadata':{'name':'cycle'},'spec':{'screens':refs}})
-            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlDevice','metadata':{'name':'living-room'},
+            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtPlaylist','metadata':{'name':'cycle'},'spec':{'screens':refs}})
+            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtDevice','metadata':{'name':'living-room'},
                 'spec':{'authSecretRef':{'name':'living-room-auth'},'playlistRef':{'name':'cycle'}}})
             token = ''
             headers = {'ID':'02:00:00:00:00:01','Model':'og','FW-Version':'1.8.17','Width':'800','Height':'480','Battery-Voltage':'3.91','RSSI':'-48'}
@@ -122,10 +122,10 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     return response.read()
 
             def device():
-                return json.loads(kubectl('-n',namespace,'get','trmnldevice','living-room','-o','json').stdout)
+                return json.loads(kubectl('-n',namespace,'get','arprtdevice','living-room','-o','json').stdout)
 
             def expire():
-                kubectl('-n',namespace,'patch','trmnldevice','living-room','--subresource=status','--type=merge','-p',
+                kubectl('-n',namespace,'patch','arprtdevice','living-room','--subresource=status','--type=merge','-p',
                     json.dumps({'status':{'screenCycle':{'servedAt':'2000-01-01T00:00:00.000000Z'}}}))
 
             def display(base):
@@ -170,25 +170,25 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     raise RuntimeError('screen-cycle replay lost across restart')
                 expire(); turn(base,'c-job'); expire(); turn(base,'a-get'); expire(); turn(base,'b-post')
                 # Editing the playlist resets its order, including within a retry window.
-                kubectl('-n',namespace,'patch','trmnlplaylist','cycle','--type=merge','-p',json.dumps({'spec':{'screens':[{'name':'a-get'},{'name':'c-job'},{'name':'b-post'}]}}))
+                kubectl('-n',namespace,'patch','arprtplaylist','cycle','--type=merge','-p',json.dumps({'spec':{'screens':[{'name':'a-get'},{'name':'c-job'},{'name':'b-post'}]}}))
                 turn(base,'a-get')
                 # Discovery reuses the same pairs, in deterministic name order.
-                kubectl('-n',namespace,'patch','trmnldevice','living-room','--type=merge','-p',json.dumps({'spec':{'playlistRef':None}}))
+                kubectl('-n',namespace,'patch','arprtdevice','living-room','--type=merge','-p',json.dumps({'spec':{'playlistRef':None}}))
                 turn(base,'a-get'); expire(); turn(base,'b-post'); expire(); turn(base,'c-job')
-                kubectl('-n',namespace,'delete','trmnlscreen','a-get')
+                kubectl('-n',namespace,'delete','arprtscreen','a-get')
                 turn(base,'b-post')
                 # Removing Job eligibility cancels its scheduling state.
-                kubectl('-n',namespace,'delete','trmnlscreen','c-job')
+                kubectl('-n',namespace,'delete','arprtscreen','c-job')
                 before = {j['metadata']['name'] for j in json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']}
                 time.sleep(3)
                 after = {j['metadata']['name'] for j in json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']}
                 if not after.issubset(before): raise RuntimeError('removed Job pair scheduled new work')
-                kubectl('-n',namespace,'delete','trmnlscreen','b-post')
+                kubectl('-n',namespace,'delete','arprtscreen','b-post')
                 if display(base) != {'status':202}:
                     raise RuntimeError('empty discovery did not return pending')
             account = 'system:serviceaccount:' + namespace + ':arprt'
             for ns, allowed in [(namespace,True),('default',False)]:
-                result = kubectl('auth','can-i','list','trmnlplaylists','-n',ns,'--as='+account,check=False)
+                result = kubectl('auth','can-i','list','arprtplaylists','-n',ns,'--as='+account,check=False)
                 if (result.stdout.strip()=='yes') != allowed:
                     raise RuntimeError('playlist RBAC namespace mismatch')
             print('PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC')

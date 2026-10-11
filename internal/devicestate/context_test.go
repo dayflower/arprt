@@ -11,10 +11,10 @@ import (
 )
 
 func TestContextAllowlist(t *testing.T) {
-	d := api.TrmnlDevice{
+	d := api.ArprtDevice{
 		ObjectMeta: metav1.ObjectMeta{Name: "living-room", Namespace: "private-namespace", Labels: map[string]string{"token": "secret-label"}, Annotations: map[string]string{"password": "secret-annotation"}},
-		Spec:       api.TrmnlDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "private-secret"}, HardwareIDSecretRef: &api.HardwareIDSecretReference{Name: "identity-secret", Key: "mac"}},
-		Status:     api.TrmnlDeviceStatus{HardwareID: "02:00:00:00:00:02", Device: &api.DeviceInfoStatus{Model: "og", FirmwareVersion: "1.8.17"}},
+		Spec:       api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:01", AuthSecretRef: api.LocalReference{Name: "private-secret"}, HardwareIDSecretRef: &api.HardwareIDSecretReference{Name: "identity-secret", Key: "mac"}},
+		Status:     api.ArprtDeviceStatus{HardwareID: "02:00:00:00:00:02", Device: &api.DeviceInfoStatus{Model: "og", FirmwareVersion: "1.8.17"}},
 	}
 	c, err := render.Build(d.Name, render.Target{Width: 800, Height: 480, Palette: "gray4"}, Observation(d.Status), render.Observation{})
 	if err != nil {

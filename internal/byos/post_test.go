@@ -25,9 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func postScreen(t *testing.T, c client.Client) *api.TrmnlScreen {
+func postScreen(t *testing.T, c client.Client) *api.ArprtScreen {
 	t.Helper()
-	var s api.TrmnlScreen
+	var s api.ArprtScreen
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &s); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 	second := d.DeepCopy()
 	second.Name, second.UID, second.ResourceVersion = "second", "device-2", ""
 	second.Spec.HardwareID = "02:00:00:00:00:02"
-	second.Status = api.TrmnlDeviceStatus{}
+	second.Status = api.ArprtDeviceStatus{}
 	if err := c.Create(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 	}
 }
 
-func postPair(t *testing.T) (*Server, client.Client, *api.TrmnlScreen, *api.TrmnlDevice, render.Context) {
+func postPair(t *testing.T) (*Server, client.Client, *api.ArprtScreen, *api.ArprtDevice, render.Context) {
 	t.Helper()
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	screen := postScreen(t, c)
@@ -314,8 +314,8 @@ type conflictWriter struct {
 }
 
 func (w conflictWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	if d, ok := obj.(*api.TrmnlDevice); ok && w.parent.injected.CompareAndSwap(false, true) {
-		var concurrent api.TrmnlDevice
+	if d, ok := obj.(*api.ArprtDevice); ok && w.parent.injected.CompareAndSwap(false, true) {
+		var concurrent api.ArprtDevice
 		if err := w.parent.Client.Get(ctx, client.ObjectKeyFromObject(d), &concurrent); err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func (w conflictWriter) Patch(ctx context.Context, obj client.Object, patch clie
 		if err := w.parent.Client.Status().Update(ctx, &concurrent); err != nil {
 			return err
 		}
-		return apierrors.NewConflict(schema.GroupResource{Group: api.GroupVersion.Group, Resource: "trmnldevices"}, d.Name, errors.New("injected optimistic conflict"))
+		return apierrors.NewConflict(schema.GroupResource{Group: api.GroupVersion.Group, Resource: "arprtdevices"}, d.Name, errors.New("injected optimistic conflict"))
 	}
 	return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
 }

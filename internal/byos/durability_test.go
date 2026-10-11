@@ -49,7 +49,7 @@ type cycleErrorWriter struct {
 }
 
 func (w cycleErrorWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	if d, ok := obj.(*api.TrmnlDevice); ok && d.Status.ScreenCycle != nil && d.Status.ScreenCycle.ScreenUID == "post-uid" {
+	if d, ok := obj.(*api.ArprtDevice); ok && d.Status.ScreenCycle != nil && d.Status.ScreenCycle.ScreenUID == "post-uid" {
 		w.parent.calls++
 		return errors.New("injected cycle persistence failure")
 	}
@@ -76,8 +76,8 @@ func TestDeliveryPersistenceFailuresHoldTurnAndRecover(t *testing.T) {
 					return render.Output{PNG: postPNG}, nil
 				})
 			}
-			post := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://unused.invalid", Method: "POST"}}}}
-			playlist := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: "list-uid"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "screen"}, {Name: "post"}}}}
+			post := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "post", UID: "post-uid", Generation: 1}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://unused.invalid", Method: "POST"}}}}
+			playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "list", UID: "list-uid"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "screen"}, {Name: "post"}}}}
 			for _, obj := range []client.Object{post, playlist} {
 				if err := c.Create(ctx, obj); err != nil {
 					t.Fatal(err)
@@ -167,12 +167,12 @@ type statusErrorWriter struct {
 
 func (w statusErrorWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 	switch v := obj.(type) {
-	case *api.TrmnlDevice:
+	case *api.ArprtDevice:
 		if !w.parent.reporting || meta.FindStatusCondition(v.Status.Conditions, "Ready") != nil {
 			w.parent.deviceErrors++
 			return errors.New("injected device status failure")
 		}
-	case *api.TrmnlScreen:
+	case *api.ArprtScreen:
 		w.parent.screenErrors++
 		return errors.New("injected screen status failure")
 	}

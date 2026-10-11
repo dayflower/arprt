@@ -8,11 +8,11 @@ import (
 )
 
 func TestDefaultsAndRevision(t *testing.T) {
-	get := api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
-	job := api.TrmnlScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "renderer:v1"}}}}
-	post := api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render", Method: "POST"}}}
+	get := api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
+	job := api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "renderer:v1"}}}}
+	post := api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render", Method: "POST"}}}
 	for _, tt := range []struct {
-		s    api.TrmnlScreenSpec
+		s    api.ArprtScreenSpec
 		want time.Duration
 	}{{get, 5 * time.Minute}, {job, 30 * time.Minute}, {post, 0}} {
 		d, err := EffectiveInterval(tt.s)
@@ -44,7 +44,7 @@ func TestDefaultsAndRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job.Source.Job.ContextPath, job.Source.Job.ImagePath, job.RefreshInterval = "/trmnl/context.json", "/trmnl/output.png", "1800s"
+	job.Source.Job.ContextPath, job.Source.Job.ImagePath, job.RefreshInterval = "/arprt/context.json", "/arprt/output.png", "1800s"
 	b, err = InputRevision(job)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestDefaultsAndRevision(t *testing.T) {
 }
 
 func TestOverlayRevisionAndRepresentation(t *testing.T) {
-	spec := api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
+	spec := api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
 	old, _ := InputRevision(spec)
 	spec.Overlay = &api.ScreenOverlay{Position: "bottom-left", CycleCorners: true, Items: &[]api.OverlayItem{"wifi"}, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 8}}
 	disabled, _ := InputRevision(spec)
@@ -104,7 +104,7 @@ func TestOverlayRevisionAndRepresentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var roundtrip api.TrmnlScreenSpec
+	var roundtrip api.ArprtScreenSpec
 	if err := json.Unmarshal(b, &roundtrip); err != nil {
 		t.Fatal(err)
 	}

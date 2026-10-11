@@ -37,7 +37,7 @@ type Service struct {
 	mu sync.Mutex
 }
 
-func (s *Service) Declared(ctx context.Context, d *api.TrmnlDevice) (string, error) {
+func (s *Service) Declared(ctx context.Context, d *api.ArprtDevice) (string, error) {
 	id := d.Spec.HardwareID
 	if ref := d.Spec.HardwareIDSecretRef; ref != nil {
 		if id != "" || ref.Name == "" || ref.Key == "" {
@@ -60,7 +60,7 @@ func (s *Service) Declared(ctx context.Context, d *api.TrmnlDevice) (string, err
 
 // Binding reads authoritative PVC state. Status is a recoverable mirror and a
 // fallback for readers without the store; it cannot override an existing record.
-func (s *Service) Binding(ctx context.Context, d *api.TrmnlDevice) (string, error) {
+func (s *Service) Binding(ctx context.Context, d *api.ArprtDevice) (string, error) {
 	if s.Store != nil {
 		id, err := s.Store.Binding(ctx, string(d.UID))
 		if err == nil {
@@ -76,7 +76,7 @@ func (s *Service) Binding(ctx context.Context, d *api.TrmnlDevice) (string, erro
 	return d.Status.HardwareID, nil
 }
 
-func (s *Service) Resolve(ctx context.Context, d *api.TrmnlDevice) (string, error) {
+func (s *Service) Resolve(ctx context.Context, d *api.ArprtDevice) (string, error) {
 	declared, err := s.Declared(ctx, d)
 	if err != nil {
 		return "", err
@@ -94,11 +94,11 @@ func (s *Service) Resolve(ctx context.Context, d *api.TrmnlDevice) (string, erro
 	return declared, nil
 }
 
-func (s *Service) Unique(ctx context.Context, d *api.TrmnlDevice, id string) (bool, error) {
+func (s *Service) Unique(ctx context.Context, d *api.ArprtDevice, id string) (bool, error) {
 	if id == "" {
 		return false, ErrUnbound
 	}
-	var devices api.TrmnlDeviceList
+	var devices api.ArprtDeviceList
 	if err := s.Reader.List(ctx, &devices, client.InNamespace(d.Namespace)); err != nil {
 		return false, err
 	}
@@ -126,13 +126,13 @@ func (s *Service) Unique(ctx context.Context, d *api.TrmnlDevice, id string) (bo
 	return true, nil
 }
 
-func (s *Service) Check(ctx context.Context, d *api.TrmnlDevice, id string) error {
+func (s *Service) Check(ctx context.Context, d *api.ArprtDevice, id string) error {
 	return s.ValidateRegistration(ctx, d, id, false)
 }
 
 // ValidateRegistration checks eligibility without learning a MAC. Setup uses it
 // before provisioning credentials; Register repeats it against a fresh snapshot.
-func (s *Service) ValidateRegistration(ctx context.Context, d *api.TrmnlDevice, id string, setup bool) error {
+func (s *Service) ValidateRegistration(ctx context.Context, d *api.ArprtDevice, id string, setup bool) error {
 	if !Valid(id) {
 		return ErrMismatch
 	}
@@ -159,7 +159,7 @@ func (s *Service) ValidateRegistration(ctx context.Context, d *api.TrmnlDevice, 
 // Register is called only after setup admission and credential validation, or
 // an authenticated display with an explicit identity (legacy-compatible).
 // Durable publication precedes the optimistic status patch and setup response.
-func (s *Service) Register(ctx context.Context, d *api.TrmnlDevice, id string, setup bool) error {
+func (s *Service) Register(ctx context.Context, d *api.ArprtDevice, id string, setup bool) error {
 	if !Valid(id) {
 		return ErrMismatch
 	}
@@ -169,7 +169,7 @@ func (s *Service) Register(ctx context.Context, d *api.TrmnlDevice, id string, s
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var current api.TrmnlDevice
+		var current api.ArprtDevice
 		if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
 			return err
 		}

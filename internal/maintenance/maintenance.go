@@ -49,7 +49,7 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 	if refresh <= 0 {
 		refresh = 5 * time.Minute
 	}
-	var devices api.TrmnlDeviceList
+	var devices api.ArprtDeviceList
 	if err := m.Reader.List(ctx, &devices, client.InNamespace(m.Namespace)); err != nil {
 		return err
 	}

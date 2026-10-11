@@ -29,11 +29,11 @@ type observedDisplay struct {
 
 // observeDisplay owns capabilities, telemetry, AuthenticationReady,
 // TargetKnown and TelemetryValid. mutate retries with direct current status.
-func (s *Server) observeDisplay(ctx context.Context, d *api.TrmnlDevice, o Observation) (observedDisplay, error) {
+func (s *Server) observeDisplay(ctx context.Context, d *api.ArprtDevice, o Observation) (observedDisplay, error) {
 	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
 	var target render.Target
 	var targetErr error
-	if err := s.mutate(ctx, d, func(current *api.TrmnlDevice) {
+	if err := s.mutate(ctx, d, func(current *api.ArprtDevice) {
 		model, fw := "", ""
 		if current.Status.Device != nil {
 			model = current.Status.Device.Model
@@ -89,9 +89,9 @@ func (s *Server) observeDisplay(ctx context.Context, d *api.TrmnlDevice, o Obser
 
 // mutate reads each retry directly and patches only status with a resourceVersion
 // precondition. It refuses results belonging to replaced or edited devices.
-func (s *Server) mutate(ctx context.Context, d *api.TrmnlDevice, fn func(*api.TrmnlDevice)) error {
+func (s *Server) mutate(ctx context.Context, d *api.ArprtDevice, fn func(*api.ArprtDevice)) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var current api.TrmnlDevice
+		var current api.ArprtDevice
 		if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func (s *Server) mutate(ctx context.Context, d *api.TrmnlDevice, fn func(*api.Tr
 		return err
 	})
 }
-func condition(d *api.TrmnlDevice, kind string, ok bool, reason, message string) {
+func condition(d *api.ArprtDevice, kind string, ok bool, reason, message string) {
 	status := metav1.ConditionFalse
 	if ok {
 		status = metav1.ConditionTrue
@@ -154,7 +154,7 @@ type deliveryOutcome struct {
 
 // imageOutcome reports HTTP screen readiness before issuance. Job rendering
 // owns its screen status; replay retains the last serving reason/message.
-func (s *Server) imageOutcome(ctx context.Context, d *api.TrmnlDevice, selected selectedDelivery, image deliveryImage) deliveryOutcome {
+func (s *Server) imageOutcome(ctx context.Context, d *api.ArprtDevice, selected selectedDelivery, image deliveryImage) deliveryOutcome {
 	assigned, renderErr := selected.screen, image.renderErr
 	reason, message := "ImageReady", "Validated HTTP image available"
 	if renderErr != nil {
@@ -182,8 +182,8 @@ func (s *Server) imageOutcome(ctx context.Context, d *api.TrmnlDevice, selected 
 // outcome owns device serving readiness and assignment results. Only ordinary
 // HTTP delivery owns RenderReady; Job and replay preserve it. Reporting errors
 // are best effort and must not become delivery barriers.
-func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Time, result deliveryOutcome) {
-	_ = s.mutate(ctx, d, func(current *api.TrmnlDevice) {
+func (s *Server) outcome(ctx context.Context, d *api.ArprtDevice, seen metav1.Time, result deliveryOutcome) {
+	_ = s.mutate(ctx, d, func(current *api.ArprtDevice) {
 		if current.Status.LastSeenAt == nil || !current.Status.LastSeenAt.Equal(&seen) {
 			return
 		}
@@ -207,9 +207,9 @@ func (s *Server) outcome(ctx context.Context, d *api.TrmnlDevice, seen metav1.Ti
 
 // screenOutcome is best-effort HTTP rendering status, with generation/revision
 // guards and optimistic conflict retries. It does not authorize issuance.
-func (s *Server) screenOutcome(ctx context.Context, screenObj *api.TrmnlScreen, ready bool, reason, message string) {
+func (s *Server) screenOutcome(ctx context.Context, screenObj *api.ArprtScreen, ready bool, reason, message string) {
 	_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var current api.TrmnlScreen
+		var current api.ArprtScreen
 		if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(screenObj), &current); err != nil {
 			return err
 		}

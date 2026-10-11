@@ -27,15 +27,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func fixture(t *testing.T) (*Reconciler, *api.TrmnlDevice, *api.TrmnlScreen, *time.Time) {
+func fixture(t *testing.T) (*Reconciler, *api.ArprtDevice, *api.ArprtScreen, *time.Time) {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	_ = api.AddToScheme(scheme)
 	_ = batchv1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "arprt", UID: "device-uid", Generation: 1}, Spec: api.TrmnlDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.TrmnlDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, Battery: &api.BatteryStatus{Voltage: ptr.To(3.91)}}}
-	s := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "arprt", UID: "screen-uid", Generation: 1}, Spec: api.TrmnlScreenSpec{RefreshInterval: "10s", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&api.TrmnlDevice{}, &api.TrmnlScreen{}, &batchv1.Job{}, &corev1.Pod{}).WithObjects(d, s).Build()
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "arprt", UID: "device-uid", Generation: 1}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.ArprtDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, Battery: &api.BatteryStatus{Voltage: ptr.To(3.91)}}}
+	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "arprt", UID: "screen-uid", Generation: 1}, Spec: api.ArprtScreenSpec{RefreshInterval: "10s", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&api.ArprtDevice{}, &api.ArprtScreen{}, &batchv1.Job{}, &corev1.Pod{}).WithObjects(d, s).Build()
 	root := t.TempDir()
 	store, err := NewStore(root)
 	if err != nil {
@@ -50,7 +50,7 @@ func fixture(t *testing.T) (*Reconciler, *api.TrmnlDevice, *api.TrmnlScreen, *ti
 	return r, d, s, &now
 }
 
-func step(t *testing.T, r *Reconciler, d *api.TrmnlDevice) ctrl.Result {
+func step(t *testing.T, r *Reconciler, d *api.ArprtDevice) ctrl.Result {
 	t.Helper()
 	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)})
 	if err != nil {
@@ -59,7 +59,7 @@ func step(t *testing.T, r *Reconciler, d *api.TrmnlDevice) ctrl.Result {
 	return result
 }
 
-func load(t *testing.T, r *Reconciler, d *api.TrmnlDevice) *state {
+func load(t *testing.T, r *Reconciler, d *api.ArprtDevice) *state {
 	t.Helper()
 	st, err := r.Store.load(d.Namespace, d.Name, "screen")
 	if err != nil {
@@ -68,7 +68,7 @@ func load(t *testing.T, r *Reconciler, d *api.TrmnlDevice) *state {
 	return st
 }
 
-func finish(t *testing.T, r *Reconciler, d *api.TrmnlDevice, output []byte, failed bool) *batchv1.Job {
+func finish(t *testing.T, r *Reconciler, d *api.ArprtDevice, output []byte, failed bool) *batchv1.Job {
 	t.Helper()
 	ctx := context.Background()
 	st := load(t, r, d)
@@ -133,6 +133,9 @@ func TestRestartSchedulingAndSnapshots(t *testing.T) {
 	}
 	step(t, r, d)
 	initial := load(t, r, d)
+	if initial.Active.Source.ContextPath != "/arprt/context.json" || initial.Active.Source.ImagePath != "/arprt/output.png" {
+		t.Fatalf("unexpected default Job paths: %+v", initial.Active.Source)
+	}
 	var contextData render.Context
 	b, err := os.ReadFile(filepath.Join(r.Store.run(initial.Active.ID), "context.json"))
 	if err != nil {
@@ -236,7 +239,7 @@ func TestFailuresBackoffAndObsoleteCompletion(t *testing.T) {
 			if st.Active != nil || st.Reason != test.reason || st.Due.Sub(*now) != 5*time.Second {
 				t.Fatalf("backoff %+v", st)
 			}
-			var current api.TrmnlDevice
+			var current api.ArprtDevice
 			_ = r.Client.Get(context.Background(), client.ObjectKeyFromObject(d), &current)
 			if c := meta.FindStatusCondition(current.Status.Conditions, "RenderReady"); c == nil || c.Reason != test.reason {
 				t.Fatal("missing failure condition")
@@ -326,7 +329,7 @@ func TestUnknownTargetConcurrencyAndHang(t *testing.T) {
 }
 
 func TestMountsAndCollectionSafety(t *testing.T) {
-	for _, paths := range [][2]string{{"/trmnl/context.json", "/trmnl/output.png"}, {"/input/context.json", "/work/weather.png"}, {"/work/input/context.json", "/work/weather.png"}} {
+	for _, paths := range [][2]string{{"/arprt/context.json", "/arprt/output.png"}, {"/input/context.json", "/work/weather.png"}, {"/work/input/context.json", "/work/weather.png"}} {
 		r, d, s, _ := fixture(t)
 		s.Spec.Source.Job.ContextPath = paths[0]
 		s.Spec.Source.Job.ImagePath = paths[1]

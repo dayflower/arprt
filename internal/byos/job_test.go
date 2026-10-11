@@ -17,7 +17,7 @@ import (
 func TestJobDisplayOnlyReadsCompletedPair(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	ctx := context.Background()
-	var sc api.TrmnlScreen
+	var sc api.ArprtScreen
 	if err := c.Get(ctx, client.ObjectKey{Namespace: "arprt", Name: "screen"}, &sc); err != nil {
 		t.Fatal(err)
 	}

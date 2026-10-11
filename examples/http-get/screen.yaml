@@ -1,5 +1,5 @@
 apiVersion: arprt.dayflower.github.io/v1alpha1
-kind: TrmnlScreen
+kind: ArprtScreen
 metadata:
   name: photo
 spec:

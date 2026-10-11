@@ -90,12 +90,12 @@ def main():
                     'envFrom': [{'configMapRef': {'name': 'input'}}]}}
                 if custom:
                     source.update(contextPath='/input/context.json', imagePath='/work/weather.png')
-                return {'apiVersion': 'arprt.dayflower.github.io/v1alpha1', 'kind': 'TrmnlScreen',
+                return {'apiVersion': 'arprt.dayflower.github.io/v1alpha1', 'kind': 'ArprtScreen',
                     'metadata': {'name': 'screen'}, 'spec': {'refreshInterval': interval, 'source': {'job': source}}}
 
-            normal = 'test -r /trmnl/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; sleep 6; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'
+            normal = 'test -r /arprt/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; sleep 6; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'
             apply(screen(normal, '3s'))
-            apply({'apiVersion': 'arprt.dayflower.github.io/v1alpha1', 'kind': 'TrmnlDevice',
+            apply({'apiVersion': 'arprt.dayflower.github.io/v1alpha1', 'kind': 'ArprtDevice',
                 'metadata': {'name': 'living-room'}, 'spec': {'authSecretRef': {'name': 'living-room-auth'},
                     'screenRef': {'name': 'screen'}}})
             state_file = hashlib.sha256((namespace + '/living-room/screen').encode()).hexdigest() + '.json'
@@ -183,9 +183,9 @@ def main():
                 success = latest()
                 # Failed, missing, malformed and hanging executions retain success.
                 for command, reason in [
-                    ('printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png; exit 7', 'JobFailed'),
+                    ('printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png; exit 7', 'JobFailed'),
                     ('exit 0', 'CollectionFailed'),
-                    ('printf partial > /trmnl/output.png', 'CollectionFailed'),
+                    ('printf partial > /arprt/output.png', 'CollectionFailed'),
                     ('sleep 90', 'JobTimedOut'),
                 ]:
                     apply(screen(command))
@@ -193,18 +193,18 @@ def main():
                     if latest()['attemptID'] != success['attemptID'] or display(base)['status'] != 0:
                         raise RuntimeError('failed render replaced compatible success')
                 # Make an old completeable render obsolete by replacing assignment.
-                apply(screen('sleep 15; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'))
+                apply(screen('sleep 15; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'))
                 wait(lambda: state().get('active'), 30)
                 obsolete = state()['active']['id']
-                kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': {'name': 'missing'}}}))
+                kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': {'name': 'missing'}}}))
                 wait(lambda: not state(), 60)
                 wait(lambda: all(j['metadata']['name'] != 'arprt-render-' + obsolete for j in jobs()), 60)
                 if latest().get('attemptID') == obsolete or display(base) != {'status': 202}:
                     raise RuntimeError('reassignment served obsolete output')
             # Complete a running Job while collection is offline, then recover
             # its durable run on controller startup without creating another Job.
-            apply(screen('sleep 10; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'))
-            kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': {'name': 'screen'}}}))
+            apply(screen('sleep 10; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'))
+            kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--type=merge', '-p', json.dumps({'spec': {'screenRef': {'name': 'screen'}}}))
             wait(lambda: state().get('active'), 30)
             recovery = state()['active']['id']
             recovery_name = 'arprt-render-' + recovery
@@ -229,8 +229,8 @@ def main():
                     raise RuntimeError('recovered artifact not delivered')
             # Rotation schedules a fresh context, isolates old fallback and
             # preserves images already issued to the device.
-            apply(screen('sleep 15; grep -q \'"rotation":90\' /trmnl/context.json; printf %s "$IMAGE_PNG" | base64 -d > /trmnl/output.png'))
-            kubectl('-n', namespace, 'patch', 'trmnldevice', 'living-room', '--type=merge',
+            apply(screen('sleep 15; grep -q \'"rotation":90\' /arprt/context.json; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'))
+            kubectl('-n', namespace, 'patch', 'arprtdevice', 'living-room', '--type=merge',
                     '-p', json.dumps({'spec': {'rotation': 90}}))
             wait(lambda: state().get('unit', {}).get('target', {}).get('rotation') == 90 and state().get('active'), 30)
             rotated_attempt = state()['active']['id']
@@ -248,7 +248,7 @@ def main():
             # Display telemetry is independent of the completed Job's snapshot.
             original = latest()
             original_context = read('runs/' + original['attemptID'] + '/context.json')
-            kubectl('-n', namespace, 'patch', 'trmnlscreen', 'screen', '--type=merge', '-p',
+            kubectl('-n', namespace, 'patch', 'arprtscreen', 'screen', '--type=merge', '-p',
                     json.dumps({'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}}))
             headers['Percent-Charged'], headers['RSSI'] = '0', '-99'
             with forwarded(namespace, 8080, directory) as base:

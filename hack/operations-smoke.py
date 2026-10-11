@@ -84,7 +84,7 @@ def main():
                 return result if result['status'] == 0 else None
 
             for screen in ['photo', 'device-status', 'job-bands', 'job-bands-custom']:
-                patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': screen}}})
+                patch('arprtdevice', 'living-room', {'spec': {'screenRef': {'name': screen}}})
                 wait(ready_display, 90)
                 result = ready_display()
                 with forwarded(namespace, 8080, directory) as base:
@@ -108,10 +108,10 @@ def main():
             def inspect(script):
                 return kubectl('-n', namespace, 'exec', 'storage-check', '--', 'sh', '-ec', script).stdout
 
-            patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
+            patch('arprtdevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
             result = ready_display()
             image_route = path + '/images/' + result['image_url'].rsplit('/', 1)[-1]
-            screen = resource('trmnlscreen', 'photo')
+            screen = resource('arprtscreen', 'photo')
             unit = {'namespace': namespace, 'screenUID': screen['metadata']['uid'], 'target': {'width': 800, 'height': 480, 'palette': 'gray4'}}
             key = hashlib.sha256(json.dumps(unit, separators=(',', ':')).encode()).hexdigest()
             inspect('printf broken > /data/latest/' + key + '.json')
@@ -125,7 +125,7 @@ def main():
             base_record = json.loads(inspect('cat /data/latest/' + key + '.json'))
             with forwarded(namespace, 8080, directory) as base:
                 original_bytes = fetch(base, image_route)
-                patch('trmnlscreen', 'photo', {'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}})
+                patch('arprtscreen', 'photo', {'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}})
                 composite = json.loads(fetch(base, path + '/api/display'))
                 composite_route = urllib.parse.urlsplit(composite['image_url']).path
                 composite_bytes = fetch(base, composite_route)
@@ -134,10 +134,10 @@ def main():
                 current_base = json.loads(inspect('cat /data/latest/' + key + '.json'))
                 assert current_base['imageDigest'] == base_record['imageDigest']
                 assert composite['image_url'].rsplit('/', 1)[-1][:-4] != current_base['imageDigest']
-                patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'device-status'}}})
+                patch('arprtdevice', 'living-room', {'spec': {'screenRef': {'name': 'device-status'}}})
                 assert fetch(base, composite_route) == composite_bytes
-            patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
-            patch('trmnlscreen', 'photo', {'spec': {'overlay': None}})
+            patch('arprtdevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
+            patch('arprtscreen', 'photo', {'spec': {'overlay': None}})
             standard_args = ['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--metrics-bind-address=:8082']
 
             def runtime_args(values):
@@ -148,9 +148,9 @@ def main():
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
 
             runtime_args(standard_args + ['--storage-max-bytes=1'])
-            patch('trmnlscreen', 'photo', {'spec': {'refreshInterval': '1s'}})
+            patch('arprtscreen', 'photo', {'spec': {'refreshInterval': '1s'}})
             assert ready_display()['image_url'] == result['image_url']
-            conditions = {c['type']: c for c in resource('trmnldevice', 'living-room')['status']['conditions']}
+            conditions = {c['type']: c for c in resource('arprtdevice', 'living-room')['status']['conditions']}
             assert conditions['Ready']['reason'] == 'StaleImageAvailable'
             with forwarded(namespace, 8080, directory) as base:
                 assert fetch(base, image_route).startswith(b'\x89PNG')

@@ -29,7 +29,7 @@ var (
 // selectedDelivery captures one selection. Revalidation compares fresh reads
 // against this snapshot, including the complete assignment fingerprint.
 type selectedDelivery struct {
-	screen      *api.TrmnlScreen
+	screen      *api.ArprtScreen
 	target      render.Target
 	revision    string
 	fingerprint string
@@ -55,7 +55,7 @@ func (image deliveryImage) state() deliveryState {
 	return deliveryFresh
 }
 
-func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDevice, o Observation) {
+func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDevice, o Observation) {
 	ctx := r.Context()
 	corner, err := s.recoverCorner(ctx, d)
 	if err != nil {
@@ -161,7 +161,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
 }
 
-func (s *Server) selectDelivery(ctx context.Context, d *api.TrmnlDevice, target render.Target) (selectedDelivery, error) {
+func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, target render.Target) (selectedDelivery, error) {
 	eligible, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, d)
 	if err != nil {
 		return selectedDelivery{}, err
@@ -185,7 +185,7 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.TrmnlDevice, target 
 	return selected, nil
 }
 
-func (s *Server) obtainImage(ctx context.Context, d *api.TrmnlDevice, o Observation, selected selectedDelivery) (deliveryImage, error) {
+func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery) (deliveryImage, error) {
 	assigned, target := selected.screen, selected.target
 	var m artifact.Metadata
 	var renderErr error
@@ -226,12 +226,12 @@ func (s *Server) obtainImage(ctx context.Context, d *api.TrmnlDevice, o Observat
 
 // validateIssuance is the final authorization barrier for fresh, stale and
 // replayed output. Publication gates in delivery do not replace these reads.
-func (s *Server) validateIssuance(ctx context.Context, d *api.TrmnlDevice, selected selectedDelivery, token string) error {
+func (s *Server) validateIssuance(ctx context.Context, d *api.ArprtDevice, selected selectedDelivery, token string) error {
 	assigned, target := selected.screen, selected.target
 	// Recheck identity, assignment, definition and target after the asynchronous
 	// network call. Never issue an image selected for a superseded assignment.
-	var current api.TrmnlDevice
-	var currentScreen api.TrmnlScreen
+	var current api.ArprtDevice
+	var currentScreen api.ArprtScreen
 	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || current.Status.Display == nil || devicestate.Target(&current) != target {
 		return errDisplayPending
 	}
@@ -259,8 +259,8 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.TrmnlDevice, selec
 	return nil
 }
 
-func (s *Server) persistCycle(ctx context.Context, d *api.TrmnlDevice, proposed *api.ScreenCycleStatus) error {
-	return s.mutate(ctx, d, func(current *api.TrmnlDevice) {
+func (s *Server) persistCycle(ctx context.Context, d *api.ArprtDevice, proposed *api.ScreenCycleStatus) error {
+	return s.mutate(ctx, d, func(current *api.ArprtDevice) {
 		current.Status.ScreenCycle = proposed.DeepCopy()
 	})
 }

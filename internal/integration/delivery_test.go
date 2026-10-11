@@ -57,12 +57,12 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 		_, _ = w.Write(b)
 	}))
 	defer renderer.Close()
-	screen := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: method}}}}
+	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL, Method: method}}}}
 	hardwareID := "02:00:00:00:00:04"
 	if method == "POST" {
 		hardwareID = "02:00:00:00:00:05"
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.TrmnlDeviceSpec{HardwareID: hardwareID, AuthSecretRef: api.LocalReference{Name: "delivery-auth-" + strings.ToLower(method)}, ScreenRef: &api.LocalReference{Name: name}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: name}, Spec: api.ArprtDeviceSpec{HardwareID: hardwareID, AuthSecretRef: api.LocalReference{Name: "delivery-auth-" + strings.ToLower(method)}, ScreenRef: &api.LocalReference{Name: name}}}
 	token := strings.Repeat("A", 43)
 	for _, obj := range []client.Object{screen, d, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: d.Spec.AuthSecretRef.Name}, Data: map[string][]byte{"apiKey": []byte(token)}}} {
 		if err := c.Create(ctx, obj); err != nil {

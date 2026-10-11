@@ -30,25 +30,25 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 					test.refs[i].Name = fmt.Sprintf("screen-%d", i)
 				}
 			}
-			p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "bad-list-" + test.name}, Spec: api.TrmnlPlaylistSpec{Screens: test.refs}}
+			p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "bad-list-" + test.name}, Spec: api.ArprtPlaylistSpec{Screens: test.refs}}
 			if err := c.Create(ctx, p); !apierrors.IsInvalid(err) {
 				t.Fatal("invalid playlist accepted", err)
 			}
 		})
 	}
-	cross := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": api.GroupVersion.String(), "kind": "TrmnlPlaylist", "metadata": map[string]interface{}{"namespace": "arprt", "name": "cross-list"}, "spec": map[string]interface{}{"screens": []interface{}{map[string]interface{}{"name": "photo", "namespace": "other"}}}}}
+	cross := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": api.GroupVersion.String(), "kind": "ArprtPlaylist", "metadata": map[string]interface{}{"namespace": "arprt", "name": "cross-list"}, "spec": map[string]interface{}{"screens": []interface{}{map[string]interface{}{"name": "photo", "namespace": "other"}}}}}
 	if err := c.Create(ctx, cross, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
 		t.Fatal("playlist accepted namespace on reference")
 	}
-	listed := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "listed"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
+	listed := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "listed"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
 	if err := c.Create(ctx, listed); err != nil {
 		t.Fatal(err)
 	}
-	p := &api.TrmnlPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle"}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "listed"}, {Name: "later"}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "listed"}, {Name: "later"}}}}
 	if err := c.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	d := &api.TrmnlDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycling"}, Spec: api.TrmnlDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}, PlaylistRef: &api.LocalReference{Name: p.Name}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycling"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "auth"}, PlaylistRef: &api.LocalReference{Name: p.Name}}}
 	if err := c.Create(ctx, d); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		t.Fatal(err)
 	}
 	raw := &unstructured.Unstructured{}
-	raw.SetGroupVersionKind(api.GroupVersion.WithKind("TrmnlDevice"))
+	raw.SetGroupVersionKind(api.GroupVersion.WithKind("ArprtDevice"))
 	if err := c.Get(ctx, client.ObjectKeyFromObject(d), raw); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 	if _, found, _ := unstructured.NestedFieldNoCopy(raw.Object, "status", "rotation"); found {
 		t.Fatal("sequence state still uses rotation")
 	}
-	later := &api.TrmnlScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "later"}, Spec: api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
+	later := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "later"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
 	if err := c.Create(ctx, later); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		return meta.IsStatusConditionTrue(p.Status.Conditions, controller.ConditionReady)
 	})
 	// Server-side apply must preserve an explicitly changed sequence.
-	applied := &api.TrmnlPlaylist{TypeMeta: metav1.TypeMeta{APIVersion: api.GroupVersion.String(), Kind: "TrmnlPlaylist"}, ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name}, Spec: api.TrmnlPlaylistSpec{Screens: []api.LocalReference{{Name: "later"}, {Name: "listed"}}}}
+	applied := &api.ArprtPlaylist{TypeMeta: metav1.TypeMeta{APIVersion: api.GroupVersion.String(), Kind: "ArprtPlaylist"}, ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "later"}, {Name: "listed"}}}}
 	if err := c.Patch(ctx, applied, client.Apply, client.FieldOwner("playlist-test"), client.ForceOwnership); err != nil {
 		t.Fatal(err)
 	}

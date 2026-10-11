@@ -50,12 +50,12 @@ type RendererContainer struct {
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(var/run|run)/secrets(/|$).*') && !self.imagePath.matches('^/(var/run|run)/[^/]+$')",message="output mount must not hide the ServiceAccount secret tree"
 type JobSource struct {
 	Renderer RendererContainer `json:"renderer"`
-	// +kubebuilder:default="/trmnl/context.json"
+	// +kubebuilder:default="/arprt/context.json"
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
 	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
 	ContextPath string `json:"contextPath,omitempty"`
-	// +kubebuilder:default="/trmnl/output.png"
+	// +kubebuilder:default="/arprt/output.png"
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
 	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
@@ -69,7 +69,7 @@ type ScreenSource struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
-type TrmnlScreenSpec struct {
+type ArprtScreenSpec struct {
 	// Overlay controls optional controller bitmap drawing on new deliveries.
 	Overlay *ScreenOverlay `json:"overlay,omitempty"`
 	Source  ScreenSource   `json:"source"`
@@ -119,7 +119,7 @@ type ScreenOverlay struct {
 	Margin *OverlayMargin `json:"margin,omitempty"`
 }
 
-type TrmnlScreenStatus struct {
+type ArprtScreenStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +listType=map
@@ -129,24 +129,24 @@ type TrmnlScreenStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=tscreen
+// +kubebuilder:resource:scope=Namespaced,shortName=ascreen
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-type TrmnlScreen struct {
+type ArprtScreen struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              TrmnlScreenSpec   `json:"spec"`
-	Status            TrmnlScreenStatus `json:"status,omitempty"`
+	Spec              ArprtScreenSpec   `json:"spec"`
+	Status            ArprtScreenStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type TrmnlScreenList struct {
+type ArprtScreenList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []TrmnlScreen `json:"items"`
+	Items           []ArprtScreen `json:"items"`
 }
 
-// TrmnlPlaylistSpec defines a bounded, explicitly ordered screen cycle.
-type TrmnlPlaylistSpec struct {
+// ArprtPlaylistSpec defines a bounded, explicitly ordered screen cycle.
+type ArprtPlaylistSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
@@ -156,19 +156,19 @@ type TrmnlPlaylistSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=tplaylist
-type TrmnlPlaylist struct {
+// +kubebuilder:resource:scope=Namespaced,shortName=aplaylist
+type ArprtPlaylist struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              TrmnlPlaylistSpec `json:"spec"`
-	Status            TrmnlScreenStatus `json:"status,omitempty"`
+	Spec              ArprtPlaylistSpec `json:"spec"`
+	Status            ArprtScreenStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type TrmnlPlaylistList struct {
+type ArprtPlaylistList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []TrmnlPlaylist `json:"items"`
+	Items           []ArprtPlaylist `json:"items"`
 }
 
 // ScreenCycleStatus persists the last successful screen-cycle display response.
@@ -198,7 +198,7 @@ type HardwareIDSecretReference struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.hardwareID) && has(self.hardwareIDSecretRef))",message="at most one hardware identity source is permitted"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID) || self.hardwareID == oldSelf.hardwareID)",message="hardwareID source is immutable; replace the device to change identity"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef) && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef == oldSelf.hardwareIDSecretRef)",message="hardwareIDSecretRef source is immutable; replace the device to change identity"
-type TrmnlDeviceSpec struct {
+type ArprtDeviceSpec struct {
 	// Rotation requests clockwise content rotation in degrees. Renderers apply it
 	// while preserving the physical display dimensions of the output PNG.
 	// +kubebuilder:default=0
@@ -243,7 +243,7 @@ type NetworkStatus struct {
 	RSSI *int32 `json:"rssi,omitempty"`
 }
 
-type TrmnlDeviceStatus struct {
+type ArprtDeviceStatus struct {
 	ScreenCycle *ScreenCycleStatus `json:"screenCycle,omitempty"`
 	// HardwareID mirrors the durable registration for this device UID.
 	// +kubebuilder:validation:MaxLength=17
@@ -263,22 +263,22 @@ type TrmnlDeviceStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Namespaced,shortName=tdevice
+// +kubebuilder:resource:scope=Namespaced,shortName=adevice
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-type TrmnlDevice struct {
+type ArprtDevice struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              TrmnlDeviceSpec   `json:"spec"`
-	Status            TrmnlDeviceStatus `json:"status,omitempty"`
+	Spec              ArprtDeviceSpec   `json:"spec"`
+	Status            ArprtDeviceStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
-type TrmnlDeviceList struct {
+type ArprtDeviceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []TrmnlDevice `json:"items"`
+	Items           []ArprtDevice `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&TrmnlScreen{}, &TrmnlScreenList{}, &TrmnlDevice{}, &TrmnlDeviceList{}, &TrmnlPlaylist{}, &TrmnlPlaylistList{})
+	SchemeBuilder.Register(&ArprtScreen{}, &ArprtScreenList{}, &ArprtDevice{}, &ArprtDeviceList{}, &ArprtPlaylist{}, &ArprtPlaylistList{})
 }
