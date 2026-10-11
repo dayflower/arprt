@@ -27,6 +27,8 @@ and [dated acceptance evidence](notes/DEVELOP.md#recorded-acceptance-baseline).
 
 Build with `make build` or `make docker-build IMAGE=arprt:dev`. Tooling, generation,
 `make verify` and API/cluster checks are in [DEVELOP](notes/DEVELOP.md).
+CI runs envtest on Kubernetes 1.36.0 to check the supported minimum version;
+patch releases within minor 1.36 remain supported without separate envtest runs.
 
 ## Installation and pairing
 

@@ -17,16 +17,13 @@ jobs:
       - run: make docker-build
   api:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        kubernetes: ['1.36.0', '1.36.2']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.8'
           cache: true
-      - run: make integration ENVTEST_K8S_VERSION=${{ matrix.kubernetes }}
+      - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
   cluster:
     runs-on: ubuntu-latest

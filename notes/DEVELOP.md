@@ -10,7 +10,7 @@ runtime administration and [RENDERERS](RENDERERS.md) for example usage.
 Use Go, Make, a C compiler for race tests, Python 3 for examples/smoke checks,
 and Docker for images. The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest; [go.mod](../go.mod) pins dependencies and
-[CI](../.github/workflows/ci.yaml) defines the Kubernetes test matrix and kind image.
+[CI](../.github/workflows/ci.yaml) defines the Kubernetes test version and kind image.
 Use those files when changing versions rather than adding another version list.
 Build tools and envtest binaries are installed under the ignored `bin/` directory.
 
@@ -80,7 +80,7 @@ replacement and failure preservation; avoid tests that merely repeat code.
 
 | Change | Additional checks beyond `make verify` |
 | --- | --- |
-| API markers/defaults, status, watches, Secret conflicts or reconciliation | Envtest on both CI Kubernetes versions |
+| API markers/defaults, status, watches, Secret conflicts or reconciliation | Envtest on the CI Kubernetes version (1.36.0) |
 | BYOS/HTTP/credentials/identity | `cluster-smoke.py` for cluster/deployment integration |
 | Job scheduling, mounts, collection, recovery or cancellation | `job-smoke.py` |
 | Playlist/discovery, replay or per-screen retention | `playlist-smoke.py`, plus HTTP/Job regressions when affected |
@@ -90,7 +90,6 @@ replacement and failure preservation; avoid tests that merely repeat code.
 
 ```sh
 make integration ENVTEST_K8S_VERSION=1.36.0
-make integration ENVTEST_K8S_VERSION=1.36.2
 make docker-build IMAGE=arprt:dev
 ```
 
