@@ -1,0 +1,18 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: TrmnlScreen
+metadata:
+  name: photo-overlay
+spec:
+  source:
+    http:
+      url: http://photo-renderer.arprt.svc/render?theme=light
+  overlay:
+    enabled: true
+    # Omit items for all three; [] disables drawing without changing enablement.
+    items: [timestamp, battery, wifi]
+    # Shared clockwise corner cycle for this device UID; do not set position.
+    # Foreground inset in bitmap pixels; the white background reaches the edges.
+    margin:
+      horizontal: 12
+      vertical: 4
+    cycleCorners: true

@@ -127,6 +127,10 @@ func deletePods(t *testing.T, r *Reconciler) {
 
 func TestRestartSchedulingAndSnapshots(t *testing.T) {
 	r, d, _, now := fixture(t)
+	d.Status.Battery.Percent = ptr.To(20.5)
+	if err := r.Client.Status().Update(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
 	step(t, r, d)
 	initial := load(t, r, d)
 	var contextData render.Context
@@ -137,13 +141,14 @@ func TestRestartSchedulingAndSnapshots(t *testing.T) {
 	if err = json.Unmarshal(b, &contextData); err != nil {
 		t.Fatal(err)
 	}
-	if contextData.Device.Name != d.Name || *contextData.Device.Battery.Voltage != 3.91 || hash(b) != initial.Active.ContextDigest {
+	if contextData.Device.Name != d.Name || *contextData.Device.Battery.Voltage != 3.91 || contextData.Device.Battery.Percent == nil || *contextData.Device.Battery.Percent != 20.5 || hash(b) != initial.Active.ContextDigest {
 		t.Fatal("snapshot contract")
 	}
 	if err = r.Client.Get(context.Background(), client.ObjectKeyFromObject(d), d); err != nil {
 		t.Fatal(err)
 	}
 	d.Status.Battery.Voltage = ptr.To(3.7)
+	d.Status.Battery.Percent = ptr.To(0.0)
 	if err = r.Client.Status().Update(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +182,7 @@ func TestRestartSchedulingAndSnapshots(t *testing.T) {
 	st := load(t, restarted, d)
 	b, _ = os.ReadFile(filepath.Join(store.run(st.Active.ID), "context.json"))
 	_ = json.Unmarshal(b, &contextData)
-	if st.Active.Sequence != 2 || *contextData.Device.Battery.Voltage != 3.7 {
+	if st.Active.Sequence != 2 || *contextData.Device.Battery.Voltage != 3.7 || contextData.Device.Battery.Percent == nil || *contextData.Device.Battery.Percent != 0 {
 		t.Fatal("interval snapshot not current")
 	}
 	// Replay collection after publication but before terminal state save.

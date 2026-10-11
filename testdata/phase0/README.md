@@ -52,3 +52,7 @@ test/example paths; they do not indicate an unfinished implementation phase.
 The complete Render Context fixture includes `renderTarget.rotation: 90`; the
 no-telemetry fixture omits rotation to demonstrate the default of 0. Final PNG
 dimensions remain 800 × 480 for every rotation.
+
+`render-context-fractional-percent.json` extends the unchanged Context v1 fixture
+with a synthetic measured percentage of 20.5. It is not inferred from voltage.
+The original and no-telemetry fixtures continue to exercise old readable inputs.

@@ -27,8 +27,13 @@ spec:
         - name: controller
           image: arprt:dev
           imagePullPolicy: IfNotPresent
-          args: [--namespace=$(POD_NAMESPACE), --job-pvc=arprt-data, --metrics-bind-address=:8082]
+          args: [--namespace=$(POD_NAMESPACE), --job-pvc=arprt-data, --metrics-bind-address=:8082, --overlay-time-zone=$(OVERLAY_TIME_ZONE)]
           env:
+            - name: OVERLAY_TIME_ZONE
+              valueFrom:
+                configMapKeyRef:
+                  name: arprt-config
+                  key: overlayTimeZone
             - name: PUBLIC_BASE_URL
               valueFrom:
                 configMapKeyRef:

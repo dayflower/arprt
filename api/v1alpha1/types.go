@@ -70,13 +70,53 @@ type ScreenSource struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
 type TrmnlScreenSpec struct {
-	Source ScreenSource `json:"source"`
+	// Overlay controls optional controller bitmap drawing on new deliveries.
+	Overlay *ScreenOverlay `json:"overlay,omitempty"`
+	Source  ScreenSource   `json:"source"`
 	// RefreshInterval controls artifact freshness, not device polling. Effective
 	// defaults are 5m for GET and 30m for Job; POST has no interval.
 	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:Pattern=`^([0-9]+[hms])+$`
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('24h')",message="interval must be between 1s and 24h in whole seconds"
 	RefreshInterval string `json:"refreshInterval,omitempty"`
+}
+
+// OverlayItem selects a display item; layout order is independent of array order.
+// +kubebuilder:validation:Enum=timestamp;battery;wifi
+type OverlayItem string
+
+// OverlayMargin independently insets foreground along the logical viewing axes.
+// Values are unscaled bitmap pixels; omitted components mean zero.
+type OverlayMargin struct {
+	// Horizontal is the inset from the selected left or right edge.
+	// +kubebuilder:validation:Minimum=0
+	Horizontal int32 `json:"horizontal,omitempty"`
+	// Vertical is the inset from the selected top or bottom edge.
+	// +kubebuilder:validation:Minimum=0
+	Vertical int32 `json:"vertical,omitempty"`
+}
+
+// ScreenOverlay describes display intent, independently of renderer execution.
+// +kubebuilder:validation:XValidation:rule="!self.cycleCorners || !has(self.position)",message="position must be omitted when cycleCorners is true"
+type ScreenOverlay struct {
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+	// Items omitted selects all items; an explicit empty array draws nothing.
+	// A pointer preserves empty arrays through JSON and Kubernetes round trips.
+	// +kubebuilder:validation:MaxItems=3
+	// +listType=set
+	Items *[]OverlayItem `json:"items,omitempty"`
+	// Position is defaulted to top-right internally, never by admission.
+	// +kubebuilder:validation:Enum=top-right;bottom-right;bottom-left;top-left
+	Position string `json:"position,omitempty"`
+	// +kubebuilder:default=false
+	CycleCorners bool `json:"cycleCorners,omitempty"`
+	// Scale omitted selects automatic scaling using physical dimensions.
+	// +kubebuilder:validation:Minimum=1
+	Scale *int32 `json:"scale,omitempty"`
+	// Margin insets foreground independently from the horizontal and vertical edges.
+	// The opaque background extends through each inset to the display edges.
+	Margin *OverlayMargin `json:"margin,omitempty"`
 }
 
 type TrmnlScreenStatus struct {
@@ -196,7 +236,7 @@ type BatteryStatus struct {
 	// Percent is present only when measured, never inferred from OG voltage.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
-	Percent *int32 `json:"percent,omitempty"`
+	Percent *float64 `json:"percent,omitempty"`
 }
 
 type NetworkStatus struct {

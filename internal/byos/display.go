@@ -39,8 +39,10 @@ type selectedDelivery struct {
 }
 
 type deliveryImage struct {
-	metadata  artifact.Metadata
-	renderErr error
+	metadata      artifact.Metadata // Original rendering success, for freshness/reporting.
+	issued        artifact.Metadata // Actual immutable image sent to the device.
+	advanceCorner bool
+	renderErr     error
 }
 
 func (image deliveryImage) state() deliveryState {
@@ -55,6 +57,11 @@ func (image deliveryImage) state() deliveryState {
 
 func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDevice, o Observation) {
 	ctx := r.Context()
+	corner, err := s.recoverCorner(ctx, d)
+	if err != nil {
+		reply(w, 503, 503)
+		return
+	}
 	observed, err := s.observeDisplay(ctx, d, o)
 	if err != nil {
 		reply(w, 503, 503)
@@ -88,6 +95,24 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 503, 503)
 		return
 	}
+	image, release, err := s.overlayImage(ctx, d, o, selected, image, corner)
+	if err != nil {
+		reply(w, 503, 503)
+		return
+	}
+	defer release()
+	var proposed *api.ScreenCycleStatus
+	if image.metadata.ImageDigest != "" && selected.cycling && selected.replay == nil {
+		proposed = &api.ScreenCycleStatus{Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.DisplayStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+		if image.advanceCorner {
+			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
+			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
+				reply(w, 503, 503)
+				return
+			}
+			corner.Pending = &pending
+		}
+	}
 	headers, _ := Headers(r.Header)
 	if err := s.validateIssuance(ctx, d, selected, headers["access-token"]); err != nil {
 		switch {
@@ -109,7 +134,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		reply(w, 200, 202)
 		return
 	}
-	if err := s.Repository.Issue(ctx, string(d.UID), image.metadata.ImageDigest, time.Now()); err != nil {
+	if err := s.Repository.Issue(ctx, string(d.UID), image.issued.ImageDigest, time.Now()); err != nil {
 		reply(w, 503, 503)
 		return
 	}
@@ -120,14 +145,20 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.TrmnlDev
 		}
 	}
 	if selected.cycling && selected.replay == nil {
-		if err := s.persistCycle(ctx, d, selected, image.metadata); err != nil {
+		if err := s.persistCycle(ctx, d, proposed); err != nil {
+			reply(w, 503, 503)
+			return
+		}
+	}
+	if image.advanceCorner {
+		if err := s.Repository.ResolveCorner(ctx, corner, true); err != nil {
 			reply(w, 503, 503)
 			return
 		}
 	}
 	// Issuance and any new cycle turn must be durable before acknowledgement.
 	s.outcome(ctx, d, observed.seen, result)
-	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.metadata.ImageDigest + ".png", Filename: image.metadata.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
+	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
 }
 
 func (s *Server) selectDelivery(ctx context.Context, d *api.TrmnlDevice, target render.Target) (selectedDelivery, error) {
@@ -183,7 +214,7 @@ func (s *Server) obtainImage(ctx context.Context, d *api.TrmnlDevice, o Observat
 		var snapshot render.Context
 		// mutate returned the direct status snapshot, and this explicit overlay
 		// keeps current request telemetry independent of informer propagation.
-		snapshot, renderErr = render.Build(d.Name, target, devicestate.Observation(d.Status), render.Observation{Model: o.Model, FirmwareVersion: o.Firmware, Voltage: o.Voltage, RSSI: o.RSSI})
+		snapshot, renderErr = render.Build(d.Name, target, devicestate.Observation(d.Status), render.Observation{Model: o.Model, FirmwareVersion: o.Firmware, Voltage: o.Voltage, Percent: o.Percent, RSSI: o.RSSI})
 		if renderErr == nil {
 			m, renderErr = s.POST.Image(ctx, assigned, d, snapshot)
 		}
@@ -228,8 +259,8 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.TrmnlDevice, selec
 	return nil
 }
 
-func (s *Server) persistCycle(ctx context.Context, d *api.TrmnlDevice, selected selectedDelivery, m artifact.Metadata) error {
+func (s *Server) persistCycle(ctx context.Context, d *api.TrmnlDevice, proposed *api.ScreenCycleStatus) error {
 	return s.mutate(ctx, d, func(current *api.TrmnlDevice) {
-		current.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: *current.Status.Display, ImageDigest: m.ImageDigest, Filename: m.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC())}
+		current.Status.ScreenCycle = proposed.DeepCopy()
 	})
 }

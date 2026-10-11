@@ -12,7 +12,8 @@ rendering, validated persistent artifacts and authenticated BYOS delivery.
 
 The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
 
-- `TrmnlScreen` defines exactly one HTTP or Job source and applicable freshness.
+- `TrmnlScreen` defines exactly one HTTP or Job source, applicable freshness and
+  optional display overlay intent.
 - `TrmnlDevice` selects a single screen, an ordered playlist, or discovery, with
   an auth Secret, optional direct/Secret-backed hardware identity and desired
   clockwise content rotation (`spec.rotation`, default 0; 0/90/180/270).
@@ -115,6 +116,71 @@ from persisted metadata after restart; synchronous failed/incomplete work retrie
 on a later poll without a restartable execution journal. GET joining callers can
 cancel independently; shared work follows manager shutdown. Generation/revision
 changes during a joined flight cannot be treated as fresh new-definition output.
+
+## Base images, composites and overlay corners
+
+Renderer success remains the base artifact. Derived-image persistence shares
+byte-addressed blobs and firmware filename reservations but never writes base
+latest, sequence, attempt, Context digest or `RenderedAt`. Internal provenance
+and cache references include the original unit/exact target and full success
+identity, original UTC render time, normalized visible timestamp/icon levels,
+actual corner, scale, both margin components, rotation, charging-mark selection and bitmap/encoder
+version. Hidden observations, raw measurements within one icon level, credentials and MACs are excluded.
+Equivalent bytes share filenames while separate units/timestamps keep distinct
+provenance. Caches do not grant issuance authorization.
+
+[screen normalization](../internal/screen/input.go) applies omitted defaults and
+fixed item order, preserves empty selections, and ignores disabled settings.
+Screens without overlays keep their old revisions. Enabled overlay edits are
+part of the definition revision; telemetry, actual corner and controller time
+zone are not base input. [overlay](../internal/overlay/overlay.go) has no HTTP or
+Kubernetes dependencies and draws a vendored CC0 Home Video font and original
+icons on validated PNGs. A clockwise arrow prefixes the render timestamp to
+identify image generation time; it is part of the timestamp item and does not
+change the UTC provenance or display time-zone rules. Foreground is inset independently along the logical
+horizontal and vertical axes by the scaled Screen margin components, and its
+white background reaches both adjoining logical corner edges. Charging uses
+a valid current charging observation only; USB presence does not select the
+mark. False or unavailable charging keeps ordinary battery-level selection.
+Only the visible mark enters cache identity; hidden level measurements do not
+change a charging composite.
+
+BYOS selects fresh/stale base output, validates it, composes or reuses a derived
+candidate, then performs the existing direct final UID/definition/assignment/
+exact-target/identity/token checks. Compositing/cache persistence failures select
+the validated base. Issue or required state-write failures return 503. Base
+render errors and best-effort rendering reports stay independent of composites.
+Replay bypasses drawing and keeps the committed bytes, filename and ServedAt.
+
+One authoritative PVC corner record belongs to each device UID, shared across
+cycling Screens and preserved across assignment/definition changes. New drawn
+cycling deliveries move clockwise from top-right; fixed, disabled, empty, failed
+and replayed overlays do not advance. The hashed-UID BYOS gate spans recovery,
+selection, drawing, issuance and commitment. Single-screen delivery issues first,
+then atomically advances the corner; the next HTTP request is a new delivery.
+
+For playlist/discovery, persist a pending record with both the previous complete
+turn and the exact proposed `screenCycle` (fixed microsecond ServedAt), issue the
+image, optimistically persist that proposal, then atomically finalize the next
+corner. Before any subsequent selection, directly read status: a complete match
+with the proposal finalizes only the corner; a match with the previous turn
+cancels the uncommitted proposal without advancement. Other inconsistencies,
+corruption and unknown corner versions fail closed. Equal digest alone is not
+proof of commitment. Bytes issued before a later failure retain authorization.
+
+Derived/cache references expire after 24 hours plus one minute since their own
+last use; digest issuance independently protects bytes/filenames/access for at
+least 24 hours after Issue. Temporary pins protect candidate cache hits through
+request completion, and durable pending proposals protect interrupted deliveries.
+Maintenance in both execution modes covers these directories in capacity and
+retention accounting. Validate authoritative roots before destructive collection;
+deleted-UID corner records have a 24-hour grace period so old API snapshots
+cannot remove new records. Caches are regenerable; corners and issuance are not.
+
+Existing base/issuance/screenCycle formats remain readable. Existing UIDs without
+corner records start at top-right and existing replay can still return its base
+image. Downgrading after numeric-percentage or new internal-record writes is
+unverified; older maintenance does not understand the new retention roots.
 
 ## Identity and credential persistence
 
@@ -244,7 +310,7 @@ other minors are unverified rather than declared inherently incompatible.
 
 ## Scope of future work
 
-Additional device/firmware targets, image conversion, target-only Job sharing,
+Additional device/firmware targets, general image conversion, target-only Job sharing,
 advanced playlist timing/weighting, automatic creation of unknown devices,
 arbitrary Pod specifications, additional backends and multiple active controllers
 need concrete requirements and compatibility/recovery validation. These are

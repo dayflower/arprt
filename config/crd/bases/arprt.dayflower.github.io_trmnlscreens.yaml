@@ -43,6 +43,68 @@ spec:
             type: object
           spec:
             properties:
+              overlay:
+                description: Overlay controls optional controller bitmap drawing on
+                  new deliveries.
+                properties:
+                  cycleCorners:
+                    default: false
+                    type: boolean
+                  enabled:
+                    default: false
+                    type: boolean
+                  items:
+                    description: |-
+                      Items omitted selects all items; an explicit empty array draws nothing.
+                      A pointer preserves empty arrays through JSON and Kubernetes round trips.
+                    items:
+                      description: OverlayItem selects a display item; layout order
+                        is independent of array order.
+                      enum:
+                      - timestamp
+                      - battery
+                      - wifi
+                      type: string
+                    maxItems: 3
+                    type: array
+                    x-kubernetes-list-type: set
+                  margin:
+                    description: |-
+                      Margin insets foreground independently from the horizontal and vertical edges.
+                      The opaque background extends through each inset to the display edges.
+                    properties:
+                      horizontal:
+                        description: Horizontal is the inset from the selected left
+                          or right edge.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      vertical:
+                        description: Vertical is the inset from the selected top or
+                          bottom edge.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                    type: object
+                  position:
+                    description: Position is defaulted to top-right internally, never
+                      by admission.
+                    enum:
+                    - top-right
+                    - bottom-right
+                    - bottom-left
+                    - top-left
+                    type: string
+                  scale:
+                    description: Scale omitted selects automatic scaling using physical
+                      dimensions.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
+                x-kubernetes-validations:
+                - message: position must be omitted when cycleCorners is true
+                  rule: '!self.cycleCorners || !has(self.position)'
               refreshInterval:
                 description: |-
                   RefreshInterval controls artifact freshness, not device polling. Effective

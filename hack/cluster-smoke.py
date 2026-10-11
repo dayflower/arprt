@@ -5,6 +5,8 @@ Requires kubectl and a controller image available to the cluster. Reuses
 identical installed CRDs and removes only resources created by this run.
 """
 import argparse
+import datetime
+import overlay_checks
 import base64
 from contextlib import contextmanager
 import json
@@ -106,7 +108,7 @@ def main():
             for sample in ['screens.yaml', 'device.yaml']:
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/samples' / sample))
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
-                'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m'}}))
+                'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m', 'overlay': None}}))
             # Secret reads are restricted to the supplied auth and MAC sources.
             account = 'system:serviceaccount:' + namespace + ':arprt'
             for ns, verb, resource, allowed in [
@@ -208,7 +210,9 @@ def main():
                 status, image_headers, logo = fetch(base, prefix + '/setup-logo.png', False)
                 if status != 200 or len(logo) != int(image_headers['Content-Length']):
                     raise RuntimeError('anonymous setup image failed')
+                render_start = datetime.datetime.now(datetime.timezone.utc)
                 first = display(base, prefix)
+                render_end = datetime.datetime.now(datetime.timezone.utc)
                 image_path = first['image_url'].removeprefix('https://byos.example.test')
                 status, image_headers, image = fetch(base, image_path)
                 if status != 200 or len(image) != int(image_headers['Content-Length']) or image_headers['Content-Type'] != 'image/png':
@@ -240,7 +244,7 @@ def main():
             kubectl('-n', namespace, 'scale', 'deployment/renderer', '--replicas=0')
             wait(lambda: not json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app=renderer', '-o', 'json').stdout)['items'])
             kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
-            patch_args(['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--proxy-strips-prefix=true'])
+            patch_args(['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--proxy-strips-prefix=true', '--overlay-time-zone=Asia/Tokyo'])
             kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
             stripped = prefix.removeprefix('/arprt')
             with forwarded(namespace, 8080, directory) as base:
@@ -253,6 +257,50 @@ def main():
                     raise RuntimeError('setup availability or key lost after restart')
                 if fetch(base, stripped + '/api/display', request_headers={**headers, 'ID': '02:00:00:00:00:05'})[0] != 403:
                     raise RuntimeError('PVC restart lost the registered MAC')
+                # Draw from stale renderer bytes, using embedded zoneinfo in scratch.
+                kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p',
+                        json.dumps({'spec': {'overlay': {'enabled': True, 'margin': {'horizontal': 12, 'vertical': 4}}}}))
+                composite = display(base, stripped)
+                composite_path = composite['image_url'].removeprefix('https://byos.example.test/arprt')
+                composite_bytes = fetch(base, composite_path)[2]
+                overlay_checks.assert_overlay(image, composite_bytes, margin_horizontal=12, margin_vertical=4)
+                shown = datetime.datetime.strptime(overlay_checks.timestamp(composite_bytes, margin_horizontal=12, margin_vertical=4), '%Y-%m-%d %H:%M')
+                shown = shown.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9))).astimezone(datetime.timezone.utc)
+                if not render_start.replace(second=0, microsecond=0) <= shown <= render_end.replace(second=0, microsecond=0):
+                    raise RuntimeError('overlay lost original timestamp or scratch IANA timezone')
+                headers['Percent-Charged'] = '20.5'
+                fractional = display(base, stripped)
+                if fractional['filename'] == composite['filename']:
+                    raise RuntimeError('current fractional percentage did not change battery icon')
+                status = json.loads(kubectl('-n', namespace, 'get', 'trmnldevice', 'living-room', '-o', 'json').stdout)['status']
+                if status['battery']['percent'] != 20.5:
+                    raise RuntimeError('fractional percentage lost in status')
+                # USB presence alone never establishes active charging.
+                headers['USB-Connected'] = 'true'
+                if display(base, stripped)['filename'] != fractional['filename']:
+                    raise RuntimeError('USB inferred active charging')
+                headers['Battery-Charging'] = 'invalid'
+                if display(base, stripped)['filename'] != fractional['filename']:
+                    raise RuntimeError('invalid charging fell back to USB')
+                headers['Battery-Charging'] = '1'
+                charging = display(base, stripped)
+                charging_bytes = fetch(base, charging['image_url'].removeprefix('https://byos.example.test/arprt'))[2]
+                overlay_checks.assert_overlay(image, charging_bytes, margin_horizontal=12, margin_vertical=4)
+                if charging['filename'] == fractional['filename']:
+                    raise RuntimeError('known charging mark did not replace the level')
+                headers['USB-Connected'] = 'false'
+                if display(base, stripped)['filename'] != charging['filename']:
+                    raise RuntimeError('USB changed known charging mark identity')
+                headers['USB-Connected'] = 'true'
+                headers['Battery-Charging'] = '0'
+                if display(base, stripped)['filename'] != fractional['filename']:
+                    raise RuntimeError('USB overrode explicit not-charging state')
+                headers.pop('USB-Connected')
+                headers.pop('Battery-Charging')
+                kubectl('-n', namespace, 'patch', 'trmnlscreen', 'photo', '--type=merge', '-p',
+                        json.dumps({'spec': {'overlay': {'scale': 100}}}))
+                if display(base, stripped) != first or fetch(base, composite_path)[2] != composite_bytes:
+                    raise RuntimeError('layout fallback or issued composite retention failed')
                 # Changing UID while the renderer is down must yield initial pending.
                 screen = json.loads(kubectl('-n', namespace, 'get', 'trmnlscreen', 'photo', '-o', 'json').stdout)
                 kubectl('-n', namespace, 'delete', 'trmnlscreen', 'photo')
@@ -260,7 +308,7 @@ def main():
                 status, _, body = fetch(base, stripped + '/api/display')
                 if status != 200 or json.loads(body) != {'status': 202}:
                     raise RuntimeError('replacement resource borrowed an obsolete image')
-            print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, rotation, reuse, PVC restart, outage, initial pending and scoped RBAC')
+            print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, rotation, reuse, scratch timezone, overlays/fractional telemetry/fallback, PVC restart, outage, initial pending and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

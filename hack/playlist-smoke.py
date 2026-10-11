@@ -5,6 +5,7 @@ Reuses identical installed CRD schemas without modifying them; removes only
 resources this run created. Requires kubectl and a cluster-accessible image.
 """
 import argparse
+import overlay_checks
 import base64
 import hashlib
 import importlib.util
@@ -105,14 +106,14 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     'envFrom':[{'configMapRef':{'name':'input'}}]}}}}
             uids = {}
             for name, source in sources.items():
-                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlScreen','metadata':{'name':name},'spec':{'source':source}})
+                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'horizontal':12,'vertical':4}}}})
                 uids[name] = json.loads(kubectl('-n',namespace,'get','trmnlscreen',name,'-o','json').stdout)['metadata']['uid']
             refs = [{'name':'b-post'},{'name':'missing'},{'name':'c-job'},{'name':'a-get'}]
             apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlPlaylist','metadata':{'name':'cycle'},'spec':{'screens':refs}})
             apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'TrmnlDevice','metadata':{'name':'living-room'},
                 'spec':{'authSecretRef':{'name':'living-room-auth'},'playlistRef':{'name':'cycle'}}})
             token = ''
-            headers = {'ID':'02:00:00:00:00:01','Model':'og','FW-Version':'1.8.17','Width':'800','Height':'480','Battery-Voltage':'3.91'}
+            headers = {'ID':'02:00:00:00:00:01','Model':'og','FW-Version':'1.8.17','Width':'800','Height':'480','Battery-Voltage':'3.91','RSSI':'-48'}
             path = '/arprt/devices/' + namespace + '/living-room'
 
             def fetch(base, endpoint):
@@ -130,15 +131,28 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
             def display(base):
                 return json.loads(fetch(base,path+'/api/display'))
 
+            last_turn, corner_index = None, 0
+
             def turn(base, name):
+                nonlocal last_turn, corner_index
                 response = display(base)
                 if response['status'] != 0 or device()['status']['screenCycle']['screenUID'] != uids[name]:
                     raise RuntimeError('wrong screen-cycle turn: ' + name)
                 image_path = response['image_url'].removeprefix('https://byos.example.test')
-                if hashlib.sha256(fetch(base,image_path)).hexdigest() != hashlib.sha256(base64.b64decode(image)).hexdigest():
-                    raise RuntimeError('authenticated image mismatch')
-                if display(base) != response:
-                    raise RuntimeError('retry changed the response')
+                committed = device()['status']['screenCycle']
+                if committed != last_turn:
+                    corner = overlay_checks.CORNERS[corner_index % 4]
+                    overlay_checks.assert_overlay(base64.b64decode(image), fetch(base,image_path), corner, margin_horizontal=12, margin_vertical=4)
+                    corner_index += 1
+                    last_turn = committed
+                replay_bytes = fetch(base,image_path)
+                headers['Percent-Charged'], headers['RSSI'] = '0', '-99'
+                headers['Battery-Charging'] = '1'
+                if display(base) != response or fetch(base,image_path) != replay_bytes:
+                    raise RuntimeError('retry telemetry changed the committed overlay')
+                headers.pop('Percent-Charged')
+                headers.pop('Battery-Charging')
+                headers['RSSI'] = '-48'
                 return response
 
             with forwarded(namespace,8080,directory) as base:
@@ -177,7 +191,7 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 result = kubectl('auth','can-i','list','trmnlplaylists','-n',ns,'--as='+account,check=False)
                 if (result.stdout.strip()=='yes') != allowed:
                     raise RuntimeError('playlist RBAC namespace mismatch')
-            print('PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, edits, deletion, empty set and namespace RBAC')
+            print('PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

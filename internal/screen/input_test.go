@@ -1,6 +1,7 @@
 package screen
 
 import (
+	"encoding/json"
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"testing"
 	"time"
@@ -50,5 +51,74 @@ func TestDefaultsAndRevision(t *testing.T) {
 	}
 	if a != b {
 		t.Fatal("equivalent Job defaults produce different revisions")
+	}
+}
+
+func TestOverlayRevisionAndRepresentation(t *testing.T) {
+	spec := api.TrmnlScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
+	old, _ := InputRevision(spec)
+	spec.Overlay = &api.ScreenOverlay{Position: "bottom-left", CycleCorners: true, Items: &[]api.OverlayItem{"wifi"}, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 8}}
+	disabled, _ := InputRevision(spec)
+	if disabled != old {
+		t.Fatal("disabled settings changed existing revision")
+	}
+	spec.Overlay = &api.ScreenOverlay{Enabled: true}
+	defaults, _ := InputRevision(spec)
+	if defaults == old {
+		t.Fatal("overlay edit did not invalidate revision")
+	}
+	spec.Overlay.Position = "top-right"
+	spec.Overlay.Items = &[]api.OverlayItem{"wifi", "timestamp", "battery"}
+	explicit, _ := InputRevision(spec)
+	if explicit != defaults {
+		t.Fatal("equivalent settings differ")
+	}
+	revisions := map[string]bool{defaults: true}
+	for _, margin := range []*api.OverlayMargin{{Horizontal: 8}, {Vertical: 4}, {Horizontal: 8, Vertical: 4}} {
+		spec.Overlay.Margin = margin
+		inset, err := InputRevision(spec)
+		if err != nil || revisions[inset] {
+			t.Fatal("independent margin did not invalidate definition", margin, err)
+		}
+		revisions[inset] = true
+		copied := EffectiveOverlay(spec.Overlay)
+		copied.Margin.Horizontal++
+		copied.Margin.Vertical++
+		if *copied.Margin == *spec.Overlay.Margin {
+			t.Fatal("effective margin aliases input")
+		}
+	}
+	for _, margin := range []*api.OverlayMargin{nil, {}, {Horizontal: 0}, {Vertical: 0}} {
+		spec.Overlay.Margin = margin
+		zeroMargin, err := InputRevision(spec)
+		if err != nil || zeroMargin != defaults {
+			t.Fatal("empty/zero margin differs from omission", margin, err)
+		}
+	}
+	spec.Overlay.Items = &[]api.OverlayItem{}
+	empty, _ := InputRevision(spec)
+	if empty == defaults {
+		t.Fatal("empty items became all items")
+	}
+	b, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundtrip api.TrmnlScreenSpec
+	if err := json.Unmarshal(b, &roundtrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundtrip.Overlay.Items == nil || len(*roundtrip.Overlay.Items) != 0 {
+		t.Fatal("empty selection was lost")
+	}
+	copied := spec.DeepCopy()
+	*copied.Overlay.Items = append(*copied.Overlay.Items, "wifi")
+	if len(*spec.Overlay.Items) != 0 {
+		t.Fatal("deep copy aliases items")
+	}
+	spec.Overlay = &api.ScreenOverlay{Enabled: true, CycleCorners: true}
+	effective := EffectiveOverlay(spec.Overlay)
+	if effective.Position != "" || len(*effective.Items) != 3 {
+		t.Fatal("cycling default incorrectly adds position")
 	}
 }

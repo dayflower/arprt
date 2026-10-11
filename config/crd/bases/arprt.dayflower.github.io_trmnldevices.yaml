@@ -139,10 +139,9 @@ spec:
                   percent:
                     description: Percent is present only when measured, never inferred
                       from OG voltage.
-                    format: int32
                     maximum: 100
                     minimum: 0
-                    type: integer
+                    type: number
                   voltage:
                     minimum: 0
                     type: number

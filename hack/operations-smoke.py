@@ -5,6 +5,7 @@ Requires kubectl and a cluster-accessible controller image. Never targets an
 existing device namespace; uses a temporary administrative PVC inspection Pod.
 """
 import argparse
+import overlay_checks
 import hashlib
 import importlib.util
 import json
@@ -120,6 +121,23 @@ def main():
             assert ready_display()['image_url'] == result['image_url']
             print('PASS: corrupt pointer and blob regenerate from validated renderer bytes', flush=True)
 
+            # Derived output must not replace base latest and must survive reassignment/GC.
+            base_record = json.loads(inspect('cat /data/latest/' + key + '.json'))
+            with forwarded(namespace, 8080, directory) as base:
+                original_bytes = fetch(base, image_route)
+                patch('trmnlscreen', 'photo', {'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}})
+                composite = json.loads(fetch(base, path + '/api/display'))
+                composite_route = urllib.parse.urlsplit(composite['image_url']).path
+                composite_bytes = fetch(base, composite_route)
+                overlay_checks.assert_overlay(original_bytes, composite_bytes, width=40, height=18, margin_horizontal=12, margin_vertical=4)
+                # Definition edit may refresh the base, but the pointer must still identify renderer bytes.
+                current_base = json.loads(inspect('cat /data/latest/' + key + '.json'))
+                assert current_base['imageDigest'] == base_record['imageDigest']
+                assert composite['image_url'].rsplit('/', 1)[-1][:-4] != current_base['imageDigest']
+                patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'device-status'}}})
+                assert fetch(base, composite_route) == composite_bytes
+            patch('trmnldevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
+            patch('trmnlscreen', 'photo', {'spec': {'overlay': None}})
             standard_args = ['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--metrics-bind-address=:8082']
 
             def runtime_args(values):
@@ -154,7 +172,9 @@ def main():
                 assert fetch(base, image_route).startswith(b'\x89PNG')
             logs = kubectl('-n', namespace, 'logs', 'deployment/arprt').stdout
             assert headers['Access-Token'] not in logs and headers['ID'] not in logs
-            print('PASS: graceful restart, HTTP-only GC, issued URL retention and redacted logs', flush=True)
+            with forwarded(namespace, 8080, directory) as base:
+                assert fetch(base, composite_route) == composite_bytes
+            print('PASS: graceful restart, HTTP-only GC, base/composite issued URL retention and redacted logs', flush=True)
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

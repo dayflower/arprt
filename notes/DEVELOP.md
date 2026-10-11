@@ -60,6 +60,7 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
+| `internal/overlay` | Vendored CC0 Home Video text, original icons, current-observation levels/charging, inset foreground/edge background and bounded 2-bit encoder |
 | `internal/render`, `internal/delivery` | Context/PNG/HTTP contracts and GET/POST execution/publication policies |
 | `internal/jobrender` | Durable pair/attempt records, scheduling, Job lifecycle, recovery and collection |
 | `internal/artifact`, `internal/maintenance` | PVC publication, identity/issuance, capacity and assignment-aware retention |
@@ -129,13 +130,15 @@ contains the pinned kind version and full setup/cleanup recipe.
 
 The HTTP check covers setup/key reuse, MAC modes, authentication, both proxy
 prefix modes, telemetry, rotation, GET reuse, restart, stale output and initial
-pending.
+pending. Overlay checks include fractional telemetry, fallback, pixel preservation
+independent horizontal/vertical margins and white edge bleed, explicit charging without USB inference and original timestamps
+using embedded Tokyo zoneinfo in the scratch container.
 Job checks add actual containers, token absence, same-node mounts, paths,
 immutable snapshots, rotation changes, interval refresh, recovery, failures and
-obsolete work.
+obsolete work, plus current overlay telemetry versus immutable Job snapshots.
 Playlist checks add mixed-source order, preparation before selection, retry/restart
-and membership edits. Operations checks add corruption, capacity pressure,
-redaction, HTTP-only GC and installation of the supplied examples.
+and membership edits, shared corner cycling and unchanged replay bytes. Operations checks add corruption, capacity pressure,
+redaction, composite/base separation, old composite URL retention, HTTP-only GC and installation of the supplied examples.
 These scripts do not configure public ingress or a physical device.
 
 ## Physical-device regression
@@ -154,7 +157,12 @@ polling settings and renderers after the check.
 3. Verify POST shows current observed voltage/RSSI, without inferred percentage.
    Verify mixed GET/POST/Job playlist order and name-sorted discovery; check Job
    preparation before selection and screen-cycle persistence across restart.
-4. Force a refresh during renderer outage and confirm compatible stale delivery.
+4. Enable timestamp/battery/Wi-Fi overlays and check all rotations/corners, bitmap
+   readability, foreground margin/white background bleed, clockwise cycling, replay filename caching and retained issued
+   images after restart. Force stale base delivery and confirm its original render
+   timestamp. OG voltage thresholds are provisional icon heuristics, not measured
+   percentages or calibrated state-of-charge estimates.
+5. Force a refresh during renderer outage and confirm compatible stale delivery.
    Restart and fetch an already-issued URL. With no compatible image, verify
    JSON 202 preserves the display and invokes fast-poll backoff without reset/OTA.
 

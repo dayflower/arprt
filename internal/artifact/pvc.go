@@ -29,6 +29,7 @@ type PVC struct {
 	mu           sync.Mutex
 	MaxBytes     int64
 	MinFreeBytes uint64
+	pins         map[string]int
 }
 
 var _ Repository = (*PVC)(nil)
@@ -37,7 +38,7 @@ func NewPVC(root string) (*PVC, error) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
 		return nil, errors.New("artifact root must be a clean absolute directory")
 	}
-	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities"} {
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
 			return nil, err
 		}
@@ -45,7 +46,7 @@ func NewPVC(root string) (*PVC, error) {
 	if err := syncDir(root); err != nil {
 		return nil, err
 	}
-	return &PVC{root: root, MaxBytes: 768 << 20, MinFreeBytes: 64 << 20}, nil
+	return &PVC{root: root, MaxBytes: 768 << 20, MinFreeBytes: 64 << 20, pins: map[string]int{}}, nil
 }
 
 func unitKey(u Unit) (string, error) {
@@ -93,55 +94,10 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	}
 	m.Size, m.ContentType = len(png), "image/png"
 	m.RenderedAt = m.RenderedAt.UTC()
-	blob := filepath.Join(s.root, "blobs", m.ImageDigest+".png")
-	if existing, err := readImage(blob); err == nil {
-		if digest(existing) != m.ImageDigest {
-			observe.StorageErrors.WithLabelValues("integrity").Inc()
-			if err := atomicWrite(blob, png); err != nil {
-				return Metadata{}, err
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrCorrupt) {
-		return Metadata{}, err
-	} else if err := atomicWrite(blob, png); err != nil {
+	_, m.Filename, err = s.storeBlob(png)
+	if err != nil {
 		return Metadata{}, err
 	}
-	// Filename is stable for identical bytes, independent of target/unit. Random
-	// 128-bit identifiers are collision checked; the firmware limit is 31 ASCII.
-	recordPath := filepath.Join(s.root, "records", m.ImageDigest+".json")
-	var record struct {
-		Filename string `json:"filename"`
-	}
-	if err := readJSON(recordPath, &record); errors.Is(err, ErrNotFound) {
-		for {
-			var id [16]byte
-			if _, err := rand.Read(id[:]); err != nil {
-				return Metadata{}, err
-			}
-			record.Filename = base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(id[:]) + ".png"
-			// Reserve filename with O_EXCL; an interrupted reservation is harmless.
-			f, err := os.OpenFile(filepath.Join(s.root, "records", record.Filename), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if errors.Is(err, os.ErrExist) {
-				continue
-			}
-			if err != nil {
-				return Metadata{}, err
-			}
-			if err := f.Close(); err != nil {
-				return Metadata{}, err
-			}
-			break
-		}
-		if err := writeJSON(recordPath, record); err != nil {
-			return Metadata{}, err
-		}
-	} else if err != nil {
-		return Metadata{}, err
-	}
-	if !filenamePattern.MatchString(record.Filename) {
-		return Metadata{}, ErrCorrupt
-	}
-	m.Filename = record.Filename
 	// All immutable bytes/records are durable before the success pointer changes.
 	if err := ctx.Err(); err != nil {
 		return Metadata{}, err
@@ -246,9 +202,14 @@ func (s *PVC) Issue(ctx context.Context, uid, imageDigest string, now time.Time)
 		return errors.New("issuance time is required")
 	}
 	var previous issuance
-	if err := readJSON(filepath.Join(s.root, "issued", key+".json"), &previous); err == nil && now.Before(previous.LastIssuedAt) {
-		now = previous.LastIssuedAt
-	} else if err != nil && !errors.Is(err, ErrNotFound) {
+	if err := readJSON(filepath.Join(s.root, "issued", key+".json"), &previous); err == nil {
+		if previous.DeviceUID != uid || previous.ImageDigest != imageDigest || previous.LastIssuedAt.IsZero() {
+			return ErrCorrupt
+		}
+		if now.Before(previous.LastIssuedAt) {
+			now = previous.LastIssuedAt
+		}
+	} else if !errors.Is(err, ErrNotFound) {
 		return err
 	}
 	if previous.DeviceUID == uid && previous.ImageDigest == imageDigest && now.Sub(previous.LastIssuedAt) < time.Minute {
@@ -376,4 +337,59 @@ func syncDir(path string) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// storeBlob shares byte-addressed persistence and filename reservations between
+// base publication and derived output. The caller holds the repository lock.
+func (s *PVC) storeBlob(png []byte) (imageDigest, filename string, err error) {
+	imageDigest = digest(png)
+	blob := filepath.Join(s.root, "blobs", imageDigest+".png")
+	if existing, err := readImage(blob); err == nil {
+		if digest(existing) != imageDigest {
+			observe.StorageErrors.WithLabelValues("integrity").Inc()
+			if err := atomicWrite(blob, png); err != nil {
+				return "", "", err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrCorrupt) {
+		return "", "", err
+	} else if err := atomicWrite(blob, png); err != nil {
+		return "", "", err
+	}
+	// Filename is stable for identical bytes, independent of target/unit. Random
+	// 128-bit identifiers are collision checked; the firmware limit is 31 ASCII.
+	recordPath := filepath.Join(s.root, "records", imageDigest+".json")
+	var record struct {
+		Filename string `json:"filename"`
+	}
+	if err := readJSON(recordPath, &record); errors.Is(err, ErrNotFound) {
+		for {
+			var id [16]byte
+			if _, err := rand.Read(id[:]); err != nil {
+				return "", "", err
+			}
+			record.Filename = base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(id[:]) + ".png"
+			// Reserve filename with O_EXCL; an interrupted reservation is harmless.
+			f, err := os.OpenFile(filepath.Join(s.root, "records", record.Filename), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			if err != nil {
+				return "", "", err
+			}
+			if err := f.Close(); err != nil {
+				return "", "", err
+			}
+			break
+		}
+		if err := writeJSON(recordPath, record); err != nil {
+			return "", "", err
+		}
+	} else if err != nil {
+		return "", "", err
+	}
+	if !filenamePattern.MatchString(record.Filename) {
+		return "", "", ErrCorrupt
+	}
+	return imageDigest, record.Filename, nil
 }

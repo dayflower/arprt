@@ -131,6 +131,9 @@ func (s *PVC) validateRetention(ctx context.Context, now time.Time) error {
 			}
 		}
 	}
+	if err := s.validateOverlayRetention(ctx); err != nil {
+		return err
+	}
 	observe.ArtifactAge.Set(maxAge)
 	return nil
 }

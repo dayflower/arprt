@@ -5,6 +5,7 @@ Reuses identical installed CRD schemas without modifying them; removes only
 resources this run created. Requires kubectl and a cluster-accessible image.
 """
 import argparse
+import overlay_checks
 import base64
 import hashlib
 import importlib.util
@@ -12,6 +13,7 @@ import json
 from pathlib import Path
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -243,13 +245,27 @@ def main():
                     raise RuntimeError('Job rotation or physical dimensions differ')
                 if display(base)['status'] != 0:
                     raise RuntimeError('rotated Job output unavailable')
+            # Display telemetry is independent of the completed Job's snapshot.
+            original = latest()
+            original_context = read('runs/' + original['attemptID'] + '/context.json')
+            kubectl('-n', namespace, 'patch', 'trmnlscreen', 'screen', '--type=merge', '-p',
+                    json.dumps({'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}}))
+            headers['Percent-Charged'], headers['RSSI'] = '0', '-99'
+            with forwarded(namespace, 8080, directory) as base:
+                composite = display(base)
+                if composite['status'] != 0:
+                    raise RuntimeError('Job base overlay not delivered')
+                composite_path = urllib.parse.urlsplit(composite['image_url']).path
+                overlay_checks.assert_overlay(base64.b64decode(image), fetch(base, composite_path), width=40, height=18, rotation=90, margin_horizontal=12, margin_vertical=4)
+            if latest() != original or read('runs/' + original['attemptID'] + '/context.json') != original_context:
+                raise RuntimeError('compositing changed Job success or immutable context')
             account = 'system:serviceaccount:' + namespace + ':arprt'
             for ns, verb, resource, allowed in [(namespace, 'create', 'jobs', True), ('default', 'create', 'jobs', False),
                     (namespace, 'list', 'secrets', False), (namespace, 'create', 'pods', False)]:
                 result = kubectl('auth', 'can-i', verb, resource, '-n', ns, '--as=' + account, check=False)
                 if (result.stdout.strip() == 'yes') != allowed:
                     raise RuntimeError('RBAC scope mismatch')
-            print('PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC')
+            print('PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, display overlays/base separation, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC')
     finally:
         if created_namespace:
             kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')

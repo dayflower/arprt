@@ -194,7 +194,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 	}
 	// Apply every checked-in sample, preserving native Kubernetes container fields.
-	for _, file := range []string{"screens.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
+	for _, file := range []string{"screens.yaml", "screen-overlay.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "config", "samples", file))
 		if err != nil {
 			t.Fatal(err)
@@ -346,6 +346,8 @@ func TestAPIAndController(t *testing.T) {
 		}
 		return reason(job.Status.Conditions, controller.ConditionReady) == "JobSchedulingDisabled"
 	})
+	verifyOverlayAPI(t, c)
+	verifyOverlayDelivery(t, c)
 	verifyPlaylistAPI(t, c)
 	verifyDelivery(t, c)
 	verifyIdentityAPI(t, c)

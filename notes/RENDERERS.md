@@ -21,10 +21,36 @@ On failure, compatible prior output can remain visible; without one, display is
 pending. See [rendering and assignment](DESIGN.md#rendering-and-assignment) for
 reuse, replay, ordering and fallback rules.
 
-Renderers produce an OG-compatible 800 × 480 gray4 PNG. The exact HTTP headers,
+Renderers produce immutable OG-compatible base images: 800 × 480 gray4 PNG. The exact HTTP headers,
 query merge, shared execution budget, Context fields/versioning and PNG constraints
 are maintained in [PROTOCOL](PROTOCOL.md#http-renderer-contract). The controller
-performs no image conversion; configure your encoder for the accepted format.
+can add validated 2-bit bitmap overlays at delivery time; configure your encoder
+for the accepted base format. It does not quantize or repair invalid PNGs.
+
+## Controller display overlays
+
+For timestamp/battery/Wi-Fi display without adding device telemetry to a shared
+GET image, set the Screen's `spec.overlay.enabled: true`. Select items with
+`items: [timestamp, battery, wifi]`, or omit `items` for all three. `items: []`
+draws nothing. Use `cycleCorners: true` to share the device UID's durable clockwise
+corner cycle across Screens; omit `position` in that mode. Fixed mode defaults
+to top-right. An optional positive `scale` overrides automatic integer scaling.
+Use nonnegative `margin.horizontal` and `margin.vertical` (each default 0) to
+independently inset foreground from the left/right and top/bottom edges in the
+logical viewing orientation while its white background reaches those edges.
+The timestamp displays `↻ YYYY-MM-DD HH:mm` for image generation time. Home Video
+text cells are 12×18; the arrow and other icons use 18×18 cells matching the font
+height. Charging replaces the level icon only when current charging is known
+true; USB connection does not imply charging. These power flags stay outside
+Render Context.
+See [overlay settings](OVERLAYS.md) for thresholds, layout and missing inputs.
+
+Keep these same indicators out of renderer output when controller overlays are
+enabled, to avoid displaying them twice. The POST device-status example already
+displays voltage/RSSI as content; choose the controller timestamp alone for that
+example if you want only a render-time annotation. Job content uses its immutable
+snapshot while the overlay uses current display telemetry. Renderer rotation
+still owns the base; controller drawing rotates only its own bitmap coordinates.
 
 ## Device rotation
 

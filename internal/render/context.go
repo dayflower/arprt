@@ -52,7 +52,7 @@ type Firmware struct {
 }
 type Battery struct {
 	Voltage *float64 `json:"voltage,omitempty"`
-	Percent *int32   `json:"percent,omitempty"`
+	Percent *float64 `json:"percent,omitempty"`
 }
 type Network struct {
 	RSSI *int32 `json:"rssi,omitempty"`
@@ -64,7 +64,7 @@ type Observation struct {
 	Model           string
 	FirmwareVersion string
 	Voltage         *float64
-	Percent         *int32
+	Percent         *float64
 	RSSI            *int32
 }
 
@@ -118,8 +118,8 @@ func validVoltage(p *float64) *float64 {
 	v := *p
 	return &v
 }
-func validPercent(p *int32) *int32 {
-	if p == nil || *p < 0 || *p > 100 {
+func validPercent(p *float64) *float64 {
+	if p == nil || math.IsNaN(*p) || math.IsInf(*p, 0) || *p < 0 || *p > 100 {
 		return nil
 	}
 	v := *p

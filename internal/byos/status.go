@@ -64,6 +64,12 @@ func (s *Server) observeDisplay(ctx context.Context, d *api.TrmnlDevice, o Obser
 			}
 			current.Status.Battery.Voltage = o.Voltage
 		}
+		if o.Percent != nil {
+			if current.Status.Battery == nil {
+				current.Status.Battery = &api.BatteryStatus{}
+			}
+			current.Status.Battery.Percent = o.Percent
+		}
 		if o.RSSI != nil {
 			current.Status.Network = &api.NetworkStatus{RSSI: o.RSSI}
 		}

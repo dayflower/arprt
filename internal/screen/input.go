@@ -28,6 +28,7 @@ func EffectiveInterval(spec api.TrmnlScreenSpec) (time.Duration, error) {
 // same revision. Transport and collection semantic changes bump these versions.
 func InputRevision(spec api.TrmnlScreenSpec) (string, error) {
 	s := spec.DeepCopy()
+	s.Overlay = EffectiveOverlay(s.Overlay)
 	if s.Source.HTTP != nil && s.Source.HTTP.Method == "" {
 		s.Source.HTTP.Method = "GET"
 	}
@@ -57,4 +58,36 @@ func InputRevision(spec api.TrmnlScreenSpec) (string, error) {
 	}
 	digest := sha256.Sum256(b)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+// EffectiveOverlay canonicalizes display defaults without changing old Screens'
+// revisions. Disabled settings have no rendering effect; items always follow the
+// fixed timestamp, battery, Wi-Fi order. Callers receive independent storage.
+func EffectiveOverlay(in *api.ScreenOverlay) *api.ScreenOverlay {
+	if in == nil || !in.Enabled {
+		return nil
+	}
+	out := in.DeepCopy()
+	items := []api.OverlayItem{}
+	for _, item := range []api.OverlayItem{"timestamp", "battery", "wifi"} {
+		selected := in.Items == nil
+		if in.Items != nil {
+			for _, value := range *in.Items {
+				selected = selected || value == item
+			}
+		}
+		if selected {
+			items = append(items, item)
+		}
+	}
+	out.Items = &items
+	if out.Margin != nil && out.Margin.Horizontal == 0 && out.Margin.Vertical == 0 {
+		out.Margin = nil
+	}
+	if out.CycleCorners {
+		out.Position = ""
+	} else if out.Position == "" {
+		out.Position = "top-right"
+	}
+	return out
 }

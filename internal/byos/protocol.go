@@ -14,6 +14,7 @@ import (
 )
 
 type Config struct {
+	OverlayTimeZone   string
 	Namespace         string
 	PublicBaseURL     string
 	ProxyStripsPrefix bool
@@ -84,6 +85,9 @@ type Observation struct {
 	Model, Firmware string
 	Width, Height   *int32
 	Voltage         *float64
+	Percent         *float64
+	Charging        *bool
+	USBConnected    *bool
 	RSSI            *int32
 	Invalid         []string
 }
@@ -126,6 +130,14 @@ func Observe(h map[string]string) Observation {
 			o.Voltage = &v
 		}
 	}
+	if value, ok := h["percent-charged"]; ok {
+		v, err := strconv.ParseFloat(value, 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 100 {
+			o.Invalid = append(o.Invalid, "percent-charged")
+		} else {
+			o.Percent = &v
+		}
+	}
 	for _, field := range []string{"image-cached", "usb-connected", "battery-charging"} {
 		value, ok := h[field]
 		if !ok {
@@ -137,6 +149,12 @@ func Observe(h map[string]string) Observation {
 		}
 		if !valid {
 			o.Invalid = append(o.Invalid, field)
+		} else if field == "battery-charging" {
+			v := value == "1"
+			o.Charging = &v
+		} else if field == "usb-connected" {
+			v := value == "true"
+			o.USBConnected = &v
 		}
 	}
 	return o

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
@@ -23,6 +24,7 @@ type Server struct {
 	GET        *delivery.GET
 	POST       *delivery.POST
 	Identity   *deviceidentity.Service
+	location   *time.Location
 	base       *url.URL
 	gates      [64]chan struct{}
 	slots      chan struct{}
@@ -43,8 +45,12 @@ func NewServer(c Config, reader client.Reader, writer client.Client, repo artifa
 	if c.RefreshSeconds < 1 || c.RefreshSeconds > 86400 {
 		return nil, errors.New("device refresh must be 1..86400 seconds")
 	}
+	location, err := overlayLocation(c.OverlayTimeZone)
+	if err != nil {
+		return nil, err
+	}
 	get := delivery.NewGET(repo, reader)
-	server := &Server{slots: make(chan struct{}, 64), Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), Identity: &deviceidentity.Service{Reader: reader, Writer: writer, Store: repo}, base: base}
+	server := &Server{slots: make(chan struct{}, 64), Config: c, Reader: reader, Client: writer, Repository: repo, GET: get, POST: delivery.NewPOST(get), Identity: &deviceidentity.Service{Reader: reader, Writer: writer, Store: repo}, base: base, location: location}
 	for i := range server.gates {
 		server.gates[i] = make(chan struct{}, 1)
 	}

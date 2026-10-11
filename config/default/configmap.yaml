@@ -5,3 +5,5 @@ metadata:
 data:
   # Replace before pairing; include the path prefix exposed by your proxy.
   publicBaseURL: https://byos.example.test/arprt
+  # Explicit IANA zone; independent of renderer TZ and Pod local time.
+  overlayTimeZone: UTC

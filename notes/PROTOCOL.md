@@ -72,8 +72,15 @@ Header names are case-insensitive; underscore aliases normalize to hyphens.
 Reject duplicate/conflicting identity or token headers rather than selecting a
 winner. MACs normalize to uppercase for requests; configured MAC values are
 canonical uppercase. Voltage is finite, nonnegative volts; RSSI is signed integer
-dBm; dimensions are positive integers. Charging uses `0`/`1`, cache/USB flags
-`true`/`false`. Unknown headers are ignored; invalid optional telemetry is omitted
+dBm; dimensions are positive integers. `Percent-Charged` is an optional finite
+measured percentage from 0 through 100, including fractional values and zero.
+OG does not supply this header in the reviewed firmware. Invalid syntax, empty
+values, NaN/Inf, out-of-range values and duplicate optional observations are
+omitted; underscore aliases follow the same rule. Charging uses `0`/`1`, cache/USB flags
+`true`/`false`. Only the current valid charging flag affects controller overlays;
+USB connection is accepted but does not imply charging. Neither flag adds status
+or Render Context fields. OG / 1.8.17 sends neither flag.
+Unknown headers are ignored; invalid optional telemetry is omitted
 and reported by field name only. Never infer percentage from OG voltage.
 
 Only reviewed `og` / `1.8.17` resolves to `800 × 480 / gray4`. Firmware does not
@@ -132,7 +139,8 @@ and assignment mode; see [DESIGN](DESIGN.md#rendering-and-assignment).
 The same JSON schema is used for POST bodies and immutable Job context files.
 The [complete fixture](../testdata/phase0/render-context-v1.json) and
 [no-telemetry fixture](../testdata/phase0/render-context-no-telemetry.json) are
-serialization examples used by tests.
+serialization examples used by tests; the [fractional-percentage fixture](../testdata/phase0/render-context-fractional-percent.json)
+adds an explicitly measured decimal value while preserving the old fixtures.
 
 | Field | Contract |
 | --- | --- |
@@ -141,9 +149,11 @@ serialization examples used by tests.
 | `renderTarget.rotation` | Optional clockwise content rotation in degrees: `0`, `90`, `180`, `270`; omitted means `0` |
 | `device.name` | Required device resource name |
 | `device.model`, `.firmware.version` | Optional known observations |
-| `device.battery.voltage`, `.percent` | Optional valid measurements; percentage only if explicitly measured |
+| `device.battery.voltage`, `.percent` | Optional valid measurements; percent is a finite number in 0–100 only if explicitly measured |
 | `device.network.rssi` | Optional valid measurement |
 
+Existing integer JSON percentages remain readable; fractional measurements are
+preserved without rounding. No voltage-derived percentage is exported.
 Missing optional observations and empty optional objects are omitted, not null
 or fabricated zero. Actual valid zero measurements are retained. Hardware ID, credentials, Secret
 references, Kubernetes objects, namespace, arbitrary metadata and header dumps
@@ -169,10 +179,43 @@ indexed (3) with exactly four opaque ascending palette entries: RGB `(0,0,0)`,
 `(85,85,85)`, `(170,170,170)`, `(255,255,255)`. This is intentionally narrower than
 the firmware decoder's possible inputs. Reject alpha/transparency, APNG,
 truecolor, other depths, bad CRCs, truncation, wrong dimensions and oversized data.
-Validate the complete bounded pixel stream, not only IHDR. The controller does
-no resampling, quantization or image conversion. Generic PNG encoders often need
+Validate the complete bounded pixel stream, not only IHDR. The controller validates renderer base bytes before limited bitmap compositing
+and validates composites with the same contract. It preserves exact gray4
+samples outside the opaque overlay; it performs no resampling or quantization
+and does not accept otherwise invalid renderer output. Generic PNG encoders often need
 explicit configuration to avoid their RGB/8-bit defaults.
 
 Both [grayscale](../testdata/phase0/target-gray4.png) and
 [indexed](../testdata/phase2/README.md) fixtures are maintained test inputs.
 Job file/mount/exit requirements are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
+
+## Controller overlays
+
+`TrmnlScreen.spec.overlay` optionally draws timestamp, battery and Wi-Fi bitmaps
+on new authenticated deliveries. Renderer output remains immutable base data;
+`/images/<digest>.png` always serves already persisted bytes. Disabled/empty
+settings return the original base filename and bytes. Compositing/persistence
+failure selects that validated base before the usual final authorization and
+issuance gates. Issue or delivery-state failure returns 503, without fallback.
+
+Timestamp is the original base `RenderedAt`, converted using the explicitly
+configured IANA zone and displayed as `↻ YYYY-MM-DD HH:mm` with a clockwise-arrow
+bitmap identifying image generation time. Overlay observations use
+only valid percentage/voltage/RSSI and the charging flag from the current
+authenticated request;
+renderer Context may still merge valid known state. Missing overlay observations
+hide their items and gaps. Percent takes priority; OG voltage maps directly to
+low/medium/high icons without producing a measured percentage. Known charging
+selects a charging mark; false or unavailable charging keeps the level icon.
+USB connection never selects the mark. A mark needs no level measurement. Configuration,
+thresholds and bitmap dimensions are in [OVERLAYS](OVERLAYS.md).
+
+Nonnegative Screen `margin.horizontal` and `margin.vertical` independently inset
+foreground along the logical viewing axes, scaling with the bitmap pixels; each
+defaults to zero. The opaque white background extends through both insets to the
+adjoining corner edges.
+Corners follow the logical viewing orientation; only overlay coordinates are
+rotated, preserving the already rotated base. Playlist/discovery replay returns
+the committed digest/filename/bytes and serving time even if telemetry, zone or
+appearance changes. Definition, assignment, UID and target changes retain their
+existing replay invalidation rules. There is no new HTTP request deduplication.

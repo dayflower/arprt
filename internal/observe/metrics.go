@@ -14,6 +14,7 @@ var (
 	Requests           = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "arprt_requests_total", Help: "BYOS requests by bounded route and HTTP result."}, []string{"route", "result"})
 	Rejected           = prometheus.NewCounter(prometheus.CounterOpts{Name: "arprt_request_rejections_total", Help: "Requests rejected by the admission limit."})
 	StorageErrors      = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "arprt_storage_errors_total", Help: "Storage faults by fixed operation."}, []string{"operation"})
+	OverlayFallbacks   = prometheus.NewCounter(prometheus.CounterOpts{Name: "arprt_overlay_fallbacks_total", Help: "Overlay candidates falling back to their validated base image."})
 	CollectionFailures = prometheus.NewCounter(prometheus.CounterOpts{Name: "arprt_collection_failures_total", Help: "Invalid or unavailable completed Job output."})
 	StorageBytes       = prometheus.NewGauge(prometheus.GaugeOpts{Name: "arprt_storage_bytes", Help: "Logical bytes in the managed data root, including Job runs."})
 	StorageFree        = prometheus.NewGauge(prometheus.GaugeOpts{Name: "arprt_storage_free_bytes", Help: "Filesystem bytes available to the controller."})
@@ -27,7 +28,7 @@ var (
 )
 
 func init() {
-	metrics.Registry.MustRegister(Renders, HTTPActive, Requests, Rejected, StorageErrors, CollectionFailures, StorageBytes, StorageFree, StorageLimit, Queue, Jobs, Devices, LastSeenAge, ArtifactAge, Maintenance)
+	metrics.Registry.MustRegister(Renders, HTTPActive, Requests, Rejected, StorageErrors, OverlayFallbacks, CollectionFailures, StorageBytes, StorageFree, StorageLimit, Queue, Jobs, Devices, LastSeenAge, ArtifactAge, Maintenance)
 }
 
 func Render(transport string, started time.Time, err error) {

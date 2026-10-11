@@ -80,6 +80,7 @@ Jobs with its RWO claim, and enables internal metrics on 8082.
 | `--proxy-strips-prefix` | false | Accept requests after the proxy strips exactly the configured external prefix |
 | `--enable-setup` | true | Permit setup/key provisioning for eligible devices |
 | `--device-refresh-seconds` | 300 | Device polling and cycling retry window; separate from screen freshness |
+| `--overlay-time-zone` | `UTC` | Explicit IANA zone for original base render timestamps; `Local` and fixed-offset strings are rejected |
 | `--artifact-root` | `/var/lib/arprt` | Persistent artifact/identity/scheduler filesystem root |
 | `--job-pvc` | `JOB_PVC` | Shared RWO claim; empty disables Job scheduling |
 | `--controller-pod` | `POD_NAME` | Controller Pod identity for same-node Job affinity |
@@ -98,6 +99,12 @@ local execution, see [DEVELOP](DEVELOP.md#local-controller); Job screens then
 report `JobSchedulingDisabled`. Job `backoffLimit` is zero; controller retries
 use new attempts with exponential backoff from 5s to 5m, slowing after persistent
 failure as described below.
+
+Overlay timestamps use embedded IANA zoneinfo, including in the scratch image,
+and do not consult `TZ` or host local time. Set `--overlay-time-zone=Asia/Tokyo`
+in your Deployment args, or patch `arprt-config.data.overlayTimeZone` when using
+the supplied Deployment. Changes apply to new deliveries; a committed replay
+keeps its image. Renderer environment and Render Context remain unchanged.
 
 ## Conditions
 
@@ -140,6 +147,7 @@ access with your network policy. Do not expose this endpoint on the BYOS proxy.
 | `arprt_artifact_oldest_age_seconds` | Oldest latest successful artifact |
 | `arprt_storage_bytes`, `arprt_storage_free_bytes`, `arprt_storage_limit_bytes` | Managed logical usage, filesystem availability and configured admission limit |
 | `arprt_storage_errors_total`, `arprt_collection_failures_total` | Storage faults and invalid/unavailable completed output |
+| `arprt_overlay_fallbacks_total` | Overlay candidates falling back to their validated base after drawing/cache/persistence failure |
 | `arprt_maintenance_total` | Successful/failed maintenance passes |
 
 Application metric labels never contain resource names, UIDs, target hashes,
@@ -156,7 +164,10 @@ old artifacts, silent devices and a queue that does not drain.
 
 The default 1 GiB PVC has headroom through the storage admission limit and
 free-space reserve listed in [runtime configuration](#runtime-configuration).
-Usage includes blobs, metadata, Job snapshots and output files. Before new image publication, identity/issuance
+Usage includes base/composite blobs, derived provenance/cache references,
+authoritative corner records, metadata, Job snapshots and output files.
+Overlays can create multiple images per base/device/day; allow headroom for the
+24-hour issued-image retention and avoid unnecessarily short polling intervals. Before new image publication, identity/issuance
 allocation or Job work, the controller checks logical usage and available
 filesystem space. An admission failure reports `StorageCapacityExceeded`,
 keeps compatible prior output and retries after space becomes available.
@@ -217,6 +228,7 @@ recovered by the next controller from their durable snapshots and API status.
 | `StorageCapacityExceeded` | PVC usage/free bytes/inodes, configured limits, retained Jobs and output growth; expand storage or wait for safe GC |
 | `CollectionFailed` | Successful renderer exit, actual output path, regular PNG file, size/palette/dimensions and read permissions |
 | Maintenance failure | Check filesystem access and restore invalid retention metadata from backup; GC deliberately avoids guessing ownership |
+| Display/maintenance rejects overlay corner state | Restore `corners/` from a consistent backup; do not delete or reset authoritative pending/corner records |
 | Startup rejects scheduler state | Restore `jobs/` metadata from a consistent backup; do not delete active records while their Jobs exist |
 | Identity unavailable after storage damage | Restore the matching identity record; deleting it could allow re-registration to different hardware |
 | Corrupt image/latest pointer | The affected unit is regenerated on the next render; other valid units and issuance remain intact |
@@ -229,6 +241,14 @@ private data. A syntactically corrupt latest pointer is regenerable; corrupt
 identity, issuance and scheduler records fail closed. Invalid retention metadata
 aborts destructive artifact GC. Persistent filesystem errors require operator
 repair; a healthy Kubernetes API probe alone does not verify storage integrity.
+
+Derived caches under `derived/` are regenerable and references to absent/corrupt
+images become cache misses. Issued image bytes, filename records, issuance and
+pending corner records must remain consistent. Restore authoritative damage from
+backup rather than deleting records to force delivery. Overlay failures may
+fall back to a validated base without changing render freshness or readiness.
+Downgrading after fractional status/Context writes or new retention/corner writes
+is unverified; older binaries do not understand these records.
 
 ## Network and namespace trust
 

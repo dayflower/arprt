@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/dayflower/arprt/internal/overlay"
 	"github.com/dayflower/arprt/internal/render"
 )
 
@@ -49,6 +50,11 @@ type IdentityStore interface {
 
 type Repository interface {
 	IdentityStore
+	CornerStore
+	// Derived images never update base latest or attempt sequence. Returned pins
+	// must be released at request completion, after issuance/state commitment.
+	FindDerived(context.Context, Metadata, overlay.Drawing) (Metadata, func(), error)
+	StoreDerived(context.Context, Metadata, overlay.Drawing, []byte) (Metadata, func(), error)
 	// Publish receives an already validated PNG and a current, ordered attempt.
 	// The caller rechecks assignment, UIDs and revision before publication.
 	Publish(context.Context, Metadata, []byte) (Metadata, error)

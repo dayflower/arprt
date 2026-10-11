@@ -34,7 +34,7 @@ func main() {
 }
 
 func run() error {
-	var namespace, root, probes, listen, publicURL, metricsAddress string
+	var namespace, root, probes, listen, publicURL, metricsAddress, overlayZone string
 	var storageMax int64
 	var storageReserve uint64
 	var enableSetup, strips bool
@@ -47,6 +47,7 @@ func run() error {
 	flag.StringVar(&publicURL, "public-base-url", os.Getenv("PUBLIC_BASE_URL"), "Required absolute public HTTP(S) URL including external path prefix")
 	flag.BoolVar(&enableSetup, "enable-setup", true, "Accept setup and provision missing device credentials (enabled by default)")
 	flag.BoolVar(&strips, "proxy-strips-prefix", false, "Proxy strips the configured public URL path prefix")
+	flag.StringVar(&overlayZone, "overlay-time-zone", "UTC", "IANA time zone for overlay render timestamps")
 	flag.IntVar(&refresh, "device-refresh-seconds", 300, "Device polling interval, independent of screen freshness")
 	flag.StringVar(&jobConfig.PVC, "job-pvc", os.Getenv("JOB_PVC"), "Shared RWO PVC claim; empty disables Job scheduling")
 	flag.StringVar(&jobConfig.ControllerPod, "controller-pod", os.Getenv("POD_NAME"), "Controller Pod for same-node Job affinity validation")
@@ -126,7 +127,7 @@ func run() error {
 	if err := (&controller.PlaylistReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader()}).SetupWithManager(mgr); err != nil {
 		return err
 	}
-	server, err := byos.NewServer(byos.Config{Namespace: namespace, PublicBaseURL: publicURL, ProxyStripsPrefix: strips, EnableSetup: enableSetup, RefreshSeconds: refresh}, mgr.GetAPIReader(), mgr.GetClient(), repo)
+	server, err := byos.NewServer(byos.Config{OverlayTimeZone: overlayZone, Namespace: namespace, PublicBaseURL: publicURL, ProxyStripsPrefix: strips, EnableSetup: enableSetup, RefreshSeconds: refresh}, mgr.GetAPIReader(), mgr.GetClient(), repo)
 	if err != nil {
 		return err
 	}

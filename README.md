@@ -114,12 +114,48 @@ see [GitOps and rotation](notes/OPERATIONS.md#setup-and-credentials).
 | HTTP POST | Render Context with current device observations; suitable for device-status screens |
 | Job | Immutable Context file plus image output path; suitable for an existing container CLI |
 
-Renderers return a compatible PNG; the controller does no image conversion.
+Renderers return compatible base PNGs; optional controller overlays add validated
+2-bit bitmaps at delivery time without resampling or quantization.
 GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending and preserves existing display content.
 See [RENDERERS](notes/RENDERERS.md) for installation/execution examples and
 [PROTOCOL](notes/PROTOCOL.md#png-contract) for exact image requirements.
+
+## Display overlays
+
+A Screen can add its original render timestamp and current battery/Wi-Fi icons:
+
+```yaml
+spec:
+  overlay:
+    enabled: true
+    items: [timestamp, battery, wifi]  # omitted means all; [] means none
+    cycleCorners: true               # omit position when cycling
+    margin:                          # white extends to the corner edges
+      horizontal: 12                 # left/right inset in bitmap pixels
+      vertical: 4                    # top/bottom inset in bitmap pixels
+```
+
+A complete Screen example is in [screen-overlay.yaml](config/samples/screen-overlay.yaml).
+Fixed mode defaults to top-right; `position` also accepts bottom-right,
+bottom-left and top-left. Optional positive `scale` overrides automatic integer
+scaling. Nonnegative `margin.horizontal` and `margin.vertical` (each default 0)
+independently inset text/icons from the left/right and top/bottom edges in the
+logical viewing orientation. Both scale with the bitmaps; white extends to the
+corner edges. Timestamp displays `↻ YYYY-MM-DD HH:mm` for the image generation
+time, using the 12×18 Home Video bitmap font; icons use matching 18×18 cells.
+Wi-Fi strength appears as four rising vertical bars, with more bars filled for
+stronger reception. Set the controller's `--overlay-time-zone` to an IANA name
+(default UTC).
+Missing current measurements hide their icons; stored telemetry does not fill
+missing overlay inputs. Only a valid current charging state selects a charging
+mark; USB connection does not imply charging. OG / 1.8.17 supplies neither power
+flag. Replay keeps its already committed image. See
+[OVERLAYS](notes/OVERLAYS.md), [renderer usage](notes/RENDERERS.md#controller-display-overlays)
+and [operations](notes/OPERATIONS.md#runtime-configuration).
+Software compositing checks and physical-device readability/orientation checks
+are described separately in [DEVELOP](notes/DEVELOP.md#physical-device-regression).
 
 ## Playlists and automatic discovery
 

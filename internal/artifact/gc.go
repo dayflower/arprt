@@ -60,6 +60,9 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 			return err
 		}
 	}
+	if err := s.collectOverlays(ctx, retained, deviceUIDs, now); err != nil {
+		return err
+	}
 	blobs, err := os.ReadDir(filepath.Join(s.root, "blobs"))
 	if err != nil {
 		return err
@@ -146,7 +149,7 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 		}
 		usedNames[record.Filename] = true
 	}
-	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities"} {
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners"} {
 		entries, err := os.ReadDir(filepath.Join(s.root, dir))
 		if err != nil {
 			return err

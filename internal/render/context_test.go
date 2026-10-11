@@ -49,8 +49,8 @@ func TestContextFixtures(t *testing.T) {
 }
 
 func TestContextZeroInvalidAndSnapshot(t *testing.T) {
-	known := Observation{Voltage: ptr(3.91), Percent: ptr(int32(50)), RSSI: ptr(int32(-48))}
-	current := Observation{Voltage: ptr(0.0), Percent: ptr(int32(0)), RSSI: ptr(int32(0))}
+	known := Observation{Voltage: ptr(3.91), Percent: ptr(float64(50)), RSSI: ptr(int32(-48))}
+	current := Observation{Voltage: ptr(0.0), Percent: ptr(float64(0)), RSSI: ptr(int32(0))}
 	got, err := Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, known, current)
 	if err != nil {
 		t.Fatal(err)
@@ -59,14 +59,14 @@ func TestContextZeroInvalidAndSnapshot(t *testing.T) {
 	if *got.Device.Battery.Voltage != 0 || *got.Device.Battery.Percent != 0 || *got.Device.Network.RSSI != 0 {
 		t.Fatal("zero measurements were lost or snapshot was mutated")
 	}
-	got, err = Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, Observation{}, Observation{Voltage: ptr(math.NaN()), Percent: ptr(int32(101))})
+	got, err = Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, Observation{}, Observation{Voltage: ptr(math.NaN()), Percent: ptr(float64(101))})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Device.Battery != nil || got.Device.Network != nil || got.Device.Firmware != nil {
 		t.Fatal("empty optional objects must be omitted")
 	}
-	got, err = Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, known, Observation{Voltage: ptr(math.Inf(1)), Percent: ptr(int32(-1))})
+	got, err = Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, known, Observation{Voltage: ptr(math.Inf(1)), Percent: ptr(float64(-1))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,5 +104,47 @@ func TestRotationValidationAndPNGDimensions(t *testing.T) {
 		if (ValidatePNG(fixture(t), target) == nil) != valid {
 			t.Fatalf("rotation %d changed the physical PNG dimensions or bypassed validation", rotation)
 		}
+	}
+}
+
+func TestMeasuredFractionalPercentAndLegacyJSON(t *testing.T) {
+	for _, value := range []float64{0, 20.5, 100} {
+		current := Observation{Percent: ptr(value)}
+		got, err := Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, Observation{}, current)
+		if err != nil || got.Device.Battery == nil || *got.Device.Battery.Percent != value {
+			t.Fatal("fraction lost", got, err)
+		}
+		*current.Percent = 99
+		if *got.Device.Battery.Percent != value {
+			t.Fatal("snapshot aliases current observation")
+		}
+	}
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1, 101} {
+		got, err := Build("device", Target{Width: 800, Height: 480, Palette: "gray4"}, Observation{}, Observation{Percent: ptr(value)})
+		if err != nil || got.Device.Battery != nil {
+			t.Fatal("invalid percent entered context", got, err)
+		}
+	}
+	var legacy Battery
+	if err := json.Unmarshal([]byte(`{"percent":50}`), &legacy); err != nil || legacy.Percent == nil || *legacy.Percent != 50 {
+		t.Fatal("legacy integer incompatible", err)
+	}
+}
+
+func TestFractionalContextFixture(t *testing.T) {
+	got, err := Build("living-room", Target{Width: 800, Height: 480, Palette: "gray4", Rotation: 90}, Observation{Model: "og", FirmwareVersion: "1.8.17"}, Observation{Voltage: ptr(3.91), Percent: ptr(20.5), RSSI: ptr(int32(-48))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("../../testdata/phase0/render-context-fractional-percent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want Context
+	if err := json.Unmarshal(fixture, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("fractional fixture incompatible", got, want)
 	}
 }

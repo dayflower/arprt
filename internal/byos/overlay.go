@@ -1,0 +1,110 @@
+package byos
+
+import (
+	"context"
+	"errors"
+	"reflect"
+
+	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/observe"
+	"github.com/dayflower/arprt/internal/overlay"
+	"github.com/dayflower/arprt/internal/render"
+	"github.com/dayflower/arprt/internal/screen"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// Recover under the device gate before selection or corner reads. The status
+// and PVC are separate durable resources: only the complete proposed turn is
+// proof that a pending playlist advancement committed.
+func (s *Server) recoverCorner(ctx context.Context, d *api.TrmnlDevice) (artifact.CornerRecord, error) {
+	r, err := s.Repository.Corner(ctx, string(d.UID))
+	if err != nil {
+		return r, err
+	}
+	if r.Pending == nil {
+		return r, nil
+	}
+	var current api.TrmnlDevice
+	if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
+		return r, err
+	}
+	if current.UID != d.UID || current.Generation != d.Generation || !reflect.DeepEqual(current.Spec, d.Spec) || !current.DeletionTimestamp.IsZero() {
+		return r, artifact.ErrObsolete
+	}
+	committed := artifact.EqualCycle(current.Status.ScreenCycle, r.Pending.Proposed)
+	if !committed && !artifact.EqualCycle(current.Status.ScreenCycle, r.Pending.Previous) {
+		return r, artifact.ErrCorrupt
+	}
+	if err := s.Repository.ResolveCorner(ctx, r, committed); err != nil {
+		return r, err
+	}
+	*d = current
+	return s.Repository.Corner(ctx, string(d.UID))
+}
+
+// The base success and render error stay separate from the issued candidate.
+// Only compositing/cache persistence failures fall back, before authorization
+// and Issue. Required delivery-state failures never use this fallback.
+func (s *Server) overlayImage(ctx context.Context, d *api.TrmnlDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
+	release := func() {}
+	if image.metadata.ImageDigest == "" {
+		return image, release, nil
+	}
+	base, err := s.Repository.Read(ctx, image.metadata.ImageDigest)
+	if err != nil {
+		return image, release, err
+	}
+	if err := render.ValidatePNG(base, selected.target); err != nil {
+		return image, release, err
+	}
+	image.issued = image.metadata
+	if selected.replay != nil {
+		return image, release, nil
+	}
+	effective := screen.EffectiveOverlay(selected.screen.Spec.Overlay)
+	if effective == nil {
+		return image, release, nil
+	}
+	actual := overlay.Corner(effective.Position)
+	if effective.CycleCorners {
+		actual = corner.Current
+	}
+	settings := overlay.Settings{}
+	if effective.Margin != nil {
+		settings.Margin = overlay.Margins{Horizontal: int(effective.Margin.Horizontal), Vertical: int(effective.Margin.Vertical)}
+	}
+	if effective.Scale != nil {
+		settings.Scale = *effective.Scale
+	}
+	for _, item := range *effective.Items {
+		settings.Items = append(settings.Items, string(item))
+	}
+	model := ""
+	if d.Status.Device != nil {
+		model = d.Status.Device.Model
+	}
+	drawing, err := overlay.Normalize(selected.target, settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
+	if err != nil {
+		observe.OverlayFallbacks.Inc()
+		return image, release, nil
+	}
+	if drawing.Empty() {
+		return image, release, nil
+	}
+	composite, unpin, err := s.Repository.FindDerived(ctx, image.metadata, drawing)
+	if errors.Is(err, artifact.ErrNotFound) {
+		var bytes []byte
+		bytes, err = overlay.Compose(ctx, base, selected.target, drawing)
+		if err == nil {
+			composite, unpin, err = s.Repository.StoreDerived(ctx, image.metadata, drawing, bytes)
+		}
+	}
+	if err != nil {
+		observe.OverlayFallbacks.Inc()
+		return image, release, nil
+	}
+	image.issued = composite
+	image.advanceCorner = effective.CycleCorners
+	return image, unpin, nil
+}
