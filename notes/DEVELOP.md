@@ -14,6 +14,11 @@ pins controller-gen/setup-envtest; [go.mod](../go.mod) pins dependencies and
 Use those files when changing versions rather than adding another version list.
 Build tools and envtest binaries are installed under the ignored `bin/` directory.
 
+CI runs on pull request creation and updates, and on pushes to `main`, including
+merges. Pushes to other branches and tags do not trigger CI; open a draft pull
+request to check work before it is ready for review. A new run cancels any older
+in-progress run of the same workflow for the same pull request or branch.
+
 ```sh
 make build
 make verify
