@@ -1,7 +1,7 @@
 # ARPRT - An unofficial Kubernetes controller for TRMNL BYOS
 
-Render your TRMNL screens with HTTP GET, POST or Kubernetes Jobs, and cycle
-through them with ordered playlists or automatic discovery.
+Render your [TRMNL](https://trmnl.com/) screens with HTTP GET, POST or Kubernetes
+Jobs, and cycle through them with ordered playlists or automatic discovery.
 
 ARPRT is an independent, unofficial project. It is not affiliated with or
 endorsed by TRMNL.
