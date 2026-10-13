@@ -282,7 +282,13 @@ polling settings and renderers after the check.
    percentages or calibrated state-of-charge estimates.
 5. Force a refresh during renderer outage and confirm compatible stale delivery.
    Restart and fetch an already-issued URL. With no compatible image, verify
-   JSON 202 preserves the display and invokes fast-poll backoff without reset/OTA.
+   HTTP 200 / JSON 202 with no image URL/filename does not request reset/OTA.
+   First obtain a successful image on an ordinary timer wake, then enter pending
+   without pressing the button; confirm the previous display remains until a new
+   image is available. Test manual wake separately: firmware may display its
+   Friendly ID screen when a redraw is required. Check fast-poll sleep/backoff
+   separately from complete wake/request intervals, which include awake work.
+   See [firmware pending behavior](PROTOCOL.md#responses-and-polling).
 
 Distinguish user visual confirmation from controller metadata and authenticated
 image-fetch checks. Avoid synthetic requests that advance the real device's

@@ -158,7 +158,9 @@ Renderers return compatible base PNGs; optional controller overlays add validate
 2-bit bitmaps at delivery time without resampling or quantization.
 GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
 polling is independent. Failures can serve compatible stale output, while an
-initial missing image returns pending and preserves existing display content.
+initial missing image returns pending. Firmware can retain the previous image
+on a normal timer wake, but may show its Friendly ID screen after a manual or
+power wake; see [pending behavior](notes/PROTOCOL.md#responses-and-polling).
 See [RENDERERS](notes/RENDERERS.md) for installation/execution examples and
 [PROTOCOL](notes/PROTOCOL.md#png-contract) for exact image requirements.
 
