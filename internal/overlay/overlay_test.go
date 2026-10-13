@@ -62,6 +62,8 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 				for selection := 0; selection < 8; selection++ {
 					for _, scale := range []int{1, 2} {
 						t.Run(string(corner)+"/"+time.Duration(rotation).String()+"/"+string(rune('0'+selection))+"/"+string(rune('0'+scale))+"/"+map[bool]string{true: "indexed", false: "gray"}[indexed], func(t *testing.T) {
+							// Cases share only immutable fixtures; retain the complete pixel matrix.
+							t.Parallel()
 							rt := target
 							rt.Rotation = rotation
 							d := Drawing{Version: AppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4}, {Vertical: 8}}[(selection+scale)%4]}

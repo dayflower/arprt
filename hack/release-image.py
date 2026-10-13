@@ -12,8 +12,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from check_scope import physical_changes
+
 SEMVER = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?'
 SCOPE = 'OG / firmware 1.8.17; DEVELOP physical-device regression'
+
+
+def field(message, name, default=None):
+    values = [line.removeprefix(name + ': ') for line in message.splitlines() if line.startswith(name + ': ')]
+    if len(values) > 1:
+        raise ValueError('duplicate annotation field: ' + name)
+    return values[0] if values else default
 
 
 def run(*args):
@@ -34,7 +43,35 @@ def validate_tag(tag, revision, message):
     date = datetime.date.fromisoformat(dates[0])
     if date > datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).date():
         raise ValueError('physical acceptance date must not be in the future')
+    mode = field(message, 'Physical-device-mode', 'full')
+    baseline = field(message, 'Physical-device-baseline')
+    if mode not in ('full', 'reuse'):
+        raise ValueError('physical acceptance mode must be full or reuse')
+    if mode == 'reuse':
+        if not baseline or field(message, 'Physical-device-installation') != 'passed':
+            raise ValueError('baseline reuse requires its release tag and current-revision installation acceptance')
+    elif baseline is not None:
+        raise ValueError('full acceptance must not declare baseline reuse')
     return tag[1:]
+
+
+def physical_scope(baseline, revision):
+    if not re.fullmatch('v' + SEMVER, baseline):
+        raise ValueError('physical baseline must be a release version tag')
+    ref = 'refs/tags/' + baseline
+    if run('git', 'cat-file', '-t', ref) != 'tag':
+        raise ValueError('physical baseline must be annotated')
+    base_revision = run('git', 'rev-parse', ref + '^{commit}')
+    message = run('git', 'for-each-ref', '--format=%(contents)', ref)
+    validate_tag(baseline, base_revision, message)
+    if field(message, 'Physical-device-mode', 'full') != 'full':
+        raise ValueError('reuse must refer directly to a full physical acceptance, not another reuse')
+    subprocess.run(['git', 'merge-base', '--is-ancestor', base_revision, 'origin/main'], check=True)
+    subprocess.run(['git', 'merge-base', '--is-ancestor', base_revision, revision], check=True)
+    changed = physical_changes(base_revision, revision)
+    return {'mode': 'full' if changed else 'reuse', 'baseline': baseline,
+            'baselineRevision': base_revision, 'revision': revision,
+            'physicalChanges': changed, 'baselineDate': field(message, 'Physical-device-date')}
 
 
 def guard(tag):
@@ -47,7 +84,16 @@ def guard(tag):
     subprocess.run(['git', 'merge-base', '--is-ancestor', revision, 'origin/main'], check=True)
     message = run('git', 'for-each-ref', '--format=%(contents)', ref)
     version = validate_tag(tag, revision, message)
-    outputs = {'tag': tag, 'version': version, 'revision': revision}
+    mode = field(message, 'Physical-device-mode', 'full')
+    baseline = field(message, 'Physical-device-baseline', '')
+    if mode == 'reuse':
+        scope = physical_scope(baseline, revision)
+        if scope['mode'] != 'reuse':
+            raise ValueError('runtime/unknown changes require full physical regression: ' + ', '.join(scope['physicalChanges']))
+        if field(message, 'Physical-device-date') < scope['baselineDate']:
+            raise ValueError('installation acceptance cannot predate its full baseline')
+    outputs = {'tag': tag, 'version': version, 'revision': revision,
+               'physical_mode': mode, 'physical_baseline': baseline}
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
             for key, value in outputs.items():
@@ -138,12 +184,16 @@ def main():
     free = commands.add_parser('unused')
     free.add_argument('repository')
     free.add_argument('tag')
+    physical = commands.add_parser('physical-scope')
+    physical.add_argument('baseline', help='annotated release with full physical acceptance')
     check = commands.add_parser('inspect')
     for argument in ['repository', 'tag', 'digest', 'revision', 'output']:
         check.add_argument(argument)
     args = parser.parse_args()
     if args.command == 'guard':
         guard(args.tag)
+    elif args.command == 'physical-scope':
+        print(json.dumps(physical_scope(args.baseline, run('git', 'rev-parse', 'HEAD')), indent=2))
     elif args.command == 'unused':
         unused(args.repository, args.tag)
     else:

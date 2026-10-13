@@ -3,23 +3,54 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Explicit full checks for changes whose documentation scope is uncertain.
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
 jobs:
-  contracts:
-    runs-on: ubuntu-latest
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      software: ${{ steps.scope.outputs.software }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REVISION: ${{ github.sha }}
+        run: python3 hack/ci-scope.py "$BASE_REVISION" "$HEAD_REVISION"
+      - run: python3 hack/check-docs.py
+        env:
+          DOC_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - run: make release-check
+  contracts:
+    needs: changes
+    # Keep this existing required-check name active for documentation failures.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful change and documentation checks
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+        run: test "$CHANGES_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.software != 'false'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.software != 'false'
         with:
           go-version: '1.26.8'
           cache: true
       - run: make verify
-      - run: make docker-build
+        if: needs.changes.outputs.software != 'false'
   api:
+    needs: changes
+    if: always() && needs.changes.outputs.software != 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,6 +61,8 @@ jobs:
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
   cluster:
+    needs: changes
+    if: always() && needs.changes.outputs.software != 'false'
     strategy:
       fail-fast: false
       matrix:

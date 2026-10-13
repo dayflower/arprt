@@ -16,8 +16,15 @@ Use those files when changing versions rather than adding another version list.
 Build tools and envtest binaries are installed under the ignored `bin/` directory.
 
 CI runs on pull request creation and updates, and on pushes to `main`, including
-merges. Pushes to other branches and tags do not trigger this workflow; version
+merges. A manual `workflow_dispatch` always runs full software checks. Pushes to
+other branches and tags do not trigger this workflow; version
 tags run the separate [image release workflow](../.github/workflows/release-image.yaml).
+The lightweight change/documentation job always runs. Changes limited to prose
+in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluster
+jobs. Changed fenced/indented examples, other paths and unavailable history run the full
+software matrix. The existing `contracts` check remains active and propagates
+documentation/check-selection failures, including on prose-only changes.
+Docker builds run only in the two native cluster jobs; `contracts` checks Go.
 Open a draft pull request to check work before it is ready for review. A new run cancels any older
 in-progress run of the same workflow for the same pull request or branch.
 
@@ -111,6 +118,9 @@ and [CRD pruning](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-reso
 
 For documentation-only edits, verify local links/anchors, obsolete references
 and `git diff --check`. No software matrix is required for prose-only changes.
+`python3 hack/check-docs.py` checks tracked local Markdown links/anchors and
+whitespace. Executable example changes still need applicable software checks.
+Use the manual full run if executable instructions or their scope are uncertain.
 
 ## Disposable cluster checks
 
@@ -139,6 +149,14 @@ failures:
 ```sh
 make disposable-cluster-smoke IMAGE=arprt:dev LOAD_IMAGE=true
 ```
+
+This wrapper installs the CRDs once in its own cluster and runs two smoke suites
+concurrently, starting the longest Job suite first. Each suite uses an isolated
+namespace/PVC and reuses those CRDs. All suites finish cleanup, and any failure
+fails the wrapper. `make cluster-smoke` remains sequential for explicitly selected
+clusters; do not launch its scripts concurrently while they own CRD creation
+and deletion. The parallel runner is intended only for the prepared disposable
+cluster. Suite durations and failure output appear in the wrapper log.
 
 Omit `LOAD_IMAGE=true` to test a registry image without loading a local copy.
 All four scripts accept tagged images and multi-platform index digest references.
@@ -171,8 +189,10 @@ architectures. `--version` also records the full source commit, matching OCI
 revision metadata. Development images default to version `dev`.
 
 Before tagging, merge the intended revision into `main`, run the full software
-matrix, and complete [physical-device regression](#physical-device-regression)
-on that exact revision with the supported OG / firmware 1.8.17. For the physical
+matrix, and complete the applicable [physical acceptance](#physical-device-regression)
+on that exact revision with the supported OG / firmware 1.8.17. A full baseline
+can be reused only for the changes permitted below; current-image installation
+checks still apply. For the physical
 check, build the revision with its intended version:
 
 ```sh
@@ -181,7 +201,8 @@ make docker-build IMAGE=arprt:release-check VERSION=0.1.0
 
 Record environment and observation scope privately, without credentials or real
 identities. After acceptance, create an annotated tag whose message attests the
-revision, JST date and full required scope (replace the example date):
+revision, JST date and required scope (replace the example version/date; choose
+an unused version):
 
 ```sh
 arprt_release_revision="$(git rev-parse HEAD)"
@@ -191,6 +212,7 @@ arprt v0.1.0
 Physical-device-acceptance: $arprt_release_revision
 Physical-device-date: 2026-10-13
 Physical-device-scope: OG / firmware 1.8.17; DEVELOP physical-device regression
+Physical-device-mode: full
 EOF
 git tag -a v0.1.0 "$arprt_release_revision" -F /tmp/arprt-release-tag.txt
 rm /tmp/arprt-release-tag.txt
@@ -200,9 +222,11 @@ git push origin refs/tags/v0.1.0
 The annotation is an operator attestation, not automated proof of hardware
 behavior. The workflow rejects lightweight tags, invalid versions, missing
 attestations, a checkout different from the tagged commit, and commits outside
-`origin/main`. It explicitly runs `make verify`, envtest on Kubernetes 1.36.0,
-Docker Buildx build and the complete disposable-cluster matrix on that exact
-commit on native `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. These are
+`origin/main`. It explicitly runs `make verify` and envtest on Kubernetes 1.36.0
+alongside independent Docker Buildx/cluster jobs on that exact commit on native
+`ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Publication requires all
+of these jobs to pass. Both the pre-publication and anonymous acceptance runs
+retain the complete four-suite cluster matrix. These are
 fresh isolated clusters; release checks do not use an operator's cluster. No
 QEMU acceptance is substituted for native execution. A new architecture does
 not expand physical-device, Kubernetes or storage support.
@@ -265,6 +289,63 @@ Use the supported OG / firmware 1.8.17 tuple and the operator's private overlay.
 Record the source revision/image, environment, date and observation scope.
 Keep credentials and real identities out of reports. Restore temporary assignments,
 polling settings and renderers after the check.
+
+### Selecting physical acceptance
+
+Keep the supported model/firmware tuple fixed. An initial release, a new tuple,
+runtime/PNG/rendering/overlay/assignment/credential/storage changes, dependencies,
+Dockerfile, Makefile, examples/fixtures or unknown paths require the full numbered
+regression below. Do not infer display correctness or new hardware support from CI.
+
+For documentation, CI/harness, Go test-only or installation changes under
+`config/default`, `config/overlays` and `charts`, reuse a full accepted release
+baseline when the committed trees contain no other changes. Select it with:
+
+```sh
+python3 hack/release-image.py physical-scope v0.1.0
+```
+
+The command compares committed Git trees, not uncommitted edits. It validates
+the baseline's annotation and main ancestry, reports `full` or `reuse`, and
+lists paths that require full regression. Deleted and renamed paths are checked.
+It never attests that a device passed a test. Reuse must refer directly to a full
+baseline, not to a chain of reused releases; legacy tags without a mode count as
+full acceptance. Record that baseline, its tuple/date, the changed paths and
+current installation observations privately.
+
+In reuse mode, build/deploy the exact current revision/image through the intended
+installation, check readiness, setup/key reuse and authenticated TLS image
+delivery, fetch a previously issued URL after restart, and confirm normal device
+content/current telemetry/overlay readability visually. Restore the normal
+assignment and polling interval. A firmware/model change, unexplained failure or
+uncertain baseline requires full regression. Use the normal image polling
+interval; no four-corner/rotation/outage tour is required in reuse mode.
+
+After those checks, keep the exact current revision, date and scope fields in
+the tag and replace its full-mode line with:
+
+```text
+Physical-device-mode: reuse
+Physical-device-baseline: v0.1.0
+Physical-device-installation: passed
+```
+
+The release guard rejects reuse if runtime inputs differ, the baseline is not a
+full accepted ancestor on main, installation acceptance is absent or its date
+predates the baseline. GitHub release notes distinguish full regression from
+current installation checks with baseline reuse. Full software/native/anonymous
+acceptance remains required for both modes.
+
+### Full regression procedure
+
+Group visual observations into three sessions: normal/source/encoding display
+(steps 1–3), rotation/corners (step 4), and failure/recovery (step 5). Prepare
+renderers/Jobs and validate HTTP responses/PNGs before asking the observer to
+watch. Collect one report per session rather than per corner or individual
+transition. Test transitions must follow actual device polls; a short configured
+sleep is not a guarantee of equally short wake/request intervals. Preserve the
+timer-wake/manual-wake distinction for pending, and restore settings on failure
+or interruption. An observer should report the first unexpected screen promptly.
 
 1. Follow README pairing instructions; verify the anonymous setup image and
    authenticated display/image fetching through the actual TLS proxy/prefix.
