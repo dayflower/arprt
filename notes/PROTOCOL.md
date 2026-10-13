@@ -106,14 +106,25 @@ JSON `status: 0`, `image_url`, `filename`, integer `refresh_rate` seconds,
 | Invalid/mismatched request identity; setup explicitly disabled | 403 / 403 | No key disclosure or accepted telemetry |
 | Missing/wrong token or invalid stored key | 401 / 401 | No accepted telemetry or image |
 | Duplicate identity, unavailable identity/credential storage or incomplete registration | 503 / 503 | Retry without claiming success |
-| Missing assignment, unresolved target, initial pending, or failed render with no compatible image | 200 / 202 | No image URL/filename; keep existing e-paper content |
+| Missing assignment, unresolved target, initial pending, or failed render with no compatible image | 200 / 202 | No image URL/filename; firmware handles pending as described below |
 | Successful render or compatible stale fallback | 200 / 0 | Serve an issued immutable image |
 
 Pending is **HTTP 200 with JSON 202**, since firmware's Wi-Fi transport rejects
-HTTP 202 as a successful request. This branch fast-polls at 5 seconds for polls
-1–50, 60 for 51–60, 900 for 61–70, then 3600. A successful image resets the streak;
-JSON `refresh_rate` cannot override this pending branch. Never use JSON 500 for
-renderer failure because it follows a firmware reset path.
+HTTP 202 as a successful request. This branch selects sleep durations of 5 seconds
+for polls 1–50, 60 for 51–60, 900 for 61–70, then 3600. Complete request intervals
+also include awake work such as Wi-Fi connection and HTTP transport. A successful
+image resets the streak; JSON `refresh_rate` cannot override this pending branch.
+Never use JSON 500 for renderer failure because it follows a firmware reset path.
+
+Pending does not guarantee that firmware retains the previous image. In OG
+1.8.17, JSON 202 maps to `HTTPS_NO_REGISTER`. If the RTC-persisted
+`need_to_refresh_display` flag is set, firmware displays its Friendly ID screen
+and clears the flag. A manual or power wake sets the flag and clears the cached
+filename; ordinary timer wakes can preserve the display when the flag is clear.
+This is firmware display behavior, not a credential reset requested by arprt.
+See the pinned [wake handling](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/bl.cpp#L916),
+[pending display handling](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/bl.cpp#L1230)
+and [RTC flag](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/globals.cpp#L28).
 
 Successful-image polling is configured independently of screen freshness.
 Filenames are stable for identical artifact bytes, differ for different bytes,

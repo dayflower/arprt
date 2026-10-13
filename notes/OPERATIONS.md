@@ -122,8 +122,11 @@ an aggregate across pairs. Explicit Job display polling preserves the reconciler
 failure reason. Job reasons include `JobPending`, `JobFailed`, `JobTimedOut`,
 `JobCreationFailed`, `JobLost`, `RunUnavailable`, `CollectionFailed` and `ImageReady`.
 
-No compatible initial image produces pending, preserving existing e-paper content.
-See [PROTOCOL](PROTOCOL.md#responses-and-polling) for HTTP/JSON status and backoff.
+No compatible initial image produces pending. Firmware can retain the previous
+image on a normal timer wake, but may show its Friendly ID screen when a redraw
+is required after a manual or power wake. This response does not request a
+credential reset or OTA. See [PROTOCOL](PROTOCOL.md#responses-and-polling) for
+HTTP/JSON status, display behavior and backoff.
 Use [strict field validation](DEVELOP.md#selecting-checks) when applying resources.
 
 ## Monitoring
