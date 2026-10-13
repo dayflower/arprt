@@ -26,6 +26,8 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       revision: ${{ steps.release.outputs.revision }}
+      physical_mode: ${{ steps.release.outputs.physical_mode }}
+      physical_baseline: ${{ steps.release.outputs.physical_baseline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +38,29 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: python3 hack/release-image.py guard "$RELEASE_TAG"
+
+  # Independent software checks run alongside the native build/cluster jobs.
+  checks:
+    if: github.event_name == 'push'
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - run: make verify
+      - run: python3 hack/check-docs.py
+      - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
   validate:
     if: github.event_name == 'push'
@@ -63,8 +88,6 @@ jobs:
         with:
           go-version: '1.26.8'
           cache: true
-      - run: make verify
-      - run: make integration ENVTEST_K8S_VERSION=1.36.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build and check native release image
         run: |
@@ -86,7 +109,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
-    needs: [guard, validate]
+    needs: [guard, checks, validate]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -212,6 +235,8 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.guard.outputs.tag }}
       RELEASE_REVISION: ${{ needs.guard.outputs.revision }}
+      PHYSICAL_MODE: ${{ needs.guard.outputs.physical_mode }}
+      PHYSICAL_BASELINE: ${{ needs.guard.outputs.physical_baseline }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -230,7 +255,11 @@ jobs:
           for platform, digest in evidence['platformDigests'].items():
               print(f'- {platform}: `{digest}`')
           print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete disposable-cluster smoke matrix. Anonymous tag/digest pulls and the smoke matrix using the published index digest passed on both architectures.')
-          print('\nThe annotated release tag records operator-attested OG / firmware 1.8.17 physical-device regression. Architecture publication does not expand device or storage support.')
+          if os.environ['PHYSICAL_MODE'] == 'reuse':
+              print(f"\nPhysical acceptance: current-revision installation/TLS/normal-display checks, with full OG / firmware 1.8.17 regression reused from `{os.environ['PHYSICAL_BASELINE']}`. The tag guard verified that runtime inputs have not changed.")
+          else:
+              print('\nThe annotated release tag records operator-attested full OG / firmware 1.8.17 physical-device regression.')
+          print('Architecture publication does not expand device or storage support.')
           print(f"\n[Acceptance workflow](https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['GITHUB_RUN_ID']})")
           PY
           release_flags=()

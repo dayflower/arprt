@@ -19,4 +19,8 @@ kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" \
 if [[ "$load_image" == --load ]]; then
   kind load docker-image "$image" --name "$cluster"
 fi
-make cluster-smoke IMAGE="$image"
+# This cluster belongs to this wrapper. Prepare shared CRDs before any suite
+# starts so no suite owns/deletes them while another namespace is using them.
+kubectl create --validate=strict -k config/crd
+kubectl wait --for=condition=Established --timeout=30s -f config/crd/bases
+python3 hack/run-cluster-smoke.py --image "$image" --jobs 2
