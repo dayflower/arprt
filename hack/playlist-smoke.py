@@ -58,11 +58,10 @@ def main():
             base = kubectl('kustomize', str(ROOT / 'config/default')).stdout
             # Kustomize namespace/image transformations preserve deployment and RBAC.
             (directory / 'base.yaml').write_text(base)
-            image_name, image_tag = args.image.rsplit(':', 1)
             (directory / 'kustomization.yaml').write_text(json.dumps({
                 'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
                 'namespace': namespace, 'resources': ['base.yaml'],
-                'images': [{'name': 'arprt', 'newName': image_name, 'newTag': image_tag}],
+                'images': [smoke.kustomize_image(args.image)],
                 'patches': [{'target': {'kind': 'Deployment', 'name': 'arprt'}, 'patch': json.dumps([
                     {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': [
                         '--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--job-deadline-seconds=30']}

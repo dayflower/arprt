@@ -5,8 +5,12 @@ ENVTEST_VERSION := v0.24.1
 ENVTEST_K8S_VERSION ?= 1.36.0
 ENVTEST_BIN := $(CURDIR)/bin/k8s
 IMAGE ?= arprt:dev
+VERSION ?= dev
+REVISION ?= $(shell git rev-parse HEAD)
+KIND_VERSION := v0.33.0
+KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke
+.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke
 
 tools: bin/controller-gen
 
@@ -34,7 +38,7 @@ build:
 test:
 	$(GO) test -race ./...
 
-verify: manifests
+verify: manifests release-check
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases
 	$(GO) mod tidy -diff
 	@test -z "$$(gofmt -l api cmd internal)"
@@ -44,7 +48,7 @@ integration: manifests bin/setup-envtest
 	KUBEBUILDER_ASSETS="$$($(CURDIR)/bin/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_BIN) -p path)" $(GO) test -tags=integration -count=1 -v ./internal/integration
 
 docker-build:
-	docker build -t $(IMAGE) .
+	docker build --build-arg VERSION=$(VERSION) --build-arg REVISION=$(REVISION) -t $(IMAGE) .
 
 # Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
 cluster-smoke:
@@ -52,3 +56,13 @@ cluster-smoke:
 	python3 hack/job-smoke.py --image $(IMAGE)
 	python3 hack/playlist-smoke.py --image $(IMAGE)
 	python3 hack/operations-smoke.py --image $(IMAGE)
+
+# Release helpers never use the operator's selected kubeconfig context.
+bin/kind:
+	GOBIN=$(CURDIR)/bin $(GO) install sigs.k8s.io/kind@$(KIND_VERSION)
+
+disposable-cluster-smoke: bin/kind
+	PATH="$(CURDIR)/bin:$$PATH" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
+
+release-check:
+	python3 -m unittest discover -s hack -p 'test_*.py'

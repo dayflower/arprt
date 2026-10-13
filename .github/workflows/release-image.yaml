@@ -1,0 +1,242 @@
+name: release image
+on:
+  push:
+    tags: ['v*']
+  # Repeat public acceptance after the first package's visibility is set to public.
+  # This path never builds, pushes or overwrites a release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag
+        required: true
+        type: string
+      digest:
+        description: Published multi-platform image index digest (sha256:...)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-image-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      revision: ${{ steps.release.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: release
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: python3 hack/release-image.py guard "$RELEASE_TAG"
+
+  validate:
+    if: github.event_name == 'push'
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      RELEASE_REVISION: ${{ needs.guard.outputs.revision }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - run: make verify
+      - run: make integration ENVTEST_K8S_VERSION=1.36.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build and check native release image
+        run: |
+          test "$(go env GOARCH)" = "$ARCH"
+          docker buildx build --platform "linux/$ARCH" --provenance=false --load \
+            --build-arg VERSION="$RELEASE_VERSION" --build-arg REVISION="$RELEASE_REVISION" \
+            --tag "arprt:release-$ARCH" .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "arprt:release-$ARCH")" = "linux/$ARCH"
+          test "$(docker run --rm --platform "linux/$ARCH" "arprt:release-$ARCH" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
+      - run: make disposable-cluster-smoke IMAGE="arprt:release-$ARCH" LOAD_IMAGE=true
+      - name: Export the exact tested image
+        run: docker save "arprt:release-$ARCH" --output "/tmp/image-$ARCH.tar"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-image-${{ matrix.arch }}
+          path: /tmp/image-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push'
+    needs: [guard, validate]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.index.outputs.digest }}
+    env:
+      RELEASE_TAG: ${{ needs.guard.outputs.tag }}
+      RELEASE_REVISION: ${{ needs.guard.outputs.revision }}
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.guard.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 hack/release-image.py guard "$RELEASE_TAG"
+      - name: Refuse an existing version or platform tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 hack/release-image.py unused "$REPOSITORY" "$RELEASE_TAG"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-image-*
+          path: /tmp/release-images
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish tested platform images
+        run: |
+          for arch in amd64 arm64; do
+            docker load --input "/tmp/release-images/image-$arch.tar"
+            docker tag "arprt:release-$arch" "$IMAGE:$RELEASE_TAG-$arch"
+            docker push "$IMAGE:$RELEASE_TAG-$arch"
+          done
+      - id: index
+        name: Assemble and record multi-platform index
+        run: |
+          docker buildx imagetools create --tag "$IMAGE:$RELEASE_TAG" \
+            --annotation 'index:org.opencontainers.image.description=ARPRT is an independent, unofficial Kubernetes controller for TRMNL BYOS. It is not affiliated with or endorsed by TRMNL.' \
+            "$IMAGE:$RELEASE_TAG-amd64" "$IMAGE:$RELEASE_TAG-arm64"
+          docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$RELEASE_TAG" > /tmp/image-index.json
+          digest=$(python3 -c 'import json; print(json.load(open("/tmp/image-index.json"))["digest"])')
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Published image: `%s:%s`\n\nIndex digest: `%s`\n\nSet the GHCR package to public before anonymous acceptance.\n' "$IMAGE" "$RELEASE_TAG" "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: published-image-index
+          path: /tmp/image-index.json
+          if-no-files-found: error
+          retention-days: 90
+
+  acceptance:
+    needs: [guard, publish]
+    if: >-
+      always() && needs.guard.result == 'success' &&
+      (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      RELEASE_TAG: ${{ needs.guard.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      RELEASE_REVISION: ${{ needs.guard.outputs.revision }}
+      INDEX_DIGEST: ${{ needs.publish.outputs.digest || inputs.digest }}
+      REPOSITORY: ${{ github.repository }}
+      ARCH: ${{ matrix.arch }}
+      # Empty config: no login or registry credentials during acceptance.
+      DOCKER_CONFIG: /tmp/arprt-anonymous-docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Verify public index, platforms and metadata anonymously
+        run: |
+          mkdir -p "$DOCKER_CONFIG"
+          python3 hack/release-image.py inspect "$REPOSITORY" "$RELEASE_TAG" "$INDEX_DIGEST" "$RELEASE_REVISION" /tmp/image-digests.json
+      - name: Anonymous platform selection and startup
+        run: |
+          test "$(go env GOARCH)" = "$ARCH"
+          docker pull --platform "linux/$ARCH" "ghcr.io/$REPOSITORY:$RELEASE_TAG"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "ghcr.io/$REPOSITORY:$RELEASE_TAG")" = "linux/$ARCH"
+          docker pull --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST"
+          test "$(docker run --rm --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
+      # No kind load: Pods pull the public index digest without imagePullSecrets.
+      - run: make disposable-cluster-smoke IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST"
+      - name: Record native public acceptance
+        run: |
+          printf 'PASS: native linux/%s anonymous tag/digest pulls and complete disposable-cluster smoke matrix.\n\n' "$ARCH" >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/image-digests.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accepted-image-digests-${{ matrix.arch }}
+          path: /tmp/image-digests.json
+          if-no-files-found: error
+          retention-days: 90
+
+  announce:
+    needs: [guard, acceptance]
+    if: always() && needs.guard.result == 'success' && needs.acceptance.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.guard.outputs.tag }}
+      RELEASE_REVISION: ${{ needs.guard.outputs.revision }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: accepted-image-digests-*
+          path: /tmp/acceptance
+      - name: Publish acceptance record as a GitHub release
+        run: |
+          cmp /tmp/acceptance/accepted-image-digests-amd64/image-digests.json /tmp/acceptance/accepted-image-digests-arm64/image-digests.json
+          python3 - <<'PY' > /tmp/release-notes.md
+          import json, os
+          evidence = json.load(open('/tmp/acceptance/accepted-image-digests-amd64/image-digests.json'))
+          print('ARPRT is an independent, unofficial Kubernetes controller for TRMNL BYOS. It is not affiliated with or endorsed by TRMNL.\n')
+          print(f"Controller version: `{evidence['version']}`; source revision: `{evidence['revision']}`.\n")
+          print(f"Image: `{evidence['image']}:{evidence['tag']}`\n")
+          print(f"Multi-platform index: `{evidence['image']}@{evidence['indexDigest']}`\n")
+          for platform, digest in evidence['platformDigests'].items():
+              print(f'- {platform}: `{digest}`')
+          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete disposable-cluster smoke matrix. Anonymous tag/digest pulls and the smoke matrix using the published index digest passed on both architectures.')
+          print('\nThe annotated release tag records operator-attested OG / firmware 1.8.17 physical-device regression. Architecture publication does not expand device or storage support.')
+          print(f"\n[Acceptance workflow](https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['GITHUB_RUN_ID']})")
+          PY
+          release_flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" --verify-tag --title "arprt $RELEASE_TAG" "${release_flags[@]}" \
+            --notes-file /tmp/release-notes.md \
+            /tmp/acceptance/accepted-image-digests-amd64/image-digests.json

@@ -41,9 +41,39 @@ Examples use `arprt` for both the namespace and external URL prefix. These are
 independent: device URLs are `<publicBaseURL>/devices/<namespace>/<device-name>`.
 Run commands from the repository root and substitute your private overlay path.
 
-1. Build/push a cluster-accessible controller image. Create a private Kustomize
-   overlay outside this repository referencing `config/default`, and set its image.
-   Configure the PVC StorageClass if your cluster has no default.
+1. Choose an accepted version from [Releases](https://github.com/dayflower/arprt/releases).
+   Release images are distributed through `ghcr.io/dayflower/arprt` for both
+   `linux/amd64` and `linux/arm64`; no registry login or local build is needed
+   for a public release. Until the first public release completes acceptance,
+   build/push your own image using `make docker-build`.
+
+   Create a private Kustomize overlay outside this repository referencing
+   `config/default`. For example, after `v0.1.0` has been published:
+
+   ```yaml
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   resources:
+     - ../arprt/config/default  # path relative to the private overlay directory
+   images:
+     - name: arprt
+       newName: ghcr.io/dayflower/arprt
+       newTag: v0.1.0
+   patches:
+     - target:
+         kind: ConfigMap
+         name: arprt-config
+       patch: |-
+         - op: replace
+           path: /data/publicBaseURL
+           value: https://byos.example.com/arprt
+   ```
+
+   Match the checkout to the release tag. The release's `image-digests.json`
+   records the multi-platform index and platform digests. To pin both
+   architectures, replace `newTag` with `digest: sha256:<index digest>`;
+   use the index digest rather than an individual platform digest. No `latest`
+   tag is required. Configure the PVC StorageClass if your cluster has no default.
 2. Patch ConfigMap `arprt-config`'s `publicBaseURL` to your public URL including
    its prefix, for example `https://byos.example.com/arprt`. Expose Service
    `arprt:8080` through your TLS proxy. Preserve the prefix by default; if your
