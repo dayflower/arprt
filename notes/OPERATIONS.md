@@ -204,6 +204,39 @@ still retain many completed Jobs. Use an appropriate namespace ResourceQuota
 for a hard Kubernetes object ceiling; quota rejection retains prior output and
 uses bounded retries.
 
+## Helm-managed CRDs
+
+The [CRD-only chart](../charts/arprt-crds/README.md) uses ordinary Helm templates
+so compatible upgrades update the generated schemas. All CRDs carry
+`helm.sh/resource-policy: keep`: uninstall and operations that remove a CRD
+from the release retain the CRD and its custom resources. See Helm's
+[resource retention guidance](https://helm.sh/docs/howto/charts_tips_and_tricks/#tell-helm-not-to-uninstall-a-resource).
+Retention does not block schema changes, establish safe downgrade, or substitute
+for a consistent backup of the PVC, CRs and auth Secrets. Helm rollback can
+apply an older schema; check API and internal-record compatibility before any
+downgrade. Do not rely on rollback for automatic recovery.
+
+After uninstall, retained CRDs still carry the original release name and
+namespace. Reinstall the compatible CRD chart using that same name/namespace
+to resume management. A different release or installation system cannot
+silently assume ownership. CRDs are cluster-wide, so changing release namespace
+does not provide another independent set. Kustomize adoption, changes between
+separate and bundled CRD ownership, and forced ownership transfer are outside
+the tested installation path.
+
+Explicit removal is a separate destructive operator action: first stop all
+controllers using this API, back up their PVCs, CRs and auth Secrets consistently,
+and inspect custom resources across all namespaces. Deleting any of the
+following CRDs deletes **all of its custom resources in every namespace**:
+
+```sh
+kubectl delete crd arprtdevices.arprt.dayflower.github.io \
+  arprtscreens.arprt.dayflower.github.io arprtplaylists.arprt.dayflower.github.io
+```
+
+Uninstall the owning release before explicit deletion. Keep this deletion out
+of routine uninstall, upgrade and recovery procedures.
+
 ## Recovery and troubleshooting
 
 Back up the PVC, CRs and authentication Secrets together. Stop the controller

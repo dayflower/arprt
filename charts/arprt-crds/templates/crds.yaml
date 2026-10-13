@@ -1,0 +1,15 @@
+{{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
+{{- $crd := $.Files.Get $path | fromYaml }}
+{{- $metadata := $crd.metadata }}
+{{- $labels := default (dict) $metadata.labels }}
+{{- $annotations := default (dict) $metadata.annotations }}
+{{- $_ := set $labels "app.kubernetes.io/managed-by" $.Release.Service }}
+{{- $_ := set $labels "helm.sh/chart" (printf "%s-%s" $.Chart.Name $.Chart.Version | replace "+" "_") }}
+{{- $_ := set $annotations "meta.helm.sh/release-name" $.Release.Name }}
+{{- $_ := set $annotations "meta.helm.sh/release-namespace" $.Release.Namespace }}
+{{- $_ := set $annotations "helm.sh/resource-policy" "keep" }}
+{{- $_ := set $metadata "labels" $labels }}
+{{- $_ := set $metadata "annotations" $annotations }}
+---
+{{ toYaml $crd }}
+{{ end -}}

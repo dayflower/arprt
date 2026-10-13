@@ -10,6 +10,7 @@ runtime administration and [RENDERERS](RENDERERS.md) for example usage.
 Use Go, Make, a C compiler for race tests, Python 3 for examples/smoke/release checks,
 and Docker for images. The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest/kind and the kind node image;
+it also pins the Helm client used for CRD chart checks.
 [go.mod](../go.mod) pins dependencies and [CI](../.github/workflows/ci.yaml)
 defines the Kubernetes test version.
 Use those files when changing versions rather than adding another version list.
@@ -33,8 +34,8 @@ make build
 make verify
 ```
 
-`make verify` regenerates deepcopy/CRDs, checks their diff, checks module tidiness
-and formatting, checks release guards/digest wiring, then runs vet, all race tests
+`make verify` regenerates deepcopy/CRDs and chart copies, checks their diff, checks module tidiness
+and formatting, checks release guards/digest wiring and the CRD chart, then runs vet, all race tests
 and the controller build. It does not run API integration or cluster tests. For API changes, edit types/validation
 markers in [types.go](../api/v1alpha1/types.go), then run `make manifests` and
 include both the types and generated files in the change. `make generate` only
@@ -43,6 +44,40 @@ regenerates deepcopy code. `make fmt` applies Go formatting.
 The generated-file check compares against the Git index, so it also reports
 intended unstaged generated changes. Review those changes and check that another
 generation produces identical bytes; do not bypass unrelated failures.
+
+## CRD chart generation and checks
+
+The [CRD chart](../charts/arprt-crds/README.md) is an application chart containing
+only the public CRDs. API types and markers remain authoritative;
+`config/crd/bases` is the canonical controller-gen output. `make manifests`
+also runs [crd-chart](../hack/crd-chart/main.go) to copy those files byte-for-byte
+into `charts/arprt-crds/files/crds` and remove obsolete copies. The entire
+destination directory is generated. Never edit the schemas there by hand.
+Repeated generation must preserve the exact file set and bytes.
+
+```sh
+make manifests
+make crd-chart-check
+```
+
+`make crd-chart-check` does not regenerate files. It checks the exact embedded
+file set and bytes, lints the chart, and renders default and custom release
+names/namespaces. Every rendered CRD spec must semantically match the canonical
+spec, including defaults, validation and subresources; CRD names and canonical
+annotations must remain intact. It also checks Helm ownership metadata,
+cluster scope and `helm.sh/resource-policy: keep`. `make verify` includes these
+checks and the chart copies in its generated Git diff check, so existing CI
+and release checks exercise them.
+
+The Makefile selects the Helm version; [install-helm.py](../hack/install-helm.py)
+downloads the official checksummed binary into ignored `bin/`. The current
+checks use Helm 4; this does not establish compatibility with other clients.
+The full controller chart lifecycle/client matrix is a separate check scope.
+`make integration ENVTEST_K8S_VERSION=1.36.0` also exercises the CRD chart on a
+disposable API server: fresh install, a real compatible optional-field schema
+upgrade, preservation of existing CR/CRD UIDs, uninstall/reinstall with the same
+owner, and retention when an upgrade removes CRDs from the release. Upgrade
+fixtures exist only in temporary chart copies, never in production API types.
 
 ## Local controller
 
@@ -67,6 +102,7 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | Location | Responsibility |
 | --- | --- |
 | `api/v1alpha1`, `config/crd` | Public types/markers and generated schema/deepcopy |
+| `charts/arprt-crds`, `hack/crd-chart` | CRD packaging, generated schema synchronization and Helm/spec checks |
 | `cmd/controller`, `config/default` | Runtime wiring, listeners, namespace scope, deployment and RBAC |
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
@@ -95,6 +131,7 @@ replacement and failure preservation; avoid tests that merely repeat code.
 | Change | Additional checks beyond `make verify` |
 | --- | --- |
 | API markers/defaults, status, watches, Secret conflicts or reconciliation | Envtest on the CI Kubernetes version (1.36.0) |
+| CRD chart generation/templates/lifecycle | `make crd-chart-check` and envtest on 1.36.0 |
 | BYOS/HTTP/credentials/identity | `cluster-smoke.py` for cluster/deployment integration |
 | Job scheduling, mounts, collection, recovery or cancellation | `job-smoke.py` |
 | Playlist/discovery, replay or per-screen retention | `playlist-smoke.py`, plus HTTP/Job regressions when affected |
