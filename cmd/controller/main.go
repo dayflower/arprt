@@ -26,6 +26,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
+var version = "dev"
+var revision = "unknown"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -37,7 +40,7 @@ func run() error {
 	var namespace, root, probes, listen, publicURL, metricsAddress, overlayZone string
 	var storageMax int64
 	var storageReserve uint64
-	var enableSetup, strips bool
+	var enableSetup, strips, showVersion bool
 	var refresh int
 	var jobConfig jobrender.Config
 	flag.StringVar(&namespace, "namespace", os.Getenv("WATCH_NAMESPACE"), "Required namespace to watch (controller must run in it)")
@@ -56,9 +59,14 @@ func run() error {
 	flag.StringVar(&metricsAddress, "metrics-bind-address", "0", "Internal metrics listener; 0 disables it")
 	flag.Int64Var(&storageMax, "storage-max-bytes", 768<<20, "Managed storage admission limit")
 	flag.Uint64Var(&storageReserve, "storage-min-free-bytes", 64<<20, "Filesystem free-space reserve")
+	flag.BoolVar(&showVersion, "version", false, "Print controller version and source revision")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	if showVersion {
+		fmt.Printf("arprt %s (%s)\n", version, revision)
+		return nil
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	if namespace == "" || len(validation.IsDNS1123Label(namespace)) > 0 {
 		return fmt.Errorf("--namespace must specify a valid namespace")

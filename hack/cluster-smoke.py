@@ -56,6 +56,23 @@ def forwarded(namespace, port, directory):
             process.wait(timeout=10)
 
 
+def kustomize_image(image):
+    """Keep registry ports intact and use Kustomize's digest field for indexes."""
+    result = {'name': 'arprt'}
+    if '@' in image:
+        name, digest = image.rsplit('@', 1)
+        if not digest.startswith('sha256:') or len(digest) != 71:
+            raise ValueError('image digest must be sha256 with 64 hexadecimal digits')
+        int(digest[7:], 16)
+        result.update(newName=name, digest=digest)
+    elif ':' in image.rsplit('/', 1)[-1]:
+        name, tag = image.rsplit(':', 1)
+        result.update(newName=name, newTag=tag)
+    else:
+        raise ValueError('smoke image must specify a tag or digest')
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', required=True)
@@ -82,11 +99,10 @@ def main():
         created_namespace = True
         with tempfile.TemporaryDirectory(prefix='arprt-smoke-') as temporary:
             directory = Path(temporary)
-            image_name, image_tag = args.image.rsplit(':', 1)
             (directory / 'kustomization.yaml').write_text(json.dumps({
                 'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization', 'namespace': namespace,
                 'resources': [os.path.relpath(ROOT / 'config/default', directory)],
-                'images': [{'name': 'arprt', 'newName': image_name, 'newTag': image_tag}],
+                'images': [kustomize_image(args.image)],
             }))
             kubectl('apply', '--validate=strict', '-k', str(directory))
             kubectl('-n', namespace, 'create', 'configmap', 'renderer', '--from-file=renderer.py=' + str(ROOT / 'examples/http-get/renderer.py'))

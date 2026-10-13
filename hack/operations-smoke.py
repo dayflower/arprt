@@ -48,11 +48,10 @@ def main():
         created_namespace = True
         with tempfile.TemporaryDirectory(prefix='arprt-operations-') as temporary:
             directory = Path(temporary)
-            image_name, image_tag = args.image.rsplit(':', 1)
             (directory / 'kustomization.yaml').write_text(json.dumps({
                 'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization', 'namespace': namespace,
                 'resources': [os.path.relpath(ROOT / p, directory) for p in ['config/default', 'examples/http-get', 'examples/http-post', 'examples/job']],
-                'images': [{'name': 'arprt', 'newName': image_name, 'newTag': image_tag}],
+                'images': [smoke.kustomize_image(args.image)],
             }))
             kubectl('apply', '--validate=strict', '-k', str(directory))
             for name in ['arprt', 'example-renderer', 'device-status-renderer']:

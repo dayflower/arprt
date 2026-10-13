@@ -30,18 +30,17 @@ jobs:
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
   cluster:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.8'
           cache: true
-      - run: go install sigs.k8s.io/kind@v0.33.0
-      - run: kind create cluster --name arprt-ci --image kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed --wait 90s
       - run: make docker-build IMAGE=arprt:ci
-      - run: kind load docker-image arprt:ci --name arprt-ci
-      - run: make cluster-smoke IMAGE=arprt:ci
-      - if: always()
-        run: kind delete cluster --name arprt-ci
+      - run: make disposable-cluster-smoke IMAGE=arprt:ci LOAD_IMAGE=true
