@@ -1,0 +1,3 @@
+# CRD names and schemas are generated from api/v1alpha1/types.go.
+# This chart has no configurable values.
+{}

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: arprt-crds
+description: >-
+  CRDs for ARPRT, an independent, unofficial Kubernetes controller for TRMNL
+  BYOS. Not affiliated with or endorsed by TRMNL.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.36.0 <1.37.0"
+home: https://github.com/dayflower/arprt
+sources:
+  - https://github.com/dayflower/arprt
