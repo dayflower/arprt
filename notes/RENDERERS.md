@@ -153,3 +153,61 @@ special files and symlinks escaping the output directory fail collection.
 Controller deadlines/concurrency and operator diagnostics are in
 [OPERATIONS](OPERATIONS.md#runtime-configuration); durable recovery, publication
 and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
+
+## Picsum photo Job example
+
+The [Picsum renderer](../examples/job-picsum/renderer.py) downloads a random photo
+from [Lorem Picsum](https://picsum.photos/) every 10 minutes and converts it to
+the accepted gray4 PNG format. It supports all four rotations and uses
+Floyd-Steinberg dithering, falling back to undithered quantization if needed to
+fit the PNG size limit. A failed download or conversion leaves compatible prior
+output available through the controller's usual fallback behavior.
+
+The [screen](../examples/job-picsum/screen.yaml) enables timestamp, battery and
+Wi-Fi overlays with clockwise corner cycling: top-right, bottom-right,
+bottom-left, top-left. Corners advance on new deliveries, independently of photo
+generation. The timestamp is the photo's generation time; battery/Wi-Fi use
+current display telemetry. Device polling remains separately configured.
+
+This example needs the controller's Job/PVC support and outbound HTTPS access
+to `picsum.photos` and its image CDN (`fastly.picsum.photos`). Requests include
+only dimensions and a random cache-busting value; no device data is sent.
+Pillow is installed during the image build, so Jobs need no package downloads.
+There is no prebuilt image for this example. Build and push it to a registry
+accessible to your cluster, replacing the synthetic registry below:
+
+```sh
+picsum_image=registry.example.com/picsum-renderer:v1
+docker build -t "$picsum_image" examples/job-picsum
+docker push "$picsum_image"
+```
+
+Set `spec.source.job.renderer.image` in `examples/job-picsum/screen.yaml` to that
+image reference (prefer its pushed digest), then install and assign it:
+
+```sh
+kubectl apply --validate=strict -k examples/job-picsum
+kubectl -n arprt patch arprtdevice living-room --type=merge \
+  -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum"}}}'
+```
+
+For standalone rendering, install the pinned
+[Python dependency](../examples/job-picsum/requirements.txt) in a virtual
+environment, then use the shared Context fixture:
+
+```sh
+python3 -m venv /tmp/arprt-picsum-venv
+/tmp/arprt-picsum-venv/bin/pip install -r examples/job-picsum/requirements.txt
+/tmp/arprt-picsum-venv/bin/python examples/job-picsum/renderer.py \
+  --context testdata/phase0/render-context-v1.json --output /tmp/picsum.png
+```
+
+Append `--input /path/to/photo.jpg` to render a local image without network
+access. This also works with other Pillow-supported image formats. The renderer
+draws only the photo; controller overlays are added at delivery time.
+
+Run its conversion/download-boundary tests without external photo requests:
+
+```sh
+/tmp/arprt-picsum-venv/bin/python -m unittest discover -s examples/job-picsum -v
+```

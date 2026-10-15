@@ -76,4 +76,12 @@ jobs:
           go-version: '1.26.8'
           cache: true
       - run: make docker-build IMAGE=arprt:ci
+      - name: Build and check the Picsum renderer without external photo requests
+        run: |
+          docker build -t picsum-renderer:ci examples/job-picsum
+          docker run --rm --network=none --read-only --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            --mount type=bind,src="$PWD/examples/job-picsum/test_renderer.py",dst=/app/test_renderer.py,readonly \
+            --entrypoint python3 picsum-renderer:ci \
+            -m unittest -v test_renderer
       - run: make disposable-cluster-smoke IMAGE=arprt:ci LOAD_IMAGE=true

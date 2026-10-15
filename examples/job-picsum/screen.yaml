@@ -1,0 +1,25 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtScreen
+metadata:
+  name: picsum
+spec:
+  refreshInterval: 10m
+  overlay:
+    enabled: true
+    items: [timestamp, battery, wifi]
+    cycleCorners: true
+    margin:
+      horizontal: 12
+      vertical: 4
+  source:
+    job:
+      renderer:
+        # Build and push this example, then replace with your image reference.
+        image: example/picsum-renderer:v1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
