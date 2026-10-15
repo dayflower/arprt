@@ -119,10 +119,16 @@ blanket Secret access nor permission to create Secrets.
 Chart-created PVCs and auth Secrets carry `helm.sh/resource-policy: keep`.
 Existing claims and external Secrets are neither created nor owned by the chart.
 Retention does not replace a consistent backup of PVC, CRs and auth Secrets or
-establish safe rollback. See [operations](../../notes/OPERATIONS.md#helm-managed-crds)
-for CRD retention and ownership boundaries. The full controller upgrade,
-uninstall/reinstall and client matrix remains a separate validation milestone;
-local rendering does not establish migration or downgrade support.
+establish safe rollback. Removing an auth entry or changing `create` to false
+keeps the live Secret/key; removing the entry also removes its RBAC permission.
+The retained object keeps its original release ownership annotations. Use the
+same release name/namespace to resume management, and keep the namespace itself.
+See [controller state operations](../../notes/OPERATIONS.md#helm-controller-state)
+for compatible reinstall, existing-PVC recovery and validation limits, and
+[CRD operations](../../notes/OPERATIONS.md#helm-managed-crds) for CRD ownership.
+API-server tests verify generated-key/PVC UID retention and named Secret access.
+The full deployment, delivery and client matrix remains a separate validation
+milestone; these checks do not establish migration or downgrade support.
 
 ## Validation and packaging
 
