@@ -91,8 +91,17 @@ after CRD changes and before linting or packaging. Dependency archives under
 `charts/arprt/charts/` are ignored build outputs; parent packages include them,
 so consumers do not need the local source. Required public URL values must be
 supplied for lint/render/install. See the chart README for commands and settings.
-The full automated controller chart lifecycle/client matrix and OCI publication
-are separate milestones; current `make verify` checks only the CRD chart.
+`make integration ENVTEST_K8S_VERSION=1.36.0` also tests controller-chart state
+against a disposable API server, assembling the dependency in a temporary copy.
+It verifies setup's actual credential provisioning with the chart ServiceAccount,
+named auth/identity permissions and denied undeclared/cross-namespace access,
+key/PVC UID retention through config upgrades and uninstall/reinstall, removal
+and reintroduction of auth entries, and reuse without ownership of external
+Secrets/PVCs. It uses Helm's normal release operations without forced adoption.
+No keys or MACs are stored in chart fixtures or command output. Envtest has no
+kubelet or storage provisioner; it cannot verify mounted data, readiness or HTTP
+delivery. The full cluster lifecycle/client matrix and OCI publication remain
+separate milestones; current `make verify` checks only the CRD chart.
 
 ## Local controller
 

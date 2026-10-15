@@ -239,6 +239,79 @@ kubectl delete crd arprtdevices.arprt.dayflower.github.io \
 Uninstall the owning release before explicit deletion. Keep this deletion out
 of routine uninstall, upgrade and recovery procedures.
 
+## Helm controller state
+
+The [controller chart](../charts/arprt/README.md) starts with empty auth and
+identity Secret lists. Select each same-namespace auth Secret explicitly with
+`credentials.authSecrets[].name` and `create`. With `create: true`, Helm declares
+only metadata and `type: Opaque`; it never supplies `data.apiKey` or
+`stringData.apiKey`. Setup generates an absent key and reuses the live value on
+compatible upgrades and same-owner reinstalls. Keep generated keys and MACs out
+of values, Helm notes and logs. Identity Secrets are always provisioned externally.
+
+Auth names receive only Secret `get`/`patch`; identity names receive only `get`.
+There is no Secret `create`, `list`, `watch` or blanket access. A name listed for
+both purposes receives the union of those permissions; use distinct Secrets if
+an identity must remain read-only. Removing a name revokes the corresponding
+permission. It does not remove that name from any Device reference; update
+references deliberately or the device becomes unavailable.
+
+Chart-created PVCs and auth Secrets carry `helm.sh/resource-policy: keep`.
+Uninstall, removing an auth entry, changing `create` to false, or selecting an
+existing claim retains the previously managed objects. Once an object leaves
+the release manifest, Helm no longer manages it. It still carries the original
+release ownership annotations. Reintroducing it under that same release
+name/namespace resumes management; a different owner must not take it over
+automatically. `create: false` and `persistence.existingClaim` reference objects
+without creating or changing them, including their existing ownership metadata.
+Removing an auth entry does not rotate or revoke its key for other principals
+that can still read it.
+
+Before an upgrade or uninstall, take a consistent private backup of the PVC,
+CRs and auth Secrets using the recovery procedure below. Record the release
+name/namespace, chart/image versions, private values, CRD ownership mode, and
+PVC/Secret names separately from generated credentials. Retention is not a
+backup or a guarantee of safe rollback. Do not delete the namespace: Helm's
+`keep` annotation does not protect resources from namespace deletion, direct
+Kubernetes deletion or storage loss.
+
+For a compatible reinstall of `home` in namespace `arprt`, keep the namespace,
+CRDs, CRs, PVC and auth Secrets. Stop outstanding renderer Jobs before allowing
+another controller to use the PVC. Use the same release name/namespace, compatible
+chart/image, auth Secret names and creation flags, and the original CRD mode.
+From the repository root, with dependencies assembled:
+
+```sh
+helm uninstall home --namespace arprt
+helm install home ./charts/arprt --namespace arprt --wait \
+  --values /path/to/private-values.yaml
+```
+
+To explicitly reuse retained or externally restored storage, add the following
+to that private values file before installation (use the actual claim name):
+
+```yaml
+persistence:
+  existingClaim: home-arprt-data
+```
+
+Leave `persistence.storageClass` and `persistence.size` at their defaults; manage
+the existing claim externally. The chart mounts it at the artifact root and
+passes its name to Job configuration. It must satisfy the same whole-filesystem
+RWO contract, even with Jobs disabled. Restore auth Secrets consistently and
+preserve CR UIDs; creating replacement Devices does not inherit stored identity
+or issued-image authorization. After reinstall, check readiness, setup/key reuse
+and authenticated fetching of an already-issued URL before normal operation.
+
+API-server integration tests verify key and PVC UID retention, same-owner
+reinstall, removal/reintroduction and external-object non-ownership with the
+pinned Helm client. They do not exercise actual volumes, renderer Jobs or HTTP
+recovery through a Helm deployment; that cluster lifecycle matrix remains a
+separate validation milestone. Kustomize-to-Helm adoption, bundled-to-separate
+CRD transfer, release renaming and forced ownership changes remain outside the
+tested path. Use a fresh installation for initial Helm adoption; these reinstall
+steps are not migration instructions.
+
 ## Recovery and troubleshooting
 
 Back up the PVC, CRs and authentication Secrets together. Stop the controller
