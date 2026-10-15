@@ -1,0 +1,18 @@
+{{- include "arprt.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "arprt.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "arprt.labels" . | nindent 4 }}
+data:
+  publicBaseURL: {{ .Values.byos.publicBaseURL | quote }}
+  proxyStripsPrefix: {{ .Values.byos.proxyStripsPrefix | quote }}
+  setupEnabled: {{ .Values.byos.setupEnabled | quote }}
+  deviceRefreshSeconds: {{ .Values.display.deviceRefreshSeconds | quote }}
+  overlayTimeZone: {{ .Values.display.overlayTimeZone | quote }}
+  storageMaxBytes: {{ printf "%.0f" (float64 .Values.storage.maxBytes) | quote }}
+  storageMinFreeBytes: {{ printf "%.0f" (float64 .Values.storage.minFreeBytes) | quote }}
+  jobConcurrency: {{ .Values.jobs.concurrency | quote }}
+  jobDeadlineSeconds: {{ .Values.jobs.deadlineSeconds | quote }}

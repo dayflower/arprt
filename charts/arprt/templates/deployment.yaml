@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "arprt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "arprt.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "arprt.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "arprt.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "arprt.fullname" . }}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "arprt.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --namespace=$(POD_NAMESPACE)
+            - --artifact-root=/var/lib/arprt
+            - --job-pvc={{ if .Values.jobs.enabled }}{{ include "arprt.claimName" . }}{{ end }}
+            - --metrics-bind-address={{ ternary ":8082" "0" .Values.metrics.enabled }}
+            - --proxy-strips-prefix=$(PROXY_STRIPS_PREFIX)
+            - --enable-setup=$(ENABLE_SETUP)
+            - --device-refresh-seconds=$(DEVICE_REFRESH_SECONDS)
+            - --overlay-time-zone=$(OVERLAY_TIME_ZONE)
+            - --storage-max-bytes=$(STORAGE_MAX_BYTES)
+            - --storage-min-free-bytes=$(STORAGE_MIN_FREE_BYTES)
+            - --job-concurrency=$(JOB_CONCURRENCY)
+            - --job-deadline-seconds=$(JOB_DEADLINE_SECONDS)
+          env:
+            {{- $configName := printf "%s-config" (include "arprt.fullname" .) }}
+            {{- range $env, $key := dict "PUBLIC_BASE_URL" "publicBaseURL" "PROXY_STRIPS_PREFIX" "proxyStripsPrefix" "ENABLE_SETUP" "setupEnabled" "DEVICE_REFRESH_SECONDS" "deviceRefreshSeconds" "OVERLAY_TIME_ZONE" "overlayTimeZone" "STORAGE_MAX_BYTES" "storageMaxBytes" "STORAGE_MIN_FREE_BYTES" "storageMinFreeBytes" "JOB_CONCURRENCY" "jobConcurrency" "JOB_DEADLINE_SECONDS" "jobDeadlineSeconds" }}
+            - name: {{ $env }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $configName }}
+                  key: {{ $key }}
+            {{- end }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: byos
+              containerPort: 8080
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: 8082
+            {{- end }}
+            - name: probes
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/arprt
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "arprt.claimName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

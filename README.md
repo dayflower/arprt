@@ -30,9 +30,11 @@ Build with `make build` or `make docker-build IMAGE=arprt:dev`. Tooling, generat
 CI runs envtest on Kubernetes 1.36.0 to check the supported minimum version;
 patch releases within minor 1.36 remain supported without separate envtest runs.
 
-A [CRD-only Helm chart](charts/arprt-crds/README.md) is available for fresh,
-separately managed CRD installations. It does not deploy the controller; the
-controller installation below continues to use Kustomize. See
+A local [controller Helm chart](charts/arprt/README.md) is available for fresh
+installations, with CRDs bundled by default. The [CRD-only chart](charts/arprt-crds/README.md)
+also supports separate management. Chart publication and full controller Helm
+lifecycle validation are separate milestones; the installation below uses
+Kustomize. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) before changing
 ownership or deleting retained CRDs.
 
