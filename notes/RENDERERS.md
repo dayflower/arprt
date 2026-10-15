@@ -163,6 +163,25 @@ Floyd-Steinberg dithering, falling back to undithered quantization if needed to
 fit the PNG size limit. A failed download or conversion leaves compatible prior
 output available through the controller's usual fallback behavior.
 
+The renderer's `--palette` argument selects photo shades: `gray4` (the default)
+or `bw` (black and white with dithering). To select black and white in the Screen
+resource, set:
+
+```yaml
+spec:
+  source:
+    job:
+      renderer:
+        args: ["--palette", "bw"]
+```
+
+This is a fragment to merge into the existing Screen. Both modes still produce
+the required 2-bit gray4 PNG and accept the same gray4 Render Context; `bw` only
+uses its black and white samples. The reviewed OG firmware can select
+black-and-white refresh for two-color images, but actual refresh behavior depends
+on its display state. This option does not guarantee a partial update on every
+delivery.
+
 The [screen](../examples/job-picsum/screen.yaml) enables timestamp, battery and
 Wi-Fi overlays with clockwise corner cycling: top-right, bottom-right,
 bottom-left, top-left. Corners advance on new deliveries, independently of photo

@@ -33,13 +33,15 @@ def encode(image):
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
 
 
-def render(context, source=None):
+def render(context, source=None, palette="gray4"):
     target = context["renderTarget"]
     if context["version"] != "v1" or any(
         target.get(key) != value
         for key, value in {"width": 800, "height": 480, "palette": "gray4"}.items()
     ):
         raise ValueError("Expected Render Context v1 for 800 x 480 / gray4")
+    if palette not in ("gray4", "bw"):
+        raise ValueError("Expected output palette gray4 or bw")
     rotation = target.get("rotation", 0)
     if type(rotation) is not int or rotation not in (0, 90, 180, 270):
         raise ValueError("Expected rotation 0, 90, 180 or 270")
@@ -64,22 +66,24 @@ def render(context, source=None):
     with Image.open(io.BytesIO(source)) as photo:
         gray = ImageOps.fit(ImageOps.exif_transpose(photo).convert("L"), size, method=Image.Resampling.LANCZOS)
     gray = ImageOps.autocontrast(gray, cutoff=0.5)
-    palette = Image.new("P", (1, 1))
-    palette.putpalette([v for shade in (0, 85, 170, 255) for v in (shade,) * 3] + [255] * (252 * 3))
-    # Floyd-Steinberg keeps gradients visible with just four physical shades.
-    quantized = gray.convert("RGB").quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG).convert("L")
+    shades = (0, 255) if palette == "bw" else (0, 85, 170, 255)
+    quantization_palette = Image.new("P", (1, 1))
+    quantization_palette.putpalette([v for shade in shades for v in (shade,) * 3] + [255] * ((256 - len(shades)) * 3))
+    # Floyd-Steinberg keeps gradients visible with the selected physical shades.
+    quantized = gray.convert("RGB").quantize(palette=quantization_palette, dither=Image.Dither.FLOYDSTEINBERG).convert("L")
     if rotation:
         quantized = quantized.rotate(-rotation, expand=True)
     png = encode(quantized)
     if len(png) >= 90_000:
         # High-frequency photos can exceed the device's compressed-image budget.
-        quantized = gray.point(lambda value: min(3, (value + 42) // 85) * 85)
+        step = 255 // (len(shades) - 1)
+        quantized = gray.point(lambda value: min(len(shades) - 1, (value + step // 2) // step) * step)
         if rotation:
             quantized = quantized.rotate(-rotation, expand=True)
         png = encode(quantized)
     if len(png) >= 90_000:
         raise ValueError("PNG exceeds device size limit")
-    print(f"Rendered Picsum photo {photo_id}: 800x480 gray4, {len(png)} bytes", flush=True)
+    print(f"Rendered Picsum photo {photo_id}: 800x480 {palette}, {len(png)} bytes", flush=True)
     return png
 
 
@@ -88,10 +92,12 @@ def main():
     parser.add_argument("--context", default="/arprt/context.json")
     parser.add_argument("--output", default="/arprt/output.png")
     parser.add_argument("--input", help="Use a local JPEG for offline checks")
+    parser.add_argument("--palette", choices=("gray4", "bw"), default="gray4",
+                        help="Photo shades (default: gray4); both modes write a 2-bit gray4 PNG")
     args = parser.parse_args()
     context = json.loads(Path(args.context).read_text())
     source = Path(args.input).read_bytes() if args.input else None
-    png = render(context, source)
+    png = render(context, source, palette=args.palette)
     output = Path(args.output)
     temporary = output.with_suffix(".tmp")
     temporary.write_bytes(png)

@@ -1,12 +1,17 @@
 """Check photo conversion and download boundaries without external services."""
 
 import io
+import json
+from pathlib import Path
 import struct
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 import renderer
 
@@ -30,7 +35,7 @@ class RendererTests(unittest.TestCase):
         image.save(output, format="PNG")
         return output.getvalue()
 
-    def assert_png(self, png):
+    def assert_png(self, png, shades=(0, 85, 170, 255)):
         self.assertLess(len(png), 90_000)
         self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
         self.assertEqual(struct.unpack(">IIBBBBB", png[16:29]), (800, 480, 2, 0, 0, 0, 0))
@@ -38,7 +43,7 @@ class RendererTests(unittest.TestCase):
             image.load()
             self.assertEqual(image.size, (800, 480))
             gray = image.convert("L")
-            self.assertEqual({shade for _, shade in gray.getcolors()}, {0, 85, 170, 255})
+            self.assertEqual({shade for _, shade in gray.getcolors()}, set(shades))
             return gray
 
     def test_gray4_contract_and_clockwise_rotation(self):
@@ -58,6 +63,33 @@ class RendererTests(unittest.TestCase):
         del context["renderTarget"]["rotation"]
         context["futureField"] = {"ignored": True}
         self.assert_png(renderer.render(context, self.photo()))
+
+    def test_bw_contract_dithering_and_clockwise_rotation(self):
+        expected = {
+            0: (0, 85, 170, 255), 90: (170, 0, 255, 85),
+            180: (255, 170, 85, 0), 270: (85, 255, 0, 170),
+        }
+        for rotation, corners in expected.items():
+            with self.subTest(rotation=rotation):
+                image = self.assert_png(renderer.render(self.context(rotation), self.photo(), palette="bw"),
+                                        shades=(0, 255))
+                for (x, y), shade in zip(((100, 60), (700, 60), (100, 420), (700, 420)), corners):
+                    mean = ImageStat.Stat(image.crop((x - 20, y - 20, x + 20, y + 20))).mean[0]
+                    self.assertAlmostEqual(mean, shade, delta=5)
+
+    def test_bw_cli_with_local_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context, source, output = (root / name for name in ("context.json", "photo.png", "output.png"))
+            context.write_text(json.dumps(self.context()))
+            source.write_bytes(self.photo())
+            result = subprocess.run([
+                sys.executable, renderer.__file__, "--palette", "bw",
+                "--context", str(context), "--input", str(source), "--output", str(output),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_png(output.read_bytes(), shades=(0, 255))
+            self.assertFalse(output.with_suffix(".tmp").exists())
 
     def test_incompatible_targets_fail_before_download(self):
         for key, value in (("width", 480), ("height", 800), ("palette", "rgb"), ("rotation", 45), ("rotation", False)):

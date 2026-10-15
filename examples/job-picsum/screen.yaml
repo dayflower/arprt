@@ -16,6 +16,8 @@ spec:
       renderer:
         # Build and push this example, then replace with your image reference.
         image: example/picsum-renderer:v1
+        # Set to ["--palette", "bw"] for black-and-white photo output.
+        args: ["--palette", "gray4"]
         resources:
           requests:
             cpu: 50m
