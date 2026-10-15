@@ -26,6 +26,8 @@ jobs. Changed fenced/indented examples, other paths and unavailable history run 
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
 Docker builds run only in the two native cluster jobs; `contracts` checks Go.
+Those jobs also build the Picsum example image and run its offline conversion
+and download-boundary tests on each native architecture.
 Open a draft pull request to check work before it is ready for review. A new run cancels any older
 in-progress run of the same workflow for the same pull request or branch.
 
