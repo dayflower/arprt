@@ -11,12 +11,11 @@ the [project support boundary](../../README.md#security-and-support-boundary):
 
 ## Local installation
 
-From the repository root, with a fresh cluster that does not already contain
-ARPRT CRDs:
+The commands below assume `helm` is installed on your `PATH`. From the repository
+root, with a fresh cluster that does not already contain ARPRT CRDs:
 
 ```sh
-make crd-chart-check
-bin/helm-v4.3.0 install arprt-crds ./charts/arprt-crds \
+helm install arprt-crds ./charts/arprt-crds \
   --namespace arprt --create-namespace --wait
 ```
 
@@ -25,16 +24,17 @@ cluster-scoped. Release names and namespaces never change CRD names or the
 `arprt.dayflower.github.io` API group. Cluster-level CRD permissions are required.
 Use one owner for these CRDs. Existing Kustomize-managed or differently owned
 CRDs are not automatically adopted; ownership migration is outside the tested
-installation path. The controller chart and published chart packages are not
-provided by this chart.
+installation path. The [controller chart](../arprt/README.md) can include this
+chart as a dependency or use this separately managed installation. Published
+chart packages are a separate distribution milestone.
 
 ## Updates and retained resources
 
 Compatible chart upgrades update CRD schemas through normal Helm templates:
 
 ```sh
-bin/helm-v4.3.0 upgrade arprt-crds ./charts/arprt-crds --namespace arprt --wait
-bin/helm-v4.3.0 uninstall arprt-crds --namespace arprt
+helm upgrade arprt-crds ./charts/arprt-crds --namespace arprt --wait
+helm uninstall arprt-crds --namespace arprt
 ```
 
 Every CRD has `helm.sh/resource-policy: keep`, retaining it when uninstall or
@@ -53,4 +53,6 @@ Edit API types and markers in
 the files and adds only Helm management metadata and retention annotations.
 Using `templates/` allows Helm to update schemas, unlike its special `crds/`
 installation path. See [DEVELOP](../../notes/DEVELOP.md#crd-chart-generation-and-checks)
-for synchronization and semantic checks.
+for synchronization and semantic checks. Those development checks install and
+use the Makefile's pinned Helm client; this does not change your `helm` command
+or establish compatibility with other client versions.

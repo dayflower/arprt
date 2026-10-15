@@ -1,0 +1,452 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ARPRT controller chart values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "crds",
+    "image",
+    "imagePullSecrets",
+    "byos",
+    "display",
+    "persistence",
+    "storage",
+    "jobs",
+    "credentials",
+    "resources",
+    "nodeSelector",
+    "tolerations",
+    "service",
+    "metrics"
+  ],
+  "properties": {
+    "crds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "tag",
+        "digest",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9]([a-z0-9./:_-]*[a-z0-9])?$"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^$|^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^$|^sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "digest": {
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "tag": {
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "#/definitions/resourceName"
+          }
+        }
+      }
+    },
+    "byos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "publicBaseURL",
+        "proxyStripsPrefix",
+        "setupEnabled"
+      ],
+      "properties": {
+        "publicBaseURL": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https?://(\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\\.?)(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$"
+        },
+        "proxyStripsPrefix": {
+          "type": "boolean"
+        },
+        "setupEnabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deviceRefreshSeconds",
+        "overlayTimeZone"
+      ],
+      "properties": {
+        "deviceRefreshSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "overlayTimeZone": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_+./-]*$",
+          "not": {
+            "const": "Local"
+          }
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "existingClaim",
+        "size"
+      ],
+      "properties": {
+        "existingClaim": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "storageClass": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/resourceName"
+            },
+            {
+              "const": ""
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "$ref": "#/definitions/quantity"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "existingClaim": {
+                "minLength": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "storageClass": {
+                "type": "null"
+              },
+              "size": {
+                "const": "1Gi"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxBytes",
+        "minFreeBytes"
+      ],
+      "properties": {
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "minFreeBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "concurrency",
+        "deadlineSeconds"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "deadlineSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authSecrets",
+        "identitySecrets"
+      ],
+      "properties": {
+        "authSecrets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "create"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/definitions/resourceName"
+              },
+              "create": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "identitySecrets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/definitions/resourceName"
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/quantity"
+          }
+        }
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "Equal",
+              "Exists"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "",
+              "NoSchedule",
+              "PreferNoSchedule",
+              "NoExecute"
+            ]
+          },
+          "tolerationSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "operator": {
+                  "const": "Exists"
+                }
+              },
+              "required": [
+                "operator"
+              ]
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "const": ""
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "tolerationSeconds"
+              ]
+            },
+            "then": {
+              "required": [
+                "effect"
+              ],
+              "properties": {
+                "effect": {
+                  "const": "NoExecute"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "annotations"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "arprt-crds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "global": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "resourceName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+    },
+    "quantity": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(\\+)?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+|[numkKMGTPE]i?)?$"
+    }
+  }
+}

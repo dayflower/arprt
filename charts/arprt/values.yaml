@@ -1,0 +1,72 @@
+# The dependency belongs to this release. For separate CRD management, install
+# arprt-crds first and disable this from the first controller installation.
+crds:
+  enabled: true
+
+image:
+  repository: ghcr.io/dayflower/arprt
+  tag: v0.1.0
+  # Accepted v0.1.0 multi-platform index (linux/amd64 and linux/arm64).
+  # A nonempty digest takes precedence over tag. Clear digest to use a tag.
+  digest: sha256:58be2727bf65d367b3f9d25eed75c40236dfc84cfe57dfa1486a6fa57c623b9a
+  pullPolicy: IfNotPresent
+# Existing same-namespace registry Secrets; the chart does not create them.
+imagePullSecrets: []
+# - name: registry-auth
+
+byos:
+  # Required absolute HTTP(S) URL, including the public proxy prefix.
+  publicBaseURL: ""
+  proxyStripsPrefix: false
+  setupEnabled: true
+
+display:
+  deviceRefreshSeconds: 300
+  overlayTimeZone: UTC
+
+# Always mount a whole-filesystem ReadWriteOnce PVC at /var/lib/arprt,
+# including with jobs.enabled=false. Existing claims must meet the same contract.
+persistence:
+  existingClaim: ""
+  # null uses the cluster default; "" explicitly requests no StorageClass.
+  storageClass: null
+  size: 1Gi
+
+storage:
+  maxBytes: 805306368
+  minFreeBytes: 67108864
+
+# Matches the supplied Kubernetes Deployment. Disabling Jobs passes an empty
+# --job-pvc; it does not disable persistent artifact/identity storage.
+jobs:
+  enabled: true
+  concurrency: 4
+  deadlineSeconds: 120
+
+# Start with no device credentials or Secret permissions. List only explicit
+# same-namespace names. create=true declares an empty Opaque Secret for setup;
+# no keys or identities belong in values. create=false uses an external Secret.
+credentials:
+  authSecrets: []
+  # - name: living-room-auth
+  #   create: true
+  identitySecrets: []
+  # - living-room-identity
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+nodeSelector: {}
+tolerations: []
+
+service:
+  type: ClusterIP
+  annotations: {}
+
+# Container listener only; metrics are never exposed by the BYOS Service.
+metrics:
+  enabled: true

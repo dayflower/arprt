@@ -81,6 +81,19 @@ upgrade, preservation of existing CR/CRD UIDs, uninstall/reinstall with the same
 owner, and retention when an upgrade removes CRDs from the release. Upgrade
 fixtures exist only in temporary chart copies, never in production API types.
 
+## Controller chart assembly
+
+The [controller chart](../charts/arprt/README.md) packages the existing namespace
+Deployment and supporting resources. Its exact `arprt-crds` dependency is pinned
+in `Chart.yaml` and committed `Chart.lock`, using a local source for development.
+Run `make crd-chart-check`, then `bin/helm-v4.3.0 dependency build charts/arprt --skip-refresh`
+after CRD changes and before linting or packaging. Dependency archives under
+`charts/arprt/charts/` are ignored build outputs; parent packages include them,
+so consumers do not need the local source. Required public URL values must be
+supplied for lint/render/install. See the chart README for commands and settings.
+The full automated controller chart lifecycle/client matrix and OCI publication
+are separate milestones; current `make verify` checks only the CRD chart.
+
 ## Local controller
 
 After CRD installation, build the controller and use a local artifact directory

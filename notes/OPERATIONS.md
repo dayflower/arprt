@@ -69,7 +69,9 @@ enabled by default; use `--enable-setup=false` to disable it explicitly.
 ## Runtime configuration
 
 The CLI in [main.go](../cmd/controller/main.go) defines runtime options. Patch the
-private overlay's Deployment/ConfigMap for your environment. The supplied
+private overlay's Deployment/ConfigMap for your environment, or use the
+[controller chart values](../charts/arprt/README.md#values) for a Helm installation.
+The supplied
 [Deployment](../config/default/deployment.yaml) selects the Pod namespace, enables
 Jobs with its RWO claim, and enables internal metrics on 8082.
 
