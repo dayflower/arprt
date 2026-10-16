@@ -32,4 +32,4 @@ fi
 "$helm" install schemas "$packages"/arprt-crds-*.tgz --namespace smoke-schemas \
   --create-namespace --wait --timeout 60s
 kubectl wait --for=condition=Established --timeout=30s -f config/crd/bases
-python3 hack/run-cluster-smoke.py --image "$image" --helm "$helm" --packages "$packages" --jobs 2
+python3 tools/run-cluster-smoke.py --image "$image" --helm "$helm" --packages "$packages" --jobs 2

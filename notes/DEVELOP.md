@@ -53,7 +53,7 @@ generation produces identical bytes; do not bypass unrelated failures.
 The [CRD chart](../charts/arprt-crds/README.md) is an application chart containing
 only the public CRDs. API types and markers remain authoritative;
 `config/crd/bases` is the canonical controller-gen output. `make manifests`
-also runs [crd-chart](../hack/crd-chart/main.go) to copy those files byte-for-byte
+also runs [crd-chart](../tools/crd-chart/main.go) to copy those files byte-for-byte
 into `charts/arprt-crds/files/crds` and remove obsolete copies. The entire
 destination directory is generated. Never edit the schemas there by hand.
 Repeated generation must preserve the exact file set and bytes.
@@ -72,7 +72,7 @@ cluster scope and `helm.sh/resource-policy: keep`. `make verify` includes these
 checks and the chart copies in its generated Git diff check, so existing CI
 and release checks exercise them.
 
-The Makefile selects the Helm version; [install-helm.py](../hack/install-helm.py)
+The Makefile selects the Helm version; [install-helm.py](../tools/install-helm.py)
 downloads the official checksummed binary into ignored `bin/`. Only Helm 4 is
 supported, with Helm 4.3.0 verified. Other Helm 4 versions are unverified; Helm 3
 is unsupported. `HELM_VERSION` can select another pinned Helm 4 version for
@@ -118,7 +118,7 @@ make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true
 `chart-lint` assembles the dependency and strictly lints both charts with a valid
 public URL. `chart-package` assembles and writes both packages under ignored
 `dist/charts` (override with `CHART_OUTPUT`). `chart-check` combines these with the
-read-only CRD source/render checks and [chart-check](../hack/chart-check/main.go).
+read-only CRD source/render checks and [chart-check](../tools/chart-check/main.go).
 `dist/` holds distribution archives; `bin/` holds executables and development
 tools. Local installation uses `./charts/arprt` after building its locked
 dependency; packaging is for distribution and archive checks.
@@ -133,7 +133,7 @@ temporary directory prove that parent packages contain the dependency without
 requiring sibling chart sources. These checks are part of `make verify`.
 Do not run dependency-writing targets concurrently in the same checkout.
 
-[helm-smoke.py](../hack/helm-smoke.py) owns a dedicated kind cluster and temporary
+[helm-smoke.py](../tools/helm-smoke.py) owns a dedicated kind cluster and temporary
 kubeconfig, isolates Helm configuration and deletes the cluster on success,
 exceptions or termination. It installs packages without preinstalling CRDs,
 checks readiness through normal Helm waiting, then tests the bundled/default and
@@ -206,7 +206,7 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | Location | Responsibility |
 | --- | --- |
 | `api/v1alpha1`, `config/crd` | Public types/markers and generated schema/deepcopy |
-| `charts/arprt-crds`, `hack/crd-chart` | CRD packaging, generated schema synchronization and Helm/spec checks |
+| `charts/arprt-crds`, `tools/crd-chart` | CRD packaging, generated schema synchronization and Helm/spec checks |
 | `cmd/controller`, `charts/arprt` | Runtime wiring, listeners, namespace scope, deployment and RBAC |
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
@@ -220,7 +220,9 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | `internal/artifact`, `internal/maintenance` | PVC publication, identity/issuance, capacity and assignment-aware retention |
 | `internal/observe` | Bounded metrics and outcome reporting |
 | `internal/integration` | Envtest API validation and running-manager integration |
-| `examples`, `testdata`, `hack` | Renderer examples, synthetic contracts/images and cluster smoke checks |
+| `examples/custom-resources`, `examples/renderers`, `examples/networking` | API usage patterns, runnable renderers and external routing integrations |
+| `testdata/protocol`, `testdata/render-context`, `testdata/png` | Shared synthetic BYOS, Context and image fixtures |
+| `tools` | Generation, chart checks, CI/release helpers and cluster smoke checks |
 
 Keep protocol/context models independent of Kubernetes client objects. HTTP
 delivery and Job collection share PNG validation and artifact ownership rules.
@@ -259,7 +261,7 @@ and [CRD pruning](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-reso
 
 For documentation-only edits, verify local links/anchors, obsolete references
 and `git diff --check`. No software matrix is required for prose-only changes.
-`python3 hack/check-docs.py` checks tracked local Markdown links/anchors and
+`python3 tools/check-docs.py` checks tracked local Markdown links/anchors and
 whitespace. Executable example changes still need applicable software checks.
 Use the manual full run if executable instructions or their scope are uncertain.
 
@@ -286,7 +288,7 @@ kind delete cluster --name arprt-dev --kubeconfig "$arprt_check_dir/kubeconfig"
 
 Run cluster deletion even if a check fails, then remove the temporary kubeconfig.
 For a focused check, run `make chart-package` first, then use
-`python3 hack/<script>.py --image arprt:dev --helm "$PWD/bin/helm-v4.3.0" --packages "$PWD/dist/charts"`
+`python3 tools/<script>.py --image arprt:dev --helm "$PWD/bin/helm-v4.3.0" --packages "$PWD/dist/charts"`
 with that same `KUBECONFIG`. `make cluster-smoke` runs all four scripts. The Makefile pins
 kind and the node image. The following creates its own kubeconfig and cluster,
 runs all four scripts, and removes the cluster/kubeconfig on exit, including
@@ -413,13 +415,15 @@ pinned Helm 4 client. Public OCI chart retrieval is not required for image relea
 If the initial anonymous check fails before visibility is changed, set the package public and rerun acceptance only:
 
 ```sh
-gh workflow run release-image.yaml -f tag=v0.1.0 \
+gh workflow run release-image.yaml --ref v0.1.0 -f tag=v0.1.0 \
   -f digest=sha256:<published-index-digest>
 ```
 
 Take the index digest from the original publishing job summary or
 `published-image-index` artifact, not from an unverified new upload. This manual
-path validates the annotated tag again and never writes packages. Do not rerun
+path validates the annotated tag again and never writes packages. Select the
+matching Git tag with `--ref` so the workflow and helper paths belong to that
+release, including releases before directory reorganizations. Do not rerun
 the publisher: existing version/platform tags are rejected. An interrupted
 partial upload requires investigation and a new version; do not overwrite the
 partial version.
@@ -496,11 +500,11 @@ Dockerfile, Makefile, examples/fixtures or unknown paths require the full number
 regression below. Do not infer display correctness or new hardware support from CI.
 
 For documentation, CI/harness, Go test-only or installation changes under
-`charts` and the Gateway example, reuse a full accepted release
+`charts` and `examples/networking/envoy-gateway`, reuse a full accepted release
 baseline when the committed trees contain no other changes. Select it with:
 
 ```sh
-python3 hack/release-image.py physical-scope v0.1.0
+python3 tools/release-image.py physical-scope v0.1.0
 ```
 
 The command compares committed Git trees, not uncommitted edits. It validates

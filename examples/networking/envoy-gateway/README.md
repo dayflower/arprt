@@ -1,6 +1,6 @@
 # Envoy Gateway example
 
-Install the controller with Helm following the [quickstart](../../README.md#installation-and-pairing).
+Install the controller with Helm following the [quickstart](../../../README.md#installation-and-pairing).
 Keep renderers, custom resources and Gateway resources outside the Helm release.
 Copy [httproute.yaml](httproute.yaml) to private configuration and set:
 
@@ -10,7 +10,7 @@ Copy [httproute.yaml](httproute.yaml) to private configuration and set:
 - The path prefix to the path in `byos.publicBaseURL` (`/arprt` here).
 
 Use the resolved Service name from the Helm installation for long release names;
-see [chart naming](../../charts/arprt/README.md#local-installation). Apply the
+see [chart naming](../../../charts/arprt/README.md#local-installation). Apply the
 HTTPRoute in the controller's namespace so its backend reference resolves there.
 The backend port is the BYOS Service's 8080; metrics and health probes have no
 route in this example.

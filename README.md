@@ -94,14 +94,14 @@ namespace-scoped RBAC.
    follow the [chart guide](charts/arprt/README.md#separate-crd-management) from
    the first installation. Expose Service `home-arprt:8080` through a TLS proxy.
    Preserve the prefix by default; set `byos.proxyStripsPrefix: true` if the proxy
-   strips exactly that prefix. See the [Gateway example](examples/envoy-gateway/README.md).
+   strips exactly that prefix. See the [Gateway example](examples/networking/envoy-gateway/README.md).
 3. Install the minimal GET renderer and screen outside the Helm release:
 
    ```sh
    kubectl -n arprt create configmap example-renderer \
-     --from-file=renderer.py=examples/http-get/renderer.py
-   kubectl -n arprt apply --validate=strict -f examples/http-get/renderer.yaml \
-     -f examples/http-get/screen.yaml
+     --from-file=renderer.py=examples/renderers/http/gray-bands/renderer.py
+   kubectl -n arprt apply --validate=strict -f examples/renderers/http/gray-bands/renderer.yaml \
+     -f examples/renderers/http/gray-bands/screen.yaml
    kubectl -n arprt rollout status deployment/example-renderer
    ```
 
@@ -113,11 +113,11 @@ namespace-scoped RBAC.
    assigns the `photo` GET screen:
 
    ```sh
-   kubectl -n arprt apply --validate=strict -f config/samples/device.yaml
+   kubectl -n arprt apply --validate=strict -f examples/custom-resources/device.yaml
    ```
 
-   [device-inline.yaml](config/samples/device-inline.yaml) and
-   [device-secret.yaml](config/samples/device-secret.yaml) are alternatives for
+   [device-inline.yaml](examples/custom-resources/device-inline.yaml) and
+   [device-secret.yaml](examples/custom-resources/device-secret.yaml) are alternatives for
    the same device. Choose the MAC mode before creation; changing it requires
    replacing the device. For a Secret identity source, provision it externally
    and add its name to `credentials.identitySecrets` for named read permission.
@@ -208,7 +208,7 @@ spec:
       vertical: 4                    # top/bottom inset in bitmap pixels
 ```
 
-A complete Screen example is in [screen-overlay.yaml](config/samples/screen-overlay.yaml).
+A complete Screen example is in [screen-overlay.yaml](examples/custom-resources/screen-overlay.yaml).
 Fixed mode defaults to top-right; `position` also accepts bottom-right,
 bottom-left and top-left. Optional positive `scale` overrides automatic integer
 scaling. Nonnegative `margin.horizontal` and `margin.vertical` (each default 0)
@@ -247,9 +247,9 @@ spec:
 ```
 
 Set `spec.playlistRef.name` to `living-room` and remove `screenRef`.
-See [playlist](config/samples/playlist.yaml),
-[playlist device](config/samples/device-playlist.yaml) and
-[discovery device](config/samples/device-discovery.yaml) samples.
+See [playlist](examples/custom-resources/playlist.yaml),
+[playlist device](examples/custom-resources/device-playlist.yaml) and
+[discovery device](examples/custom-resources/device-discovery.yaml) samples.
 Playlists contain 1–64 distinct names; discovery uses the first 64 screens.
 Missing playlist entries are skipped. No eligible screens means pending.
 
@@ -264,6 +264,7 @@ Membership/order changes reset to the first eligible screen. See
 
 | Task | Guide |
 | --- | --- |
+| Browse API configuration, renderer and networking examples | [Examples](examples/README.md) |
 | Configure, monitor, size, back up or troubleshoot | [OPERATIONS](notes/OPERATIONS.md) |
 | Select or implement a renderer, run examples | [RENDERERS](notes/RENDERERS.md) |
 | Build, generate, test or review acceptance evidence | [DEVELOP](notes/DEVELOP.md) |

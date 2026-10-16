@@ -21,7 +21,7 @@ func derivedFixture(t *testing.T) (*PVC, Metadata, overlay.Drawing, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

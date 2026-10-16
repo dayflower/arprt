@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'hack/cluster-smoke.py')
+spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'tools/cluster-smoke.py')
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
     args = parser.parse_args()
-    namespace = 'arprt-phase4-' + uuid.uuid4().hex[:8]
+    namespace = 'arprt-job-' + uuid.uuid4().hex[:8]
     with tempfile.TemporaryDirectory(prefix='arprt-job-smoke-') as temporary:
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
@@ -55,7 +55,7 @@ def main():
                     'volumeMounts': [{'name': 'data', 'mountPath': '/data', 'readOnly': True}]}],
                 'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-arprt-data'}}]}})
             kubectl('-n', namespace, 'wait', '--for=condition=Ready', 'pod/observer', '--timeout=120s')
-            image = base64.b64encode((ROOT / 'testdata/phase0/target-gray4.png').read_bytes()).decode()
+            image = base64.b64encode((ROOT / 'testdata/png/target-gray4.png').read_bytes()).decode()
             apply({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'input'}, 'data': {'IMAGE_PNG': image}})
 
             def screen(command, interval='5m', custom=False):
@@ -139,7 +139,7 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 result = display(base)
                 path = result['image_url'].removeprefix('https://byos.example.test')
-                if result['status'] != 0 or fetch(base, path) != (ROOT / 'testdata/phase0/target-gray4.png').read_bytes():
+                if result['status'] != 0 or fetch(base, path) != (ROOT / 'testdata/png/target-gray4.png').read_bytes():
                     raise RuntimeError('authenticated Job image fetch failed')
                 wait(lambda: latest().get('sequence', 0) > first['sequence'], 60)
                 running = jobs()
@@ -210,7 +210,7 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 if display(base) != {'status': 202}:
                     raise RuntimeError('rotated Job borrowed another rotation fallback')
-                if fetch(base, path) != (ROOT / 'testdata/phase0/target-gray4.png').read_bytes():
+                if fetch(base, path) != (ROOT / 'testdata/png/target-gray4.png').read_bytes():
                     raise RuntimeError('rotation change revoked issued Job image')
                 wait(lambda: latest().get('attemptID') == rotated_attempt, 60)
                 snapshot = json.loads(read('runs/' + rotated_attempt + '/context.json'))

@@ -102,6 +102,20 @@ class ChangeSelectionTests(RepositoryTest):
 
 
 class PhysicalReuseTests(RepositoryTest):
+    def test_tooling_and_gateway_renames_preserve_reuse_scope(self):
+        paths = [('hack/helper.py', 'tools/helper.py'),
+                 ('examples/envoy-gateway/httproute.yaml', 'examples/networking/envoy-gateway/httproute.yaml')]
+        for old, _ in paths:
+            self.write(old, 'synthetic installation helper\n')
+        baseline = self.commit()
+        self.full_tag('v1.1.0', baseline)
+        for old, new in paths:
+            Path(new).parent.mkdir(parents=True, exist_ok=True)
+            self.git('mv', old, new)
+        head = self.commit()
+        self.assertEqual(release.physical_scope('v1.1.0', head)['mode'], 'reuse')
+        self.assertTrue(ci.software_required(baseline, head))
+
     def test_installation_and_tests_can_reuse_full_baseline(self):
         self.write('charts/arprt/templates/deployment.yaml', 'synthetic deployment\n')
         self.write('internal/controller_test.go', 'package internal\n')
@@ -156,7 +170,15 @@ class PhysicalReuseTests(RepositoryTest):
     def test_runtime_inputs_and_unknown_paths_fail_closed(self):
         for filename in ['Dockerfile', 'Makefile', 'go.mod', 'go.sum', 'api/v1alpha1/types.go',
                          'config/crd/bases/device.yaml', 'internal/overlay/assets.go',
-                         'examples/http-get/renderer.py', 'testdata/phase0/target-gray4.png', 'unknown/file']:
+                         'examples/renderers/http/gray-bands/renderer.py',
+                         'examples/renderers/http/device-status/renderer.py',
+                         'examples/renderers/job/gray-bands/screens.yaml',
+                         'examples/renderers/job/picsum/renderer.py',
+                         'examples/custom-resources/device.yaml',
+                         'examples/networking/unknown/route.yaml',
+                         'testdata/png/target-gray4.png',
+                         'testdata/render-context/render-context-v1.json',
+                         'testdata/protocol/display-response.json', 'unknown/file']:
             with self.subTest(filename=filename):
                 self.assertFalse(physical_reuse_allowed(filename))
 

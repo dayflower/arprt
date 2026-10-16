@@ -62,7 +62,7 @@ func TestDeliveryPersistenceFailuresHoldTurnAndRecover(t *testing.T) {
 			ctx := context.Background()
 			s, c, root := newTestServer(t, "http://unused.invalid")
 			getPNG := pngFixture(t)
-			postPNG, err := os.ReadFile("../../testdata/phase2/target-indexed-gray4.png")
+			postPNG, err := os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -18,7 +18,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'hack/cluster-smoke.py')
+spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'tools/cluster-smoke.py')
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
@@ -28,7 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
     args = parser.parse_args()
-    namespace = 'arprt-phase5-' + uuid.uuid4().hex[:8]
+    namespace = 'arprt-playlist-' + uuid.uuid4().hex[:8]
     with tempfile.TemporaryDirectory(prefix='arprt-playlist-smoke-') as temporary:
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
@@ -43,7 +43,7 @@ def main():
                 path.unlink()
 
             kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
-            image = base64.b64encode((ROOT / 'testdata/phase0/target-gray4.png').read_bytes()).decode()
+            image = base64.b64encode((ROOT / 'testdata/png/target-gray4.png').read_bytes()).decode()
             # The renderer implements both HTTP transports without Kubernetes access.
             program = '''import base64,json,os
 from http.server import BaseHTTPRequestHandler,HTTPServer

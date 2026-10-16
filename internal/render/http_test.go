@@ -19,7 +19,7 @@ var og = Target{Width: 800, Height: 480, Palette: "gray4"}
 
 func fixture(t *testing.T) []byte {
 	t.Helper()
-	b, e := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	b, e := os.ReadFile("../../testdata/png/target-gray4.png")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -43,7 +43,7 @@ func TestPNGContract(t *testing.T) {
 	if err := ValidatePNG(b, og); err != nil {
 		t.Fatal(err)
 	}
-	indexed, err := os.ReadFile("../../testdata/phase2/target-indexed-gray4.png")
+	indexed, err := os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestHTTPFailures(t *testing.T) {
 
 func TestHTTPPOSTContextContract(t *testing.T) {
 	b := fixture(t)
-	contextJSON, err := os.ReadFile("../../testdata/phase0/render-context-v1.json")
+	contextJSON, err := os.ReadFile("../../testdata/render-context/render-context-v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

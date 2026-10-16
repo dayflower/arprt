@@ -24,8 +24,8 @@ jobs:
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_REVISION: ${{ github.sha }}
-        run: python3 hack/ci-scope.py "$BASE_REVISION" "$HEAD_REVISION"
-      - run: python3 hack/check-docs.py
+        run: python3 tools/ci-scope.py "$BASE_REVISION" "$HEAD_REVISION"
+      - run: python3 tools/check-docs.py
         env:
           DOC_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: make release-check
@@ -78,11 +78,11 @@ jobs:
       - run: make docker-build IMAGE=arprt:ci
       - name: Build and check the Picsum renderer without external photo requests
         run: |
-          docker build -t picsum-renderer:ci examples/job-picsum
+          docker build -t picsum-renderer:ci examples/renderers/job/picsum
           docker run --rm --network=none --read-only --cap-drop=ALL \
             --security-opt=no-new-privileges \
             --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-            --mount type=bind,src="$PWD/examples/job-picsum/test_renderer.py",dst=/app/test_renderer.py,readonly \
+            --mount type=bind,src="$PWD/examples/renderers/job/picsum/test_renderer.py",dst=/app/test_renderer.py,readonly \
             --entrypoint python3 picsum-renderer:ci \
             -m unittest -v test_renderer
 
