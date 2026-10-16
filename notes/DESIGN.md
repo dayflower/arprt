@@ -308,6 +308,26 @@ as described by the selected controller-runtime's
 CEL/API availability alone does not establish older-client/server compatibility;
 other minors are unverified rather than declared inherently incompatible.
 
+## Installation lifecycle
+
+Helm packages deployment and schema management without changing the runtime's
+UID-based ownership. CRDs are ordinary templates so compatible upgrades can
+update schemas; the default dependency belongs to the controller's release and
+participates in its rollback. Separate CRD management selects an independent
+owner from the first installation. It does not change the cluster-wide API names.
+
+CRDs, chart-created PVCs and auth Secrets carry `helm.sh/resource-policy: keep`
+because uninstalling a controller must not silently erase API objects, durable
+identity/issuance or generated credentials. Auth templates omit key fields so
+setup remains their writer. External claims and Secrets remain externally owned.
+Retention preserves objects, not a coordinated snapshot, and leaves the original
+Helm ownership metadata intact. A same-owner compatible reinstall can reuse that
+state; a new release owner, recreated CR UID or older binary is not equivalent.
+Helm rollback cannot coordinate older schemas with newer internal records.
+Operational steps and migration limits belong in
+[OPERATIONS](OPERATIONS.md#helm-controller-state); the supporting lifecycle
+checks are described in [DEVELOP](DEVELOP.md#helm-chart-checks).
+
 ## Scope of future work
 
 Additional device/firmware targets, general image conversion, target-only Job sharing,

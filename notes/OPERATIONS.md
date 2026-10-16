@@ -64,7 +64,8 @@ do not combine generated keys with another controller that owns that key field.
 Store the live auth Secrets in your backup alongside the artifact/identity PVC.
 To rotate, supply a new valid key or remove `apiKey` and run setup again on the
 device. Deleting the Secret resource requires redeclaring it first. Setup stays
-enabled by default; use `--enable-setup=false` to disable it explicitly.
+enabled by default; set `byos.setupEnabled: false` in Helm values to disable it
+explicitly (`--enable-setup=false` for local execution).
 
 ## Runtime configuration
 
@@ -208,7 +209,10 @@ uses bounded retries.
 ## Helm-managed CRDs
 
 The [CRD-only chart](../charts/arprt-crds/README.md) uses ordinary Helm templates
-so compatible upgrades update the generated schemas. All CRDs carry
+so compatible upgrades update the generated schemas. With the controller chart's
+default `crds.enabled: true`, these CRDs belong to the parent release, including
+its upgrade and rollback. With separate management, the CRD release owns schemas;
+controller operations use `crds.enabled: false` and do not change them. All CRDs carry
 `helm.sh/resource-policy: keep`: uninstall and operations that remove a CRD
 from the release retain the CRD and its custom resources. See Helm's
 [resource retention guidance](https://helm.sh/docs/howto/charts_tips_and_tricks/#tell-helm-not-to-uninstall-a-resource).
@@ -218,8 +222,9 @@ apply an older schema; check API and internal-record compatibility before any
 downgrade. Do not rely on rollback for automatic recovery.
 
 After uninstall, retained CRDs still carry the original release name and
-namespace. Reinstall the compatible CRD chart using that same name/namespace
-to resume management. A different release or installation system cannot
+namespace. Reinstall the compatible owning chart (parent for bundled CRDs,
+CRD-only for separate management) using that same name/namespace to resume
+management. A different release or installation system cannot
 silently assume ownership. CRDs are cluster-wide, so changing release namespace
 does not provide another independent set. Kustomize adoption, changes between
 separate and bundled CRD ownership, and forced ownership transfer are outside
@@ -274,27 +279,73 @@ backup or a guarantee of safe rollback. Do not delete the namespace: Helm's
 `keep` annotation does not protect resources from namespace deletion, direct
 Kubernetes deletion or storage loss.
 
-For compatible upgrades, assemble packages from the compatible chart checkout
-and apply the complete private values file (substitute the actual chart version):
+### Compatible upgrades
+
+Review the target release's API and internal-record compatibility, chart defaults
+and image index digest before upgrading. A compatible upgrade preserves existing
+CR UIDs, auth keys, registered identity, PVC contents and issued-image access.
+Breaking API or data-format changes require an explicit validated migration
+procedure; the generic commands below do not supply one. Record the source
+revision and retain the previous compatible checkout or chart packages, image
+digest and complete private values with the backup.
+
+Keep the release name, namespace, CRD ownership mode, claim and credential
+references stable. From the repository root of the compatible target checkout,
+prepare the controller chart's locked dependency:
 
 ```sh
-make chart-package
-helm upgrade home ./bin/charts/arprt-0.1.0.tgz --namespace arprt --wait \
+helm dependency build ./charts/arprt --skip-refresh
+```
+
+For separate management, first upgrade the independent CRD release when the
+target controller requires a newer compatible schema:
+
+```sh
+helm upgrade arprt-crds ./charts/arprt-crds --namespace arprt --wait
+```
+
+The intermediate schema must remain compatible with the running controller.
+If it cannot, use the release's migration procedure. Controller-only upgrades
+need no CRD operation when the installed schema is already compatible.
+
+Upgrade the controller with the complete private values file, retaining
+`crds.enabled: false` for separate management. For bundled CRDs, this one parent
+operation updates both schemas and controller:
+
+```sh
+helm upgrade home ./charts/arprt --namespace arprt --wait \
   --values /path/to/private-values.yaml
 ```
 
-Keep the same CRD ownership mode and review API/data-format compatibility before
-selecting a chart/image. ConfigMap value changes trigger a controller rollout.
-Helm rollback does not establish schema or internal-record downgrade safety.
+Changing `image.tag` alone has no effect while `image.digest` is set; select the
+accepted multi-platform index digest for the intended image. ConfigMap value
+changes trigger a controller rollout; Recreate temporarily interrupts delivery.
+
+After Helm waiting succeeds, check device/screen conditions, setup/key reuse,
+normal authenticated image delivery, Job rendering when enabled, and fetching
+of a previously issued URL within its retention window. Keep keys and real
+identities out of command output and reports. Readiness alone does not verify
+these state and delivery contracts. If an operation fails, inspect Helm release
+status, Pods, Events and CR conditions before choosing recovery.
+
+Helm rollback is not an automatic recovery procedure: bundled CRDs can revert to
+an older schema while PVC records, CR status and generated keys are not restored
+to an earlier snapshot. Internal-record downgrade limits in
+[recovery](#recovery-and-troubleshooting) still apply. Test compatibility or use
+a release-specific migration/consistent restore procedure before any downgrade.
+
+### Uninstall and reinstall
 
 For a compatible reinstall of `home` in namespace `arprt`, keep the namespace,
 CRDs, CRs, PVC and auth Secrets. Stop outstanding renderer Jobs before allowing
 another controller to use the PVC. Use the same release name/namespace, compatible
 chart/image, auth Secret names and creation flags, and the original CRD mode.
-From the repository root, with dependencies assembled:
+From the repository root of the compatible checkout, prepare the locked
+dependency before uninstalling:
 
 ```sh
-helm uninstall home --namespace arprt
+helm dependency build ./charts/arprt --skip-refresh
+helm uninstall home --namespace arprt --wait
 helm install home ./charts/arprt --namespace arprt --wait \
   --values /path/to/private-values.yaml
 ```
@@ -308,8 +359,11 @@ persistence:
 ```
 
 Leave `persistence.storageClass` and `persistence.size` at their defaults; manage
-the existing claim externally. The chart mounts it at the artifact root and
-passes its name to Job configuration. It must satisfy the same whole-filesystem
+the existing claim externally. To use retained auth Secrets without resuming
+their Helm management, keep their names in `credentials.authSecrets` and set
+`create: false`; named access permission is still required. The chart mounts
+the claim at the artifact root and passes its name to Job configuration.
+It must satisfy the same whole-filesystem
 RWO contract, even with Jobs disabled. Restore auth Secrets consistently and
 preserve CR UIDs; creating replacement Devices does not inherit stored identity
 or issued-image authorization. After reinstall, check readiness, setup/key reuse
@@ -355,13 +409,28 @@ the tooling does not establish rollback or migration safety.
 
 ## Recovery and troubleshooting
 
-Back up the PVC, CRs and authentication Secrets together. Stop the controller
-and renderer Jobs for a consistent filesystem snapshot, or use a storage
-snapshot mechanism with the same consistency guarantee. Restore the original
-resource UIDs where supported; recreated resources intentionally do not inherit
-identity or issued-image authorization. Do not edit internal JSON to transfer
-ownership. Keep the backup private because it includes registered MACs and
+Back up the PVC, CRs (including status and original UIDs), auth Secrets and any
+external identity Secrets as one consistent set. Include the installed CRD
+schemas, chart sources/revision or packages/versions, image index digest, private values,
+release names/namespaces and ownership mode in the recovery inventory. Helm
+release history does not contain the controller-generated key or PVC contents.
+Keep this material private because it includes keys, registered MACs and
 allowlisted device context snapshots.
+
+Stop incoming device traffic, stop the controller and ensure renderer Jobs are
+no longer writing before taking the filesystem snapshot and matching API/Secret
+backup, or use a snapshot mechanism with the same consistency guarantee. Scaling
+the controller down alone does not stop existing Jobs. Use the storage platform's
+backup/restore mechanism and retain the original state until recovery is checked.
+
+The tested reinstall procedure above reuses live CRs and their original UIDs.
+A YAML export followed by `kubectl apply` creates new UIDs after resource deletion;
+it does not restore the ownership required by existing PVC records or issued URLs.
+Full disaster recovery therefore also needs an API-state restore mechanism that
+preserves those UIDs and matches the PVC/Secrets. This project does not provide
+a general cluster-restore or cross-installation migration procedure. Do not edit
+internal JSON to transfer ownership. Verify readiness, identity/key reuse and
+authenticated issued-image access before resuming device traffic.
 
 The controller uses an advisory exclusive filesystem lock to reject a second
 writer on the same PVC. Keep one active replica and Recreate rollout. This lock

@@ -33,9 +33,10 @@ patch releases within minor 1.36 remain supported without separate envtest runs.
 Helm 4 is the sole supported controller installation and compatible-upgrade path.
 The [controller chart](charts/arprt/README.md) bundles CRDs by default; the
 [CRD-only chart](charts/arprt-crds/README.md) also supports separate management.
-Helm 4.3.0 is verified on Kubernetes 1.36; Helm 3 is unsupported. Chart OCI
-publication and anonymous public-chart acceptance remain pending; use local chart packages with
-the accepted public controller image. See
+Helm 4.3.0 is verified on Kubernetes 1.36; other Helm 4 versions are unverified
+and Helm 3 is unsupported. Chart OCI publication and anonymous public-chart
+acceptance remain pending; use this checkout's charts with the accepted public
+controller image. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) before changing
 ownership or deleting retained CRDs.
 
@@ -51,12 +52,15 @@ former resource names are unverified.
 Examples use `arprt` for both namespace and external URL prefix. These are
 independent: device URLs are `<publicBaseURL>/devices/<namespace>/<device-name>`.
 Run commands from the repository root with a checked Helm client on `PATH`.
+The installer needs cluster-level CRD permissions as well as permissions to
+create the namespaced chart resources; the running controller uses only
+namespace-scoped RBAC.
 
 1. Use this checkout's chart sources and their pinned controller image.
-   Assemble local packages:
+   Prepare the controller chart's locked CRD dependency:
 
    ```sh
-   make chart-package
+   helm dependency build ./charts/arprt --skip-refresh
    ```
 
    Controller image records are available in
@@ -78,10 +82,10 @@ Run commands from the repository root with a checked Helm client on `PATH`.
    ```
 
    Configure `persistence.storageClass` if the cluster has no default.
-   Install the parent package (substitute the packaged chart version):
+   Install the controller chart from this checkout:
 
    ```sh
-   helm install home ./bin/charts/arprt-0.1.0.tgz \
+   helm install home ./charts/arprt \
      --namespace arprt --create-namespace --wait \
      --values /path/to/private-values.yaml
    ```
@@ -141,6 +145,18 @@ redirects/compression. See [PROTOCOL](notes/PROTOCOL.md#routes-and-authenticatio
 for firmware constraints. For compatible upgrades, backup and retained-resource
 recovery, follow [OPERATIONS](notes/OPERATIONS.md#helm-controller-state).
 
+### Separate CRD management
+
+The quickstart's CRDs belong to release `home`. To manage schemas independently,
+install the `arprt-crds` chart as its own release first and set
+`crds.enabled: false` in the controller's private values from its first install.
+Follow the [separate installation commands](charts/arprt/README.md#separate-crd-management).
+Keep that value for every controller upgrade and reinstall. Controller operations
+then leave the independently owned CRDs unchanged; compatible schema upgrades
+are a separate operator action. Changing the dependency flag on an existing
+release does not transfer CRD ownership. See
+[CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds).
+
 ## Hardware identity
 
 Use a direct `hardwareID`, a same-namespace `hardwareIDSecretRef`, or omit both
@@ -154,8 +170,9 @@ learning. MACs must be unique within the namespace. See
 
 The device and its named auth Secret must exist before setup. Setup generates
 only an absent key; it never replaces an existing empty/invalid value. It stays
-enabled by default and can be disabled with `--enable-setup=false`. Key rotation
-requires setup again on the device. Back up live auth Secrets with the PVC and CRs;
+enabled by default and can be disabled with `byos.setupEnabled: false` in Helm
+values. Key rotation requires setup again on the device. Back up live auth
+Secrets with the PVC and CRs;
 see [GitOps and rotation](notes/OPERATIONS.md#setup-and-credentials).
 
 ## Renderer contract
@@ -200,7 +217,7 @@ logical viewing orientation. Both scale with the bitmaps; white extends to the
 corner edges. Timestamp displays `↻ YYYY-MM-DD HH:mm` for the image generation
 time, using the 12×18 Home Video bitmap font; icons use matching 18×18 cells.
 Wi-Fi strength appears as four rising vertical bars, with more bars filled for
-stronger reception. Set the controller's `--overlay-time-zone` to an IANA name
+stronger reception. Set `display.overlayTimeZone` in Helm values to an IANA name
 (default UTC).
 Missing current measurements hide their icons; stored telemetry does not fill
 missing overlay inputs. Only a valid current charging state selects a charging

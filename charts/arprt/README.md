@@ -14,11 +14,14 @@ release-specific naming does not support multiple controllers in one namespace.
 Helm 4 is the sole supported controller installation path. Use a fresh
 installation; existing resources and differently owned CRDs are not automatically
 adopted. Existing operators must read the
-[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations). The commands below assume Helm 4 is
-installed as `helm` on your `PATH`; Helm 3 is unsupported. From the repository root:
+[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations).
+The commands below assume the verified Helm 4.3.0 client is installed as `helm`
+on your `PATH`; Helm 3 is unsupported. OCI chart publication is pending; use
+this checkout's charts with the accepted public controller image. From the
+repository root, prepare the dependency pinned by `Chart.lock`:
 
 ```sh
-helm dependency build charts/arprt --skip-refresh
+helm dependency build ./charts/arprt --skip-refresh
 ```
 
 Create private values outside the repository, replacing the public URL:
@@ -38,8 +41,11 @@ helm install home ./charts/arprt \
   --values /path/to/private-values.yaml
 ```
 
-The Service/Deployment are `<release>-arprt` (`home-arprt` above), and the PVC
-is `<release>-arprt-data`. Long names are truncated before suffixes are added.
+The dependency command assembles the bundled CRD chart from this checkout.
+No chart packaging step is required for this local installation.
+The Service/Deployment name is `<release>-arprt` (`home-arprt` above), truncated
+to 58 characters with a trailing hyphen removed. The chart-created PVC appends
+`-data` to that resolved name.
 Expose Service port 8080 through your TLS proxy, preserving authentication
 headers. Preserve the public prefix unless `byos.proxyStripsPrefix` is true.
 Device URLs are `<publicBaseURL>/devices/<namespace>/<device-name>`.
@@ -56,19 +62,29 @@ a tag; at least one must be nonempty.
 
 The default dependency belongs to the **parent release**, not an independent
 CRD release. For separate management, install CRDs first on a fresh cluster and
-disable the dependency from the first controller installation:
+disable the dependency from the first controller installation. Add this to the
+same private values file shown above, and retain it on upgrades/reinstalls:
+
+```yaml
+crds:
+  enabled: false
+```
+
+After preparing the controller dependency as above:
 
 ```sh
 helm install arprt-crds ./charts/arprt-crds \
   --namespace arprt --create-namespace --wait
 helm install home ./charts/arprt \
-  --namespace arprt --wait --set crds.enabled=false \
+  --namespace arprt --wait \
   --values /path/to/private-values.yaml
 ```
 
 CRD names remain cluster-wide regardless of release name/namespace. Switching
 between bundled and separate ownership is a migration outside the tested path;
 do not use dependency toggles to transfer ownership of an existing installation.
+See [compatible upgrade operations](../../notes/OPERATIONS.md#compatible-upgrades)
+for schema/controller ordering when the CRD release is separate.
 
 ## Values
 
@@ -125,15 +141,15 @@ establish safe rollback. Removing an auth entry or changing `create` to false
 keeps the live Secret/key; removing the entry also removes its RBAC permission.
 The retained object keeps its original release ownership annotations. Use the
 same release name/namespace to resume management, and keep the namespace itself.
-See [controller state operations](../../notes/OPERATIONS.md#helm-controller-state)
-for compatible reinstall, existing-PVC recovery and validation limits, and
+The operational procedures and validation limits belong in
+[controller state operations](../../notes/OPERATIONS.md#helm-controller-state),
+including [same-owner reinstall](../../notes/OPERATIONS.md#uninstall-and-reinstall)
+and existing-PVC recovery. See
 [CRD operations](../../notes/OPERATIONS.md#helm-managed-crds) for CRD ownership.
-API-server tests verify generated-key/PVC UID retention and named Secret access.
-Dedicated kind tests with Helm 4.3.0 also verify readiness, HTTP/Job
-rendering, compatible schema/config upgrades and issued-image recovery after
-same-owner reinstall. These checks do not establish migration or downgrade support.
+Helm rollback can also roll back the bundled schemas; it is not a verified
+recovery or internal-record downgrade procedure.
 
-## Validation and packaging
+## Development checks
 
 Supply a valid URL for lint/render:
 
@@ -142,7 +158,6 @@ helm lint --strict charts/arprt --kube-version 1.36.0 \
   --set byos.publicBaseURL=https://byos.example.test/arprt
 helm template home charts/arprt --namespace arprt \
   --kube-version 1.36.0 --values /path/to/private-values.yaml
-helm package charts/arprt --destination /tmp/arprt-packages
 ```
 
 For development verification, the Makefile installs and uses its own pinned
@@ -150,9 +165,10 @@ Helm client; see [DEVELOP](../../notes/DEVELOP.md#crd-chart-generation-and-check
 for the currently checked client scope. Run `make crd-chart-check` before
 assembling dependencies after schema changes.
 `Chart.lock` pins the local dependency. Assembled `charts/` archives are ignored
-build outputs; always run `dependency build` before packaging. The parent package
-contains the dependency, so installation needs neither local chart sources nor
-dependency resolution. `make chart-check` checks both charts and package contents;
-`make helm-smoke` checks the full cluster lifecycle and all four software smoke suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
+build outputs. Package generation, output locations and distribution checks are
+documented in [DEVELOP](../../notes/DEVELOP.md#helm-chart-checks).
+`make chart-check` checks both charts and package contents;
+`make helm-smoke` checks the full cluster lifecycle and all four software smoke
+suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
 for client selection and the validation boundary. OCI publication and anonymous
 acceptance from published charts remain a separate distribution milestone.

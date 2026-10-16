@@ -117,8 +117,11 @@ make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true
 
 `chart-lint` assembles the dependency and strictly lints both charts with a valid
 public URL. `chart-package` assembles and writes both packages under ignored
-`bin/charts` (override with `CHART_OUTPUT`). `chart-check` combines these with the
+`dist/charts` (override with `CHART_OUTPUT`). `chart-check` combines these with the
 read-only CRD source/render checks and [chart-check](../hack/chart-check/main.go).
+`dist/` holds distribution archives; `bin/` holds executables and development
+tools. Local installation uses `./charts/arprt` after building its locked
+dependency; packaging is for distribution and archive checks.
 The render matrix covers default/custom release names and namespaces, bundled
 and separate CRDs, created/existing PVCs and auth Secrets, and Jobs on/off. It
 checks namespace/name/selector references, named Secret permissions, Pod security,
@@ -283,7 +286,7 @@ kind delete cluster --name arprt-dev --kubeconfig "$arprt_check_dir/kubeconfig"
 
 Run cluster deletion even if a check fails, then remove the temporary kubeconfig.
 For a focused check, run `make chart-package` first, then use
-`python3 hack/<script>.py --image arprt:dev --helm "$PWD/bin/helm-v4.3.0" --packages "$PWD/bin/charts"`
+`python3 hack/<script>.py --image arprt:dev --helm "$PWD/bin/helm-v4.3.0" --packages "$PWD/dist/charts"`
 with that same `KUBECONFIG`. `make cluster-smoke` runs all four scripts. The Makefile pins
 kind and the node image. The following creates its own kubeconfig and cluster,
 runs all four scripts, and removes the cluster/kubeconfig on exit, including
@@ -322,7 +325,9 @@ These scripts do not configure public ingress or a physical device.
 The [image release workflow](../.github/workflows/release-image.yaml) publishes
 `ghcr.io/dayflower/arprt`. A release tag `vMAJOR.MINOR.PATCH` maps to controller
 `--version` and OCI version `MAJOR.MINOR.PATCH`, image tag `vMAJOR.MINOR.PATCH`,
-and future chart `appVersion: "MAJOR.MINOR.PATCH"`. SemVer prereleases are allowed;
+and chart `appVersion: "MAJOR.MINOR.PATCH"` when selecting that default image.
+Chart package versions are tracked separately as described in
+[chart release preparation](#chart-release-preparation). SemVer prereleases are allowed;
 build metadata is excluded because it cannot be represented directly in image
 tags. There is no moving `latest` tag. Version and platform tags are immutable
 by release policy: the publisher checks existing package versions and refuses
@@ -426,6 +431,55 @@ registry upload alone is not a completed release. Workflow artifacts retain the
 index/acceptance records for 90 days; GitHub release assets retain the final
 record. For compatible upgrades use a tested matching release checkout/image;
 existing runtime, data-format and support limits remain authoritative.
+
+## Chart release preparation
+
+Chart source and local packages are available; OCI chart publication and
+anonymous published-chart acceptance are not yet complete. The image release
+workflow above publishes the controller image and its acceptance records only.
+It validates local production chart packages but does not upload either chart.
+Do not advertise the example OCI repository as an available installation source.
+
+The release inputs have distinct owners:
+
+| Input | Source of truth |
+| --- | --- |
+| Controller version and image tag | Annotated image release tag and the image workflow |
+| Image index and platform digests | Accepted release's `image-digests.json` |
+| Controller chart version and `appVersion` | `charts/arprt/Chart.yaml` |
+| Default controller image | `charts/arprt/values.yaml`; index digest takes precedence over tag |
+| CRD chart version and metadata | `charts/arprt-crds/Chart.yaml` |
+| Exact bundled CRD version/source | Parent `Chart.yaml` and committed `Chart.lock` |
+| Public CRD schemas | API types/markers, generated canonical YAML and synchronized chart files |
+
+Chart versions identify packages; `appVersion` describes the controller version
+and does not select the image. Keep it consistent with the default image and
+record the tested chart/image/schema combination explicitly. Changing an image
+tag without updating the default digest does not change the deployed image.
+Do not assume that a chart version, image version and dependency version will
+always be identical. A controller-only change need not change the CRD chart's
+version when its package is unchanged.
+
+For a candidate package, regenerate schemas with `make manifests` when API
+types/markers change. Review both generated destinations and verify deterministic
+regeneration. When intentionally changing a dependency version, update the exact
+parent dependency and regenerate/review `Chart.lock` with the pinned Helm client;
+normal `make chart-dependencies` rebuilds archives while requiring that lock to
+stay unchanged. Run the chart checks, API integration, Docker build and full
+Helm lifecycle/smoke matrix described above against the intended image. Preserve
+the image release's physical-device acceptance requirements. `make chart-package`
+(also included by `chart-check` and `helm-smoke`) writes the standalone CRD archive
+and parent archive containing its pinned dependency. Keep the exact archives
+exercised by the checks for distribution.
+
+Public chart distribution still requires publishing the validated image first,
+then the CRD and parent packages, without overwriting released versions. Record
+both chart versions, the pinned dependency, controller version and index/platform
+digests together. Anonymous retrieval and the published-artifact lifecycle matrix
+must pass on the release combination, including a fresh install and compatible
+upgrade, before declaring public chart distribution complete. The existing
+`helm-published-smoke` target supplies the acceptance entrypoint; publication
+automation remains a separate implementation step.
 
 ## Physical-device regression
 

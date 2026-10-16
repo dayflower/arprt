@@ -6,6 +6,14 @@ from the repository root and assume a paired `arprt/living-room` device using
 `screenRef`; the two references are mutually exclusive. See [installation and
 pairing](../README.md#installation-and-pairing) for initial setup.
 
+These examples are installed separately from the controller Helm release. They
+use namespace `arprt`; adapt every command and same-namespace reference when
+using another namespace. Renderer Service names such as `example-renderer` stay
+as declared in their manifests; the controller's release-specific Service name
+does not replace them. Job examples require `jobs.enabled: true` and the
+controller's whole-filesystem RWO PVC. See
+[controller values](../charts/arprt/README.md#values) for Job limits and storage.
+
 ## Choosing a source
 
 | Source | Use when | Delivery behavior |
