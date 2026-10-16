@@ -116,18 +116,10 @@ jobs:
         include:
           - arch: amd64
             runner: ubuntu-24.04
-            client: 3
-          - arch: amd64
-            runner: ubuntu-24.04
-            client: 4
           - arch: arm64
             runner: ubuntu-24.04-arm
-            client: 3
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            client: 4
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       ARCH: ${{ matrix.arch }}
     steps:
@@ -144,14 +136,6 @@ jobs:
           name: release-image-${{ matrix.arch }}
           path: /tmp/release-image
       - run: docker load --input "/tmp/release-image/image-$ARCH.tar"
-      - name: Select pinned Helm client from Makefile
-        env:
-          HELM_MAJOR: ${{ matrix.client }}
-        run: |
-          if [ "$HELM_MAJOR" = 3 ]; then
-            version=$(make --no-print-directory helm3-version)
-            echo "HELM_VERSION=$version" >> "$GITHUB_ENV"
-          fi
       - run: make chart-check
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
       - run: make helm-smoke IMAGE="arprt:release-$ARCH" LOAD_IMAGE=true
@@ -230,7 +214,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       RELEASE_TAG: ${{ needs.guard.outputs.tag }}
       RELEASE_VERSION: ${{ needs.guard.outputs.version }}
@@ -261,10 +245,10 @@ jobs:
           docker pull --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST"
           test "$(docker run --rm --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
       # No kind load: Pods pull the public index digest without imagePullSecrets.
-      - run: make disposable-cluster-smoke IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST"
+      - run: make helm-smoke IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST"
       - name: Record native public acceptance
         run: |
-          printf 'PASS: native linux/%s anonymous tag/digest pulls and complete disposable-cluster smoke matrix.\n\n' "$ARCH" >> "$GITHUB_STEP_SUMMARY"
+          printf 'PASS: native linux/%s anonymous tag/digest pulls and complete Helm 4 lifecycle/smoke matrix.\n\n' "$ARCH" >> "$GITHUB_STEP_SUMMARY"
           cat /tmp/image-digests.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -303,7 +287,7 @@ jobs:
           print(f"Multi-platform index: `{evidence['image']}@{evidence['indexDigest']}`\n")
           for platform, digest in evidence['platformDigests'].items():
               print(f'- {platform}: `{digest}`')
-          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete disposable-cluster smoke matrix. Anonymous tag/digest pulls and the smoke matrix using the published index digest passed on both architectures.')
+          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and four-suite smoke matrix with the pinned Helm 4 client. Anonymous tag/digest pulls and the same Helm matrix using local chart packages and the published image index digest passed on both architectures.')
           if os.environ['PHYSICAL_MODE'] == 'reuse':
               print(f"\nPhysical acceptance: current-revision installation/TLS/normal-display checks, with full OG / firmware 1.8.17 regression reused from `{os.environ['PHYSICAL_BASELINE']}`. The tag guard verified that runtime inputs have not changed.")
           else:

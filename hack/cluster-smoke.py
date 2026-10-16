@@ -7,10 +7,10 @@ identical installed CRDs and removes only resources created by this run.
 import argparse
 import datetime
 import overlay_checks
+import helm_install
 import base64
 from contextlib import contextmanager
 import json
-import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -20,14 +20,8 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-CRDS = ['arprtscreens.arprt.dayflower.github.io', 'arprtdevices.arprt.dayflower.github.io', 'arprtplaylists.arprt.dayflower.github.io']
-
-
-def kubectl(*args, check=True):
-    result = subprocess.run(['kubectl', *args], capture_output=True, text=True)
-    if check and result.returncode:
-        raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-    return result
+CRDS = helm_install.CRDS
+kubectl = helm_install.kubectl
 
 
 def wait(check, timeout=60):
@@ -40,7 +34,7 @@ def wait(check, timeout=60):
 
 
 @contextmanager
-def forwarded(namespace, port, directory, target='deployment/arprt'):
+def forwarded(namespace, port, directory, target='deployment/arprt-arprt'):
     with (directory / ('forward-' + str(port))).open('w+') as log:
         process = subprocess.Popen(['kubectl', '-n', namespace, 'port-forward', target, ':' + str(port)], stdout=log, stderr=log)
         try:
@@ -65,56 +59,17 @@ def request(base, path, headers):
     except urllib.error.HTTPError as response:
         return response.code, response.headers, response.read()
 
-
-def kustomize_image(image):
-    """Keep registry ports intact and use Kustomize's digest field for indexes."""
-    result = {'name': 'arprt'}
-    if '@' in image:
-        name, digest = image.rsplit('@', 1)
-        if not digest.startswith('sha256:') or len(digest) != 71:
-            raise ValueError('image digest must be sha256 with 64 hexadecimal digits')
-        int(digest[7:], 16)
-        result.update(newName=name, digest=digest)
-    elif ':' in image.rsplit('/', 1)[-1]:
-        name, tag = image.rsplit(':', 1)
-        result.update(newName=name, newTag=tag)
-    else:
-        raise ValueError('smoke image must specify a tag or digest')
-    return result
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', required=True)
+    helm_install.arguments(parser)
     args = parser.parse_args()
     namespace = 'arprt-phase2-' + uuid.uuid4().hex[:8]
-    created_crds = []
-    created_namespace = False
-    try:
-        for name in CRDS:
-            plural, group = name.split('.', 1)
-            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
-            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
-            if existing:
-                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
-                actual = json.loads(existing)['spec']
-                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
-                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
-                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
-                continue
-            kubectl('create', '--validate=strict', '-f', path)
-            created_crds.append(name)
-            kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
-        kubectl('create', 'namespace', namespace)
-        created_namespace = True
-        with tempfile.TemporaryDirectory(prefix='arprt-smoke-') as temporary:
-            directory = Path(temporary)
-            (directory / 'kustomization.yaml').write_text(json.dumps({
-                'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization', 'namespace': namespace,
-                'resources': [os.path.relpath(ROOT / 'config/default', directory)],
-                'images': [kustomize_image(args.image)],
-            }))
-            kubectl('apply', '--validate=strict', '-k', str(directory))
+    with tempfile.TemporaryDirectory(prefix='arprt-smoke-') as temporary:
+        directory = Path(temporary)
+        installation = helm_install.Installation(args, namespace, directory)
+        try:
+            installation.install()
+
             kubectl('-n', namespace, 'create', 'configmap', 'renderer', '--from-file=renderer.py=' + str(ROOT / 'examples/http-get/renderer.py'))
 
             def apply(obj):
@@ -136,7 +91,7 @@ def main():
             kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
                 'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m', 'overlay': None}}))
             # Secret reads are restricted to the supplied auth and MAC sources.
-            account = 'system:serviceaccount:' + namespace + ':arprt'
+            account = 'system:serviceaccount:' + namespace + ':arprt-arprt'
             for ns, verb, resource, allowed in [
                 (namespace, 'list', CRDS[0], True), (namespace, 'get', 'secret/living-room-auth', True),
                 (namespace, 'get', 'secret/living-room-identity', True),
@@ -151,9 +106,7 @@ def main():
                 answer = kubectl('auth', 'can-i', verb, resource, '--as=' + account, '-n', ns, check=False)
                 if (answer.stdout.strip() == 'yes') != allowed:
                     raise RuntimeError('runtime RBAC did not match scoped permissions')
-            patch_args = lambda values: kubectl('-n', namespace, 'patch', 'deployment', 'arprt', '--type=json', '-p', json.dumps([
-                {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': values}]))
-            for deployment in ['renderer', 'arprt']:
+            for deployment in ['renderer', 'arprt-arprt']:
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + deployment, '--timeout=180s')
             prefix = '/arprt/devices/' + namespace + '/living-room'
             headers = {'ID': '02:00:00:00:00:01', 'Model': 'og', 'FW-Version': '1.8.17',
@@ -186,7 +139,8 @@ def main():
                 stored_auth = json.loads(kubectl('-n', namespace, 'get', 'secret', 'living-room-auth', '-o', 'json').stdout)
                 if base64.b64decode(stored_auth['data']['apiKey']).decode() != token:
                     raise RuntimeError('setup returned an unpersisted key')
-                kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/default/auth-secret.yaml'))
+                # Reapply keyless metadata exactly as declared by the chart.
+                apply({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'living-room-auth'}, 'type': 'Opaque'})
                 if json.loads(fetch(base, prefix + '/api/setup')[2]).get('api_key') != token:
                     raise RuntimeError('GitOps re-apply reset the generated key')
                 device = json.loads(kubectl('-n', namespace, 'get', 'arprtdevice', 'living-room', '-o', 'json').stdout)
@@ -265,8 +219,10 @@ def main():
             kubectl('-n', namespace, 'scale', 'deployment/renderer', '--replicas=0')
             wait(lambda: not json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app=renderer', '-o', 'json').stdout)['items'])
             kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {'refreshInterval': '1s'}}))
-            patch_args(['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--proxy-strips-prefix=true', '--overlay-time-zone=Asia/Tokyo'])
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+            installation.settings['byos']['proxyStripsPrefix'] = True
+            installation.settings['display'] = {'overlayTimeZone': 'Asia/Tokyo'}
+            installation.upgrade()
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
             stripped = prefix.removeprefix('/arprt')
             with forwarded(namespace, 8080, directory) as base:
                 if fetch(base, image_path.removeprefix('/arprt'))[2] != image:
@@ -330,14 +286,9 @@ def main():
                 if status != 200 or json.loads(body) != {'status': 202}:
                     raise RuntimeError('replacement resource borrowed an obsolete image')
             print('PASS: generated/stable key, default setup, GitOps re-apply, three MAC sources, duplicates, Secret changes, status recovery, both prefix modes, display, PNG fetch, auth, telemetry, rotation, reuse, scratch timezone, overlays/fractional telemetry/fallback, PVC restart, outage, initial pending and scoped RBAC')
-    finally:
-        if created_namespace:
-            kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')
-        for name in created_crds:
-            remaining = json.loads(kubectl('get', name, '--all-namespaces', '-o', 'json').stdout)
-            if not remaining['items']:
-                kubectl('delete', 'crd', name, '--wait=true', '--timeout=30s')
-        print('Test namespace and unused test CRDs removed')
+        finally:
+            installation.cleanup()
+            print('Disposable Helm test resources removed; existing CRDs untouched')
 
 
 if __name__ == '__main__':

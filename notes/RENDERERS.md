@@ -94,7 +94,10 @@ ignores unknown Context fields, shows UNKNOWN for missing observations and never
 infers percentage from voltage. Install and assign it:
 
 ```sh
-kubectl apply --validate=strict -k examples/http-post
+kubectl -n arprt create configmap device-status-renderer \
+  --from-file=renderer.py=examples/http-post/renderer.py
+kubectl -n arprt apply --validate=strict -f examples/http-post/renderer.yaml \
+  -f examples/http-post/screen.yaml
 kubectl -n arprt rollout status deployment/device-status-renderer
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"device-status"}}}'
@@ -123,7 +126,9 @@ overlaid on valid known state, with query and JSON targets agreeing.
 Install the [existing-image Job examples](../examples/job/screens.yaml):
 
 ```sh
-kubectl apply --validate=strict -k examples/job
+kubectl -n arprt create configmap job-example-image \
+  --from-file=image.png.b64=examples/job/image.png.b64
+kubectl -n arprt apply --validate=strict -f examples/job/screens.yaml
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"job-bands"}}}'
 ```
@@ -205,7 +210,7 @@ Set `spec.source.job.renderer.image` in `examples/job-picsum/screen.yaml` to tha
 image reference (prefer its pushed digest), then install and assign it:
 
 ```sh
-kubectl apply --validate=strict -k examples/job-picsum
+kubectl -n arprt apply --validate=strict -f examples/job-picsum/screen.yaml
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum"}}}'
 ```

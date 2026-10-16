@@ -10,11 +10,10 @@ REVISION ?= $(shell git rev-parse HEAD)
 KIND_VERSION := v0.33.0
 KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 HELM_VERSION ?= v4.3.0
-HELM3_VERSION := v3.21.4
 CHART_OUTPUT ?= $(CURDIR)/bin/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke helm3-version
+.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke
 
 tools: bin/controller-gen
 
@@ -38,9 +37,6 @@ $(HELM): hack/install-helm.py
 crd-chart-check: $(HELM)
 	$(HELM) lint --strict charts/arprt-crds --kube-version 1.36.0
 	$(GO) run ./hack/crd-chart --check --helm $(HELM)
-
-helm3-version:
-	@echo $(HELM3_VERSION)
 
 chart-dependencies: $(HELM)
 	rm -rf charts/arprt/charts
@@ -93,18 +89,18 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg REVISION=$(REVISION) -t $(IMAGE) .
 
 # Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
-cluster-smoke:
-	python3 hack/cluster-smoke.py --image $(IMAGE)
-	python3 hack/job-smoke.py --image $(IMAGE)
-	python3 hack/playlist-smoke.py --image $(IMAGE)
-	python3 hack/operations-smoke.py --image $(IMAGE)
+cluster-smoke: chart-package
+	python3 hack/cluster-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/job-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/playlist-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/operations-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Release helpers never use the operator's selected kubeconfig context.
 bin/kind:
 	GOBIN=$(CURDIR)/bin $(GO) install sigs.k8s.io/kind@$(KIND_VERSION)
 
-disposable-cluster-smoke: bin/kind
-	PATH="$(CURDIR)/bin:$$PATH" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
+disposable-cluster-smoke: bin/kind chart-package
+	PATH="$(CURDIR)/bin:$$PATH" ARPRT_HELM="$(HELM)" ARPRT_CHART_PACKAGES="$(CHART_OUTPUT)" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
 
 release-check:
 	python3 -m unittest discover -s hack -p 'test_*.py'

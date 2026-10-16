@@ -6,6 +6,7 @@ resources this run created. Requires kubectl and a cluster-accessible image.
 """
 import argparse
 import overlay_checks
+import helm_install
 import base64
 import hashlib
 import importlib.util
@@ -25,29 +26,15 @@ kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', required=True)
+    helm_install.arguments(parser)
     args = parser.parse_args()
     namespace = 'arprt-phase5-' + uuid.uuid4().hex[:8]
-    created_crds, created_namespace = [], False
-    try:
-        for name in smoke.CRDS:
-            plural, group = name.split('.', 1)
-            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
-            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
-            if existing:
-                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
-                actual = json.loads(existing)['spec']
-                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
-                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
-                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
-            else:
-                kubectl('create', '-f', path)
-                created_crds.append(name)
-                kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
-        kubectl('create', 'namespace', namespace)
-        created_namespace = True
-        with tempfile.TemporaryDirectory(prefix='arprt-playlist-smoke-') as temporary:
-            directory = Path(temporary)
+    with tempfile.TemporaryDirectory(prefix='arprt-playlist-smoke-') as temporary:
+        directory = Path(temporary)
+        installation = helm_install.Installation(args, namespace, directory)
+        try:
+            installation.settings['jobs'] = {'deadlineSeconds': 30}
+            installation.install()
 
             def apply(obj):
                 path = directory / 'resource.json'
@@ -55,20 +42,7 @@ def main():
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(path))
                 path.unlink()
 
-            base = kubectl('kustomize', str(ROOT / 'config/default')).stdout
-            # Kustomize namespace/image transformations preserve deployment and RBAC.
-            (directory / 'base.yaml').write_text(base)
-            (directory / 'kustomization.yaml').write_text(json.dumps({
-                'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
-                'namespace': namespace, 'resources': ['base.yaml'],
-                'images': [smoke.kustomize_image(args.image)],
-                'patches': [{'target': {'kind': 'Deployment', 'name': 'arprt'}, 'patch': json.dumps([
-                    {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': [
-                        '--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--job-deadline-seconds=30']}
-                ])}],
-            }))
-            kubectl('apply', '--validate=strict', '-k', str(directory))
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
             image = base64.b64encode((ROOT / 'testdata/phase0/target-gray4.png').read_bytes()).decode()
             # The renderer implements both HTTP transports without Kubernetes access.
             program = '''import base64,json,os
@@ -162,8 +136,8 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     jobs = json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']
                     return bool(jobs) and any(any(c['type']=='Complete' and c['status']=='True' for c in j.get('status',{}).get('conditions',[])) for j in jobs)
                 wait(job_ready,120)
-            kubectl('-n',namespace,'rollout','restart','deployment/arprt')
-            kubectl('-n',namespace,'rollout','status','deployment/arprt','--timeout=180s')
+            kubectl('-n',namespace,'rollout','restart','deployment/arprt-arprt')
+            kubectl('-n',namespace,'rollout','status','deployment/arprt-arprt','--timeout=180s')
             with forwarded(namespace,8080,directory) as base:
                 if display(base) != first:
                     raise RuntimeError('screen-cycle replay lost across restart')
@@ -185,19 +159,15 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 kubectl('-n',namespace,'delete','arprtscreen','b-post')
                 if display(base) != {'status':202}:
                     raise RuntimeError('empty discovery did not return pending')
-            account = 'system:serviceaccount:' + namespace + ':arprt'
+            account = 'system:serviceaccount:' + namespace + ':arprt-arprt'
             for ns, allowed in [(namespace,True),('default',False)]:
                 result = kubectl('auth','can-i','list','arprtplaylists','-n',ns,'--as='+account,check=False)
                 if (result.stdout.strip()=='yes') != allowed:
                     raise RuntimeError('playlist RBAC namespace mismatch')
             print('PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC')
-    finally:
-        if created_namespace:
-            kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')
-        for name in created_crds:
-            if not json.loads(kubectl('get', name, '--all-namespaces', '-o', 'json').stdout)['items']:
-                kubectl('delete', 'crd', name)
-        print('Disposable playlist test resources removed; existing CRDs untouched')
+        finally:
+            installation.cleanup()
+            print('Disposable Helm test resources removed; existing CRDs untouched')
 
 
 if __name__ == '__main__':

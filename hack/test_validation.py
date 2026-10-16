@@ -103,7 +103,7 @@ class ChangeSelectionTests(RepositoryTest):
 
 class PhysicalReuseTests(RepositoryTest):
     def test_installation_and_tests_can_reuse_full_baseline(self):
-        self.write('config/default/deployment.yaml', 'synthetic deployment\n')
+        self.write('charts/arprt/templates/deployment.yaml', 'synthetic deployment\n')
         self.write('internal/controller_test.go', 'package internal\n')
         head = self.commit()
         self.assertEqual(release.physical_scope('v1.0.0', head)['mode'], 'reuse')
@@ -169,13 +169,13 @@ class SmokeRunnerTests(unittest.TestCase):
                 code = 1 if name == 'failed.py' else 0
                 Path(directory, name).write_text(f"from pathlib import Path\nPath({str(Path(directory, name + '.ran'))!r}).touch()\nraise SystemExit({code})\n")
             with patch.object(runner, 'ROOT', Path(directory)), patch.object(runner, 'SUITES', scripts), redirect_stdout(io.StringIO()):
-                self.assertEqual(runner.run_suites('arprt:test', 2), 1)
+                self.assertEqual(runner.run_suites('arprt:test', 2, '/tools/helm', '/packages'), 1)
             self.assertTrue(all(Path(directory, name + '.ran').exists() for name in scripts))
 
     def test_two_suites_overlap_without_exceeding_limit(self):
         barrier, lock = threading.Barrier(2), threading.Lock()
         active, peak, completed = 0, 0, []
-        def execute(name, image):
+        def execute(name, image, helm, packages):
             nonlocal active, peak
             with lock:
                 active += 1
@@ -186,7 +186,7 @@ class SmokeRunnerTests(unittest.TestCase):
                 completed.append(name)
             return name, 0, '', 0
         with patch.object(runner, 'execute', side_effect=execute), redirect_stdout(io.StringIO()):
-            self.assertEqual(runner.run_suites('arprt:test', 2), 0)
+            self.assertEqual(runner.run_suites('arprt:test', 2, '/tools/helm', '/packages'), 0)
         self.assertEqual(peak, 2)
         self.assertCountEqual(completed, runner.SUITES)
 

@@ -36,7 +36,7 @@ storage:
   maxBytes: 805306368
   minFreeBytes: 67108864
 
-# Matches the supplied Kubernetes Deployment. Disabling Jobs passes an empty
+# Runtime defaults match the CLI. Disabling Jobs passes an empty
 # --job-pvc; it does not disable persistent artifact/identity storage.
 jobs:
   enabled: true

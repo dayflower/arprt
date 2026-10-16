@@ -6,6 +6,7 @@ resources this run created. Requires kubectl and a cluster-accessible image.
 """
 import argparse
 import overlay_checks
+import helm_install
 import base64
 import hashlib
 import importlib.util
@@ -26,29 +27,15 @@ kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', required=True)
+    helm_install.arguments(parser)
     args = parser.parse_args()
     namespace = 'arprt-phase4-' + uuid.uuid4().hex[:8]
-    created_crds, created_namespace = [], False
-    try:
-        for name in smoke.CRDS:
-            plural, group = name.split('.', 1)
-            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
-            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
-            if existing:
-                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
-                actual = json.loads(existing)['spec']
-                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
-                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
-                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
-            else:
-                kubectl('create', '-f', path)
-                created_crds.append(name)
-                kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
-        kubectl('create', 'namespace', namespace)
-        created_namespace = True
-        with tempfile.TemporaryDirectory(prefix='arprt-job-smoke-') as temporary:
-            directory = Path(temporary)
+    with tempfile.TemporaryDirectory(prefix='arprt-job-smoke-') as temporary:
+        directory = Path(temporary)
+        installation = helm_install.Installation(args, namespace, directory)
+        try:
+            installation.settings['jobs'] = {'deadlineSeconds': 30}
+            installation.install()
 
             def apply(obj):
                 path = directory / 'resource.json'
@@ -56,20 +43,7 @@ def main():
                 kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(path))
                 path.unlink()
 
-            base = kubectl('kustomize', str(ROOT / 'config/default')).stdout
-            # Kustomize namespace/image transformations preserve deployment and RBAC.
-            (directory / 'base.yaml').write_text(base)
-            (directory / 'kustomization.yaml').write_text(json.dumps({
-                'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
-                'namespace': namespace, 'resources': ['base.yaml'],
-                'images': [smoke.kustomize_image(args.image)],
-                'patches': [{'target': {'kind': 'Deployment', 'name': 'arprt'}, 'patch': json.dumps([
-                    {'op': 'replace', 'path': '/spec/template/spec/containers/0/args', 'value': [
-                        '--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--job-deadline-seconds=30']}
-                ])}],
-            }))
-            kubectl('apply', '--validate=strict', '-k', str(directory))
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
             # A read-only observer inspects durable state; renderers never mount it.
             apply({'apiVersion': 'v1', 'kind': 'Pod', 'metadata': {'name': 'observer'}, 'spec': {
                 'automountServiceAccountToken': False,
@@ -79,7 +53,7 @@ def main():
                     'topologyKey': 'kubernetes.io/hostname'}]}},
                 'containers': [{'name': 'observer', 'image': 'busybox:1.37.0', 'command': ['sleep', '3600'],
                     'volumeMounts': [{'name': 'data', 'mountPath': '/data', 'readOnly': True}]}],
-                'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-data'}}]}})
+                'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-arprt-data'}}]}})
             kubectl('-n', namespace, 'wait', '--for=condition=Ready', 'pod/observer', '--timeout=120s')
             image = base64.b64encode((ROOT / 'testdata/phase0/target-gray4.png').read_bytes()).decode()
             apply({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'input'}, 'data': {'IMAGE_PNG': image}})
@@ -152,8 +126,8 @@ def main():
                 if state()['active']['id'] != first_attempt or len(jobs()) != 1:
                     raise RuntimeError('polling duplicated active work')
             # Restart during renderer execution; Job identity and PVC survive.
-            kubectl('-n', namespace, 'rollout', 'restart', 'deployment/arprt')
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+            kubectl('-n', namespace, 'rollout', 'restart', 'deployment/arprt-arprt')
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
             wait(lambda: latest().get('attemptID') == first_attempt, 60)
             first = latest()
             snapshot = read('runs/' + first_attempt + '/context.json')
@@ -213,13 +187,13 @@ def main():
                 return any(p['status'].get('phase') == 'Running' for p in pods)
 
             wait(recovery_running, 30)
-            kubectl('-n', namespace, 'scale', 'deployment/arprt', '--replicas=0')
+            kubectl('-n', namespace, 'scale', 'deployment/arprt-arprt', '--replicas=0')
             wait(lambda: not json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app.kubernetes.io/name=arprt', '-o', 'json').stdout)['items'], 60)
             kubectl('-n', namespace, 'wait', '--for=condition=Complete', 'job/' + recovery_name, '--timeout=45s')
             if latest().get('attemptID') == recovery:
                 raise RuntimeError('offline collector unexpectedly published')
-            kubectl('-n', namespace, 'scale', 'deployment/arprt', '--replicas=1')
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
+            kubectl('-n', namespace, 'scale', 'deployment/arprt-arprt', '--replicas=1')
+            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
             wait(lambda: latest().get('attemptID') == recovery, 60)
             if state().get('active'):
                 raise RuntimeError('completed recovery duplicated work')
@@ -258,20 +232,16 @@ def main():
                 overlay_checks.assert_overlay(base64.b64decode(image), fetch(base, composite_path), width=40, height=18, rotation=90, margin_horizontal=12, margin_vertical=4)
             if latest() != original or read('runs/' + original['attemptID'] + '/context.json') != original_context:
                 raise RuntimeError('compositing changed Job success or immutable context')
-            account = 'system:serviceaccount:' + namespace + ':arprt'
+            account = 'system:serviceaccount:' + namespace + ':arprt-arprt'
             for ns, verb, resource, allowed in [(namespace, 'create', 'jobs', True), ('default', 'create', 'jobs', False),
                     (namespace, 'list', 'secrets', False), (namespace, 'create', 'pods', False)]:
                 result = kubectl('auth', 'can-i', verb, resource, '-n', ns, '--as=' + account, check=False)
                 if (result.stdout.strip() == 'yes') != allowed:
                     raise RuntimeError('RBAC scope mismatch')
             print('PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, display overlays/base separation, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC')
-    finally:
-        if created_namespace:
-            kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')
-        for name in created_crds:
-            if not json.loads(kubectl('get', name, '--all-namespaces', '-o', 'json').stdout)['items']:
-                kubectl('delete', 'crd', name)
-        print('Disposable Job test resources removed; existing CRDs untouched')
+        finally:
+            installation.cleanup()
+            print('Disposable Helm test resources removed; existing CRDs untouched')
 
 
 if __name__ == '__main__':

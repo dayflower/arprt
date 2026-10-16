@@ -1,8 +1,9 @@
-"""Check release safety gates and exact digest Kustomize wiring without a cluster."""
+"""Check release safety gates and exact digest Helm wiring without a cluster."""
 import copy
 from contextlib import chdir
 import importlib.util
 import hashlib
+import helm_install
 import io
 import json
 from pathlib import Path
@@ -22,7 +23,6 @@ def load(name, file):
 
 
 release = load('release_image', 'release-image.py')
-smoke = load('cluster_smoke', 'cluster-smoke.py')
 SHA = 'a' * 40
 MESSAGE = f'Physical-device-acceptance: {SHA}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n'
 
@@ -97,14 +97,14 @@ class PlatformAndImageTests(unittest.TestCase):
 
     def test_tag_and_index_digest_references(self):
         for image, expected in [
-            ('ghcr.io/dayflower/arprt:v0.1.0', {'newName': 'ghcr.io/dayflower/arprt', 'newTag': 'v0.1.0'}),
-            ('localhost:5000/arprt:dev', {'newName': 'localhost:5000/arprt', 'newTag': 'dev'}),
-            ('ghcr.io/dayflower/arprt@sha256:' + 'a' * 64, {'newName': 'ghcr.io/dayflower/arprt', 'digest': 'sha256:' + 'a' * 64}),
+            ('ghcr.io/dayflower/arprt:v0.1.0', {'repository': 'ghcr.io/dayflower/arprt', 'tag': 'v0.1.0'}),
+            ('localhost:5000/arprt:dev', {'repository': 'localhost:5000/arprt', 'tag': 'dev'}),
+            ('ghcr.io/dayflower/arprt@sha256:' + 'a' * 64, {'repository': 'ghcr.io/dayflower/arprt', 'digest': 'sha256:' + 'a' * 64}),
         ]:
-            self.assertEqual(smoke.kustomize_image(image), dict(name='arprt', **expected))
+            self.assertEqual(helm_install.image_values(image), {'digest': '', 'tag': '', **expected})
         for image in ['ghcr.io/dayflower/arprt', 'localhost:5000/arprt', 'arprt@sha256:bad', 'arprt@sha256:' + 'z' * 64]:
             with self.subTest(image=image), self.assertRaises(ValueError):
-                smoke.kustomize_image(image)
+                helm_install.image_values(image)
 
 
 class AnonymousRegistryTests(unittest.TestCase):

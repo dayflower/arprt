@@ -2,9 +2,10 @@
 """Exercise packaged Helm releases in a dedicated disposable kind cluster.
 
 Never reads the operator's kubeconfig. Schema-upgrade fixtures are isolated from
-production charts and the matching-schema Kustomize smoke suites.
+production charts and the matching-schema smoke suites.
 """
 import argparse
+import helm_install
 import base64
 import importlib.util
 import json
@@ -40,9 +41,7 @@ def require(condition, message):
 
 
 def image_values(image):
-    parsed = smoke.kustomize_image(image)
-    return {'repository': parsed['newName'], 'digest': parsed.get('digest', ''),
-            'tag': parsed.get('newTag', '')}
+    return helm_install.image_values(image)
 
 
 def packages(args, directory, env):
@@ -321,7 +320,7 @@ def main():
         for key in list(os.environ):
             if key.startswith('HELM_'):
                 del os.environ[key]
-        if args.oci_repository:
+        if not args.load_image:
             env['DOCKER_CONFIG'] = str(directory / 'docker')
             Path(env['DOCKER_CONFIG']).mkdir()
         os.environ.update({key: value for key, value in env.items() if key.startswith('HELM_') or key == 'KUBECONFIG'})
@@ -334,6 +333,13 @@ def main():
                 run('kind', 'load', 'docker-image', args.image, '--name', cluster, env=env)
             for separate in (False, True):
                 Lifecycle(args, directory, archives, env, separate).exercise()
+            # Prepare one shared CRD owner before concurrent isolated namespaces.
+            # The optional schema fixture has already been removed by Lifecycle.
+            run(args.helm, 'install', 'schemas', archives['arprt-crds'], '--namespace', 'smoke-schemas',
+                '--create-namespace', '--wait', '--timeout', '60s', env=env)
+            print(run('python3', ROOT / 'hack/run-cluster-smoke.py', '--image', args.image,
+                      '--helm', args.helm, '--packages', archives['arprt'].parent, '--jobs', '2', env=env).stdout,
+                  flush=True)
         except Exception:
             # Resource status only. Avoid logging Secrets, values or MAC-bearing CRs.
             print(kubectl('get', 'pods,jobs,pvc', '-A', check=False).stdout, flush=True)

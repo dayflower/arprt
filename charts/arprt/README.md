@@ -11,9 +11,11 @@ release-specific naming does not support multiple controllers in one namespace.
 
 ## Local installation
 
-Use a fresh installation. Existing Kustomize resources and differently owned
-CRDs are not automatically adopted. The commands below assume `helm` is
-installed on your `PATH`. From the repository root:
+Helm 4 is the sole supported controller installation path. Use a fresh
+installation; existing resources and differently owned CRDs are not automatically
+adopted. Existing operators must read the
+[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations). The commands below assume Helm 4 is
+installed as `helm` on your `PATH`; Helm 3 is unsupported. From the repository root:
 
 ```sh
 helm dependency build charts/arprt --skip-refresh
@@ -127,7 +129,7 @@ See [controller state operations](../../notes/OPERATIONS.md#helm-controller-stat
 for compatible reinstall, existing-PVC recovery and validation limits, and
 [CRD operations](../../notes/OPERATIONS.md#helm-managed-crds) for CRD ownership.
 API-server tests verify generated-key/PVC UID retention and named Secret access.
-Dedicated kind tests with Helm 3.21.4 and 4.3.0 also verify readiness, HTTP/Job
+Dedicated kind tests with Helm 4.3.0 also verify readiness, HTTP/Job
 rendering, compatible schema/config upgrades and issued-image recovery after
 same-owner reinstall. These checks do not establish migration or downgrade support.
 
@@ -151,6 +153,6 @@ assembling dependencies after schema changes.
 build outputs; always run `dependency build` before packaging. The parent package
 contains the dependency, so installation needs neither local chart sources nor
 dependency resolution. `make chart-check` checks both charts and package contents;
-`make helm-smoke` checks the full cluster lifecycle. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
+`make helm-smoke` checks the full cluster lifecycle and all four software smoke suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
 for client selection and the validation boundary. OCI publication and anonymous
 acceptance from published charts remain a separate distribution milestone.
