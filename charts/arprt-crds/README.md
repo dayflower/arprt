@@ -11,8 +11,9 @@ the [project support boundary](../../README.md#security-and-support-boundary):
 
 ## Local installation
 
-The commands below assume `helm` is installed on your `PATH`. From the repository
-root, with a fresh cluster that does not already contain ARPRT CRDs:
+Helm 4 is required; Helm 3 is unsupported. The commands below assume `helm` is
+installed on your `PATH`. From the repository root, with a fresh cluster that
+does not already contain ARPRT CRDs:
 
 ```sh
 helm install arprt-crds ./charts/arprt-crds \
@@ -56,6 +57,6 @@ Using `templates/` allows Helm to update schemas, unlike its special `crds/`
 installation path. See [DEVELOP](../../notes/DEVELOP.md#crd-chart-generation-and-checks)
 for synchronization and semantic checks. Those development checks install and
 use the Makefile's pinned Helm client; this does not change your `helm` command
-or establish compatibility with other client versions. Helm 3.21.4 and 4.3.0
-are checked for standalone and bundled lifecycle behavior; see
+or establish compatibility with other client versions. Helm 4.3.0 is verified
+for standalone and bundled lifecycle behavior; see
 [Helm checks](../../notes/DEVELOP.md#helm-chart-checks) for the full validation scope.

@@ -10,7 +10,7 @@ runtime administration and [RENDERERS](RENDERERS.md) for example usage.
 Use Go, Make, a C compiler for race tests, Python 3 for examples/smoke/release checks,
 and Docker for images. The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest/kind and the kind node image;
-it also pins the Helm 3 and Helm 4 clients used for chart checks.
+it also pins the Helm 4 client used for chart checks.
 [go.mod](../go.mod) pins dependencies and [CI](../.github/workflows/ci.yaml)
 defines the Kubernetes test version.
 Use those files when changing versions rather than adding another version list.
@@ -73,10 +73,10 @@ checks and the chart copies in its generated Git diff check, so existing CI
 and release checks exercise them.
 
 The Makefile selects the Helm version; [install-helm.py](../hack/install-helm.py)
-downloads the official checksummed binary into ignored `bin/`. The checked
-clients are Helm 3.21.4 and Helm 4.3.0. Other client versions are unverified.
-Use `HELM_VERSION` to select a pinned client for any chart or integration target;
-`make helm3-version` prints the Helm 3 pin for CI.
+downloads the official checksummed binary into ignored `bin/`. Only Helm 4 is
+supported, with Helm 4.3.0 verified. Other Helm 4 versions are unverified; Helm 3
+is unsupported. `HELM_VERSION` can select another pinned Helm 4 version for
+development chart or integration checks.
 `make integration ENVTEST_K8S_VERSION=1.36.0` also exercises the CRD chart on a
 disposable API server: fresh install, a real compatible optional-field schema
 upgrade, preservation of existing CR/CRD UIDs, uninstall/reinstall with the same
@@ -111,10 +111,8 @@ distribution milestone.
 
 ```sh
 make chart-check
-make chart-check HELM_VERSION=v3.21.4
 make chart-package
 make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true
-make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true HELM_VERSION=v3.21.4
 ```
 
 `chart-lint` assembles the dependency and strictly lints both charts with a valid
@@ -157,8 +155,8 @@ suites still refuse mismatched schemas and never see this fixture. No production
 API field or install-order hook is introduced.
 
 PR CI runs chart checks, API integration, Helm lifecycle and all four migrated
-smoke suites on both pinned clients and both native architectures. `helm-smoke`
-runs bundled/separate lifecycle scenarios first, removes their schema fixtures,
+smoke suites with the pinned Helm 4 client on both native architectures.
+`helm-smoke` runs bundled/separate lifecycle scenarios first, removes their schema fixtures,
 then prepares a shared CRD-chart release and runs the four isolated suites.
 `helm-published-smoke` runs the same complete matrix using only downloaded packages.
 Image releases also gate publication on this matrix on native amd64/arm64 runners,
@@ -178,8 +176,8 @@ make helm-published-smoke \
 Use the actual published repository/version/index digest; the repository above is
 an example, not an available distribution endpoint. This target uses empty Helm
 registry and Docker configurations, pulls both chart packages, and never falls
-back to local charts. Run it with each pinned client when accepting publication.
-Until that succeeds, local packaging/lifecycle evidence is not public-artifact
+back to local charts. Run it with the pinned Helm 4 client when accepting
+publication. Until that succeeds, local packaging/lifecycle evidence is not public-artifact
 acceptance.
 
 ## Local controller
@@ -405,9 +403,9 @@ checks both platform digests, pulls the same version tag on both native runners,
 and reruns the complete cluster matrix with `ghcr.io/dayflower/arprt@sha256:...`.
 The clusters pull directly without preloaded controller images or pull Secrets,
 covering startup/readiness, setup, authenticated delivery, Job execution, replay,
-and operations checks through local production Helm chart packages with both
-pinned clients. Public OCI chart retrieval is not required for image releases. If the initial anonymous check fails
-before visibility is changed, set the package public and rerun acceptance only:
+and operations checks through local production Helm chart packages with the
+pinned Helm 4 client. Public OCI chart retrieval is not required for image releases.
+If the initial anonymous check fails before visibility is changed, set the package public and rerun acceptance only:
 
 ```sh
 gh workflow run release-image.yaml -f tag=v0.1.0 \

@@ -240,8 +240,8 @@ of routine uninstall, upgrade and recovery procedures.
 
 ## Helm controller state
 
-The [controller chart](../charts/arprt/README.md) starts with empty auth and
-identity Secret lists. Select each same-namespace auth Secret explicitly with
+The [controller chart](../charts/arprt/README.md) requires Helm 4 and starts with
+empty auth and identity Secret lists. Select each same-namespace auth Secret explicitly with
 `credentials.authSecrets[].name` and `create`. With `create: true`, Helm declares
 only metadata and `type: Opaque`; it never supplies `data.apiKey` or
 `stringData.apiKey`. Setup generates an absent key and reuses the live value on
@@ -317,7 +317,7 @@ and authenticated fetching of an already-issued URL before normal operation.
 
 API-server integration tests verify key and PVC UID retention, same-owner
 reinstall, removal/reintroduction and external-object non-ownership with the
-pinned Helm clients. The [dedicated kind lifecycle checks](DEVELOP.md#helm-chart-checks)
+pinned Helm 4 client. The [dedicated kind lifecycle checks](DEVELOP.md#helm-chart-checks)
 also exercise mounted PVC state, HTTP/Job rendering and authenticated issued-URL
 recovery across config upgrades and same-owner reinstall, with bundled and
 separately managed CRDs. These checks use compatible temporary schema fixtures;

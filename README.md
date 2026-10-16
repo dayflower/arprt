@@ -30,11 +30,11 @@ Build with `make build` or `make docker-build IMAGE=arprt:dev`. Tooling, generat
 CI runs envtest on Kubernetes 1.36.0 to check the supported minimum version;
 patch releases within minor 1.36 remain supported without separate envtest runs.
 
-Helm is the sole supported controller installation and compatible-upgrade path.
+Helm 4 is the sole supported controller installation and compatible-upgrade path.
 The [controller chart](charts/arprt/README.md) bundles CRDs by default; the
 [CRD-only chart](charts/arprt-crds/README.md) also supports separate management.
-Helm 3.21.4 and 4.3.0 are checked on Kubernetes 1.36. Chart OCI publication and
-anonymous public-chart acceptance remain pending; use local chart packages with
+Helm 4.3.0 is verified on Kubernetes 1.36; Helm 3 is unsupported. Chart OCI
+publication and anonymous public-chart acceptance remain pending; use local chart packages with
 the accepted public controller image. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) before changing
 ownership or deleting retained CRDs.
