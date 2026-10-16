@@ -15,5 +15,5 @@ spec:
             type: PathPrefix
             value: /arprt
       backendRefs:
-        - name: arprt
+        - name: home-arprt
           port: 8080

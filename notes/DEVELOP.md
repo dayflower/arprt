@@ -25,8 +25,8 @@ in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluste
 jobs. Changed fenced/indented examples, other paths and unavailable history run the full
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
-Docker builds run only in the two native cluster jobs; `contracts` checks Go.
-Those jobs also build the Picsum example image and run its offline conversion
+Docker builds run in the native image/renderer jobs and Helm matrix; `contracts`
+checks Go. The image/renderer jobs also build the Picsum example image and run its offline conversion
 and download-boundary tests on each native architecture.
 A new run cancels any older in-progress run of the same workflow for the same
 pull request or branch.
@@ -124,7 +124,8 @@ read-only CRD source/render checks and [chart-check](../hack/chart-check/main.go
 The render matrix covers default/custom release names and namespaces, bundled
 and separate CRDs, created/existing PVCs and auth Secrets, and Jobs on/off. It
 checks namespace/name/selector references, named Secret permissions, Pod security,
-filesystem RWO storage and runtime wiring against Kustomize; invalid values must
+filesystem RWO storage and runtime defaults against explicit contracts in the
+checker, independently of installation templates; invalid values must
 fail with a relevant diagnostic. Non-default settings check tag/digest precedence,
 metrics, ConfigMap wiring and rollout checksums. Archive-only renders from a
 temporary directory prove that parent packages contain the dependency without
@@ -137,7 +138,7 @@ exceptions or termination. It installs packages without preinstalling CRDs,
 checks readiness through normal Helm waiting, then tests the bundled/default and
 separate/custom-release paths. It reuses the HTTP example by creating a ConfigMap
 from its Python source and applying its Deployment/Service manifest directly in
-the test namespace, without Kustomize or temporary copies. It also reuses the PNG
+the test namespace. It also reuses the PNG
 fixture and smoke protocol/port-forward helpers. Real Jobs check the claim
 reference, mounted context/output and same-node execution. Config upgrades and
 same-owner reinstalls must preserve CR/CRD/PVC UIDs, generated auth, registered
@@ -151,18 +152,22 @@ their uninstall retains CRs. Named, undeclared and cross-namespace RBAC are prob
 A temporary parent package adds an optional playlist field only to its embedded
 CRD schema. The old schema must reject it with strict validation; a parent upgrade
 must accept and persist it while preserving existing resources. The dedicated
-cluster removes this fixture before the next scenario. Existing Kustomize smoke
-scripts still refuse mismatched schemas and never see this fixture. No production
+cluster removes this fixture before the next scenario. All four software smoke
+suites still refuse mismatched schemas and never see this fixture. No production
 API field or install-order hook is introduced.
 
-PR CI runs chart checks, API integration and Helm smoke on both pinned clients.
+PR CI runs chart checks, API integration, Helm lifecycle and all four migrated
+smoke suites on both pinned clients and both native architectures. `helm-smoke`
+runs bundled/separate lifecycle scenarios first, removes their schema fixtures,
+then prepares a shared CRD-chart release and runs the four isolated suites.
+`helm-published-smoke` runs the same complete matrix using only downloaded packages.
 Image releases also gate publication on this matrix on native amd64/arm64 runners,
-using the exact archived image that already passed the Kustomize smoke matrix.
+using the exact archived image that passed the initial native smoke matrix.
 Local software checks do not establish physical-device or additional storage
 support, cross-major Helm release migration, downgrade safety or ownership transfer.
 
-Once public OCI charts exist, run anonymous retrieval and the same lifecycle
-matrix without local sources or preloaded controller images:
+Once public OCI charts exist, run anonymous retrieval and the same complete
+lifecycle/four-suite matrix without local chart sources or preloaded controller images:
 
 ```sh
 make helm-published-smoke \
@@ -201,7 +206,7 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | --- | --- |
 | `api/v1alpha1`, `config/crd` | Public types/markers and generated schema/deepcopy |
 | `charts/arprt-crds`, `hack/crd-chart` | CRD packaging, generated schema synchronization and Helm/spec checks |
-| `cmd/controller`, `config/default` | Runtime wiring, listeners, namespace scope, deployment and RBAC |
+| `cmd/controller`, `charts/arprt` | Runtime wiring, listeners, namespace scope, deployment and RBAC |
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
 | `internal/byos` | Routes, protocol parsing, authentication gates, display/replay and image serving |
@@ -234,7 +239,7 @@ replacement and failure preservation; avoid tests that merely repeat code.
 | Job scheduling, mounts, collection, recovery or cancellation | `job-smoke.py` |
 | Playlist/discovery, replay or per-screen retention | `playlist-smoke.py`, plus HTTP/Job regressions when affected |
 | Capacity, corruption, GC, metrics, logs or distribution | `operations-smoke.py` |
-| Docker/manifests/examples | Docker build and relevant Kustomize assembly/cluster checks |
+| Docker/manifests/examples | Docker build and relevant Helm/cluster checks |
 | Release | Full software matrix and relevant physical-device acceptance |
 
 ```sh
@@ -259,9 +264,13 @@ Use the manual full run if executable instructions or their scope are uncertain.
 
 ## Disposable cluster checks
 
-Smoke scripts use the selected kubeconfig context, install/reuse matching CRDs,
-create isolated namespaces and clean up their test resources. They refuse to
-replace mismatched CRD schemas. Use a dedicated cluster and kubeconfig rather
+Smoke scripts use the selected kubeconfig context, install controllers and missing
+CRDs through packaged production Helm charts, create isolated namespaces and
+clean up their test resources. Existing complete CRD sets are reused read-only
+only when names, scope, versions, schemas and subresources match the canonical
+output; partial or different schemas fail before namespace creation. No existing
+resource is adopted. Each suite uses explicit named credentials and a dedicated
+Helm release in its namespace, and attempts all cleanup even after a failure. Use a dedicated cluster and kubeconfig rather
 than relying on the current context. The following uses the CI node image:
 
 ```sh
@@ -275,8 +284,9 @@ kind delete cluster --name arprt-dev --kubeconfig "$arprt_check_dir/kubeconfig"
 ```
 
 Run cluster deletion even if a check fails, then remove the temporary kubeconfig.
-For a focused check, use `python3 hack/<script>.py --image arprt:dev` with that
-same `KUBECONFIG`. `make cluster-smoke` runs all four scripts. The Makefile pins
+For a focused check, run `make chart-package` first, then use
+`python3 hack/<script>.py --image arprt:dev --helm "$PWD/bin/helm-v4.3.0" --packages "$PWD/bin/charts"`
+with that same `KUBECONFIG`. `make cluster-smoke` runs all four scripts. The Makefile pins
 kind and the node image. The following creates its own kubeconfig and cluster,
 runs all four scripts, and removes the cluster/kubeconfig on exit, including
 failures:
@@ -285,7 +295,7 @@ failures:
 make disposable-cluster-smoke IMAGE=arprt:dev LOAD_IMAGE=true
 ```
 
-This wrapper installs the CRDs once in its own cluster and runs two smoke suites
+This wrapper installs the CRD chart once in its own cluster and runs two smoke suites
 concurrently, starting the longest Job suite first. Each suite uses an isolated
 namespace/PVC and reuses those CRDs. All suites finish cleanup, and any failure
 fails the wrapper. `make cluster-smoke` remains sequential for explicitly selected
@@ -395,7 +405,8 @@ checks both platform digests, pulls the same version tag on both native runners,
 and reruns the complete cluster matrix with `ghcr.io/dayflower/arprt@sha256:...`.
 The clusters pull directly without preloaded controller images or pull Secrets,
 covering startup/readiness, setup, authenticated delivery, Job execution, replay,
-and operations checks through Kustomize. If the initial anonymous check fails
+and operations checks through local production Helm chart packages with both
+pinned clients. Public OCI chart retrieval is not required for image releases. If the initial anonymous check fails
 before visibility is changed, set the package public and rerun acceptance only:
 
 ```sh
@@ -420,7 +431,7 @@ existing runtime, data-format and support limits remain authoritative.
 
 ## Physical-device regression
 
-Use the supported OG / firmware 1.8.17 tuple and the operator's private overlay.
+Use the supported OG / firmware 1.8.17 tuple and the operator's private Helm values.
 Record the source revision/image, environment, date and observation scope.
 Keep credentials and real identities out of reports. Restore temporary assignments,
 polling settings and renderers after the check.
@@ -433,7 +444,7 @@ Dockerfile, Makefile, examples/fixtures or unknown paths require the full number
 regression below. Do not infer display correctness or new hardware support from CI.
 
 For documentation, CI/harness, Go test-only or installation changes under
-`config/default`, `config/overlays` and `charts`, reuse a full accepted release
+`charts` and the Gateway example, reuse a full accepted release
 baseline when the committed trees contain no other changes. Select it with:
 
 ```sh

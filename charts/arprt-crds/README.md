@@ -24,7 +24,8 @@ cluster-scoped. Release names and namespaces never change CRD names or the
 `arprt.dayflower.github.io` API group. Cluster-level CRD permissions are required.
 Use one owner for these CRDs. Existing Kustomize-managed or differently owned
 CRDs are not automatically adopted; ownership migration is outside the tested
-installation path. The [controller chart](../arprt/README.md) can include this
+installation path. Existing operators must read the
+[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations). The [controller chart](../arprt/README.md) can include this
 chart as a dependency or use this separately managed installation. Published
 chart packages are a separate distribution milestone.
 

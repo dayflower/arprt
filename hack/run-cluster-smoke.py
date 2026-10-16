@@ -12,16 +12,17 @@ ROOT = Path(__file__).resolve().parent
 SUITES = ['job-smoke.py', 'cluster-smoke.py', 'playlist-smoke.py', 'operations-smoke.py']
 
 
-def execute(suite, image):
+def execute(suite, image, helm, packages):
     started = time.monotonic()
-    result = subprocess.run([sys.executable, str(ROOT / suite), '--image', image], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, str(ROOT / suite), '--image', image,
+                             '--helm', str(helm), '--packages', str(packages)], capture_output=True, text=True)
     return suite, result.returncode, result.stdout + result.stderr, time.monotonic() - started
 
 
-def run_suites(image, jobs):
+def run_suites(image, jobs, helm, packages):
     failed = False
     with ThreadPoolExecutor(max_workers=jobs) as executor:
-        futures = {executor.submit(execute, suite, image): suite for suite in SUITES}
+        futures = {executor.submit(execute, suite, image, helm, packages): suite for suite in SUITES}
         for future in as_completed(futures):
             suite = futures[future]
             try:
@@ -37,9 +38,11 @@ def run_suites(image, jobs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', required=True)
+    parser.add_argument('--helm', required=True)
+    parser.add_argument('--packages', required=True)
     parser.add_argument('--jobs', type=int, choices=range(1, 5), default=2)
     args = parser.parse_args()
-    raise SystemExit(run_suites(args.image, args.jobs))
+    raise SystemExit(run_suites(args.image, args.jobs, args.helm, args.packages))
 
 
 if __name__ == '__main__':

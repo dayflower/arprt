@@ -30,81 +30,83 @@ Build with `make build` or `make docker-build IMAGE=arprt:dev`. Tooling, generat
 CI runs envtest on Kubernetes 1.36.0 to check the supported minimum version;
 patch releases within minor 1.36 remain supported without separate envtest runs.
 
-A local [controller Helm chart](charts/arprt/README.md) is available for fresh
-installations, with CRDs bundled by default. The [CRD-only chart](charts/arprt-crds/README.md)
-also supports separate management. Helm 3.21.4 and 4.3.0 are checked for
-installation, compatible upgrades, retained state and same-owner reinstall on
-Kubernetes 1.36. Chart publication and anonymous public-chart acceptance remain
-separate milestones; the installation below uses Kustomize. See
+Helm is the sole supported controller installation and compatible-upgrade path.
+The [controller chart](charts/arprt/README.md) bundles CRDs by default; the
+[CRD-only chart](charts/arprt-crds/README.md) also supports separate management.
+Helm 3.21.4 and 4.3.0 are checked on Kubernetes 1.36. Chart OCI publication and
+anonymous public-chart acceptance remain pending; use local chart packages with
+the accepted public controller image. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) before changing
 ownership or deleting retained CRDs.
 
 ## Installation and pairing
 
 The public resources are `ArprtDevice`, `ArprtScreen` and `ArprtPlaylist` in
-`arprt.dayflower.github.io/v1alpha1`. This naming is for new installations;
-upgrading or migrating an existing installation using the former resource names
-is not supported. Install into a fresh namespace with a new artifact PVC.
+`arprt.dayflower.github.io/v1alpha1`. Use a fresh cluster without ARPRT CRDs and a
+fresh namespace/PVC for initial installation. Existing installations must follow
+[the legacy installation boundary](notes/OPERATIONS.md#legacy-installations)
+before attempting Helm adoption; automatic ownership migration and upgrades from
+former resource names are unverified.
 
-Examples use `arprt` for both the namespace and external URL prefix. These are
+Examples use `arprt` for both namespace and external URL prefix. These are
 independent: device URLs are `<publicBaseURL>/devices/<namespace>/<device-name>`.
-Run commands from the repository root and substitute your private overlay path.
+Run commands from the repository root with a checked Helm client on `PATH`.
 
-1. Choose an accepted version from [Releases](https://github.com/dayflower/arprt/releases).
-   Release images are distributed through `ghcr.io/dayflower/arprt` for both
-   `linux/amd64` and `linux/arm64`; no registry login or local build is needed
-   for a public release. Until the first public release completes acceptance,
-   build/push your own image using `make docker-build`.
-
-   Create a private Kustomize overlay outside this repository referencing
-   `config/default`. For example, after `v0.1.0` has been published:
-
-   ```yaml
-   apiVersion: kustomize.config.k8s.io/v1beta1
-   kind: Kustomization
-   resources:
-     - ../arprt/config/default  # path relative to the private overlay directory
-   images:
-     - name: arprt
-       newName: ghcr.io/dayflower/arprt
-       newTag: v0.1.0
-   patches:
-     - target:
-         kind: ConfigMap
-         name: arprt-config
-       patch: |-
-         - op: replace
-           path: /data/publicBaseURL
-           value: https://byos.example.com/arprt
-   ```
-
-   Match the checkout to the release tag. The release's `image-digests.json`
-   records the multi-platform index and platform digests. To pin both
-   architectures, replace `newTag` with `digest: sha256:<index digest>`;
-   use the index digest rather than an individual platform digest. No `latest`
-   tag is required. Configure the PVC StorageClass if your cluster has no default.
-2. Patch ConfigMap `arprt-config`'s `publicBaseURL` to your public URL including
-   its prefix, for example `https://byos.example.com/arprt`. Expose Service
-   `arprt:8080` through your TLS proxy. Preserve the prefix by default; if your
-   proxy strips exactly `/arprt`, add `--proxy-strips-prefix=true`.
-   The [Envoy Gateway example](config/overlays/envoy-gateway/README.md) shows the
-   configuration with placeholder values.
-3. Install the controller and minimal GET renderer:
+1. Use this checkout's chart sources and their pinned controller image.
+   Assemble local packages:
 
    ```sh
-   kubectl apply --validate=strict -k /path/to/private-overlay
-   kubectl -n arprt rollout status deployment/arprt
-   kubectl apply --validate=strict -k examples/http-get
+   make chart-package
+   ```
+
+   Controller image records are available in
+   [Releases](https://github.com/dayflower/arprt/releases). The chart defaults
+   to the accepted public v0.1.0 multi-platform image index
+   for `linux/amd64` and `linux/arm64`. No registry login or image build is needed.
+   For another compatible accepted image, set `image.repository` and
+   `image.digest` from its `image-digests.json`. A digest takes precedence over
+   `image.tag`; clear it explicitly to select a tag. No `latest` tag is required.
+2. Create `/path/to/private-values.yaml` outside the repository:
+
+   ```yaml
+   byos:
+     publicBaseURL: https://byos.example.com/arprt
+   credentials:
+     authSecrets:
+       - name: living-room-auth
+         create: true
+   ```
+
+   Configure `persistence.storageClass` if the cluster has no default.
+   Install the parent package (substitute the packaged chart version):
+
+   ```sh
+   helm install home ./bin/charts/arprt-0.1.0.tgz \
+     --namespace arprt --create-namespace --wait \
+     --values /path/to/private-values.yaml
+   ```
+
+   One operation installs the CRDs and controller. For separately managed CRDs,
+   follow the [chart guide](charts/arprt/README.md#separate-crd-management) from
+   the first installation. Expose Service `home-arprt:8080` through a TLS proxy.
+   Preserve the prefix by default; set `byos.proxyStripsPrefix: true` if the proxy
+   strips exactly that prefix. See the [Gateway example](examples/envoy-gateway/README.md).
+3. Install the minimal GET renderer and screen outside the Helm release:
+
+   ```sh
+   kubectl -n arprt create configmap example-renderer \
+     --from-file=renderer.py=examples/http-get/renderer.py
+   kubectl -n arprt apply --validate=strict -f examples/http-get/renderer.yaml \
+     -f examples/http-get/screen.yaml
    kubectl -n arprt rollout status deployment/example-renderer
    ```
 
-4. The base declares `living-room-auth` without key data. Setup generates a
-   missing `apiKey` and reuses an existing valid key. Keep generated keys out of
-   Git: omit `data.apiKey` and `stringData.apiKey` from desired manifests.
-   For a different `authSecretRef`, declare that Secret in the private overlay
-   and add its name to the Role's `get` and `patch` rules.
-5. Create a device. The default sample learns its MAC during first successful
-   setup and assigns the `photo` GET screen:
+4. The selected auth entry declares `living-room-auth` without key data. Setup
+   generates a missing `apiKey` and reuses a valid key. Keep generated keys out
+   of values and Git. For other auth Secret names, list each name explicitly in
+   `credentials.authSecrets`; use `create: false` for an external Secret.
+5. Create a device. The default sample learns its MAC during first setup and
+   assigns the `photo` GET screen:
 
    ```sh
    kubectl -n arprt apply --validate=strict -f config/samples/device.yaml
@@ -113,9 +115,9 @@ Run commands from the repository root and substitute your private overlay path.
    [device-inline.yaml](config/samples/device-inline.yaml) and
    [device-secret.yaml](config/samples/device-secret.yaml) are alternatives for
    the same device. Choose the MAC mode before creation; changing it requires
-   replacing the device. The default Role permits named `get` on
-   `living-room-auth`/`living-room-identity` and `patch` on `living-room-auth`.
-   Other Secret names need explicit rules; see [identity and credentials](notes/OPERATIONS.md#hardware-identity).
+   replacing the device. For a Secret identity source, provision it externally
+   and add its name to `credentials.identitySecrets` for named read permission.
+   See [identity and credentials](notes/OPERATIONS.md#hardware-identity).
 6. Set TRMNL's **Custom Server URL**, without a trailing slash, to:
 
    ```text
@@ -136,7 +138,8 @@ Preserve `ID`/`Access-Token` headers and avoid logging them or setup response
 bodies. Generated image URLs use the configured public origin and exact device
 base path; forwarded headers cannot change them. Keep the image route free of
 redirects/compression. See [PROTOCOL](notes/PROTOCOL.md#routes-and-authentication)
-for the firmware constraints behind these requirements.
+for firmware constraints. For compatible upgrades, backup and retained-resource
+recovery, follow [OPERATIONS](notes/OPERATIONS.md#helm-controller-state).
 
 ## Hardware identity
 

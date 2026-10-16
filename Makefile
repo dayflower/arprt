@@ -93,18 +93,18 @@ docker-build:
 	docker build --build-arg VERSION=$(VERSION) --build-arg REVISION=$(REVISION) -t $(IMAGE) .
 
 # Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
-cluster-smoke:
-	python3 hack/cluster-smoke.py --image $(IMAGE)
-	python3 hack/job-smoke.py --image $(IMAGE)
-	python3 hack/playlist-smoke.py --image $(IMAGE)
-	python3 hack/operations-smoke.py --image $(IMAGE)
+cluster-smoke: chart-package
+	python3 hack/cluster-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/job-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/playlist-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 hack/operations-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Release helpers never use the operator's selected kubeconfig context.
 bin/kind:
 	GOBIN=$(CURDIR)/bin $(GO) install sigs.k8s.io/kind@$(KIND_VERSION)
 
-disposable-cluster-smoke: bin/kind
-	PATH="$(CURDIR)/bin:$$PATH" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
+disposable-cluster-smoke: bin/kind chart-package
+	PATH="$(CURDIR)/bin:$$PATH" ARPRT_HELM="$(HELM)" ARPRT_CHART_PACKAGES="$(CHART_OUTPUT)" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
 
 release-check:
 	python3 -m unittest discover -s hack -p 'test_*.py'

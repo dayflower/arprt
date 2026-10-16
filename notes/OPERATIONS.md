@@ -68,12 +68,11 @@ enabled by default; use `--enable-setup=false` to disable it explicitly.
 
 ## Runtime configuration
 
-The CLI in [main.go](../cmd/controller/main.go) defines runtime options. Patch the
-private overlay's Deployment/ConfigMap for your environment, or use the
-[controller chart values](../charts/arprt/README.md#values) for a Helm installation.
-The supplied
-[Deployment](../config/default/deployment.yaml) selects the Pod namespace, enables
-Jobs with its RWO claim, and enables internal metrics on 8082.
+The CLI in [main.go](../cmd/controller/main.go) defines runtime options. Configure
+[controller chart values](../charts/arprt/README.md#values) and apply them with
+`helm upgrade`. The [Deployment template](../charts/arprt/templates/deployment.yaml)
+selects the Pod namespace, enables Jobs with its RWO claim, and enables internal
+metrics on 8082.
 
 | Option | Default or fallback | Purpose |
 | --- | --- | --- |
@@ -103,9 +102,9 @@ use new attempts with exponential backoff from 5s to 5m, slowing after persisten
 failure as described below.
 
 Overlay timestamps use embedded IANA zoneinfo, including in the scratch image,
-and do not consult `TZ` or host local time. Set `--overlay-time-zone=Asia/Tokyo`
-in your Deployment args, or patch `arprt-config.data.overlayTimeZone` when using
-the supplied Deployment. Changes apply to new deliveries; a committed replay
+and do not consult `TZ` or host local time. Set
+`display.overlayTimeZone: Asia/Tokyo` in private Helm values and run
+`helm upgrade`. Changes apply to new deliveries; a committed replay
 keeps its image. Renderer environment and Render Context remain unchanged.
 
 ## Conditions
@@ -134,8 +133,8 @@ Use [strict field validation](DEVELOP.md#selecting-checks) when applying resourc
 ## Monitoring
 
 The supplied Deployment exposes Prometheus metrics on container port 8082.
-It has no public metrics Service or Gateway route. For inspection, use
-`kubectl -n arprt port-forward deployment/arprt 8082:8082` and fetch
+It has no public metrics Service or Gateway route. For release `home`, use
+`kubectl -n arprt port-forward deployment/home-arprt 8082:8082` and fetch
 `http://localhost:8082/metrics`. Local development opts in with
 `--metrics-bind-address=:8082`; `0` disables the listener. Restrict monitoring
 access with your network policy. Do not expose this endpoint on the BYOS proxy.
@@ -275,6 +274,19 @@ backup or a guarantee of safe rollback. Do not delete the namespace: Helm's
 `keep` annotation does not protect resources from namespace deletion, direct
 Kubernetes deletion or storage loss.
 
+For compatible upgrades, assemble packages from the compatible chart checkout
+and apply the complete private values file (substitute the actual chart version):
+
+```sh
+make chart-package
+helm upgrade home ./bin/charts/arprt-0.1.0.tgz --namespace arprt --wait \
+  --values /path/to/private-values.yaml
+```
+
+Keep the same CRD ownership mode and review API/data-format compatibility before
+selecting a chart/image. ConfigMap value changes trigger a controller rollout.
+Helm rollback does not establish schema or internal-record downgrade safety.
+
 For a compatible reinstall of `home` in namespace `arprt`, keep the namespace,
 CRDs, CRs, PVC and auth Secrets. Stop outstanding renderer Jobs before allowing
 another controller to use the PVC. Use the same release name/namespace, compatible
@@ -310,10 +322,36 @@ also exercise mounted PVC state, HTTP/Job rendering and authenticated issued-URL
 recovery across config upgrades and same-owner reinstall, with bundled and
 separately managed CRDs. These checks use compatible temporary schema fixtures;
 they do not establish arbitrary version upgrades or safe rollback.
-Kustomize-to-Helm adoption, bundled-to-separate
-CRD transfer, release renaming and forced ownership changes remain outside the
-tested path. Use a fresh installation for initial Helm adoption; these reinstall
-steps are not migration instructions.
+Bundled-to-separate CRD transfer, release renaming and forced ownership changes
+remain outside the tested path. These reinstall steps apply to existing Helm
+releases; see the legacy boundary below for other installation systems.
+
+## Legacy installations
+
+The controller Kustomize base and overlays have been retired. Helm is the only
+supported installation and compatible-upgrade path for this checkout. Existing
+Kustomize installations are **not** automatically adopted. A state-preserving
+Kustomize-to-Helm adoption or backup/restore migration has not been validated;
+there is no supported in-place transition procedure in this release.
+
+Existing operators should keep their last working checkout, private manifests,
+image digest and running installation while planning migration. Do not apply this
+checkout's Helm chart over those resources, relabel them for Helm adoption,
+force ownership, delete/recreate CRDs or CRs, or switch a live device to a fresh
+PVC. A fresh installation is a separate environment and does not inherit device
+identity, auth keys, CR UIDs or issued-image authorization. Cluster-wide CRD names
+also mean a fresh namespace in the same legacy cluster is not an independent
+installation.
+
+Before moving an existing installation, retain a consistent private backup of
+the PVC, CRs and auth/identity Secrets, including original UIDs and issued URLs.
+A future supported migration must prove those UIDs, generated keys, registered
+identity, PVC data and authenticated issued-image access survive before operators
+are instructed to change ownership. Continued legacy operation is pinned to its
+previous checkout; this checkout provides no legacy installation/upgrade tooling.
+Do not remove the existing installation until a validated transition is available
+or an operator explicitly accepts a new installation with new state. Retiring
+the tooling does not establish rollback or migration safety.
 
 ## Recovery and troubleshooting
 

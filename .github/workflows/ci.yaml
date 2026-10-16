@@ -85,7 +85,6 @@ jobs:
             --mount type=bind,src="$PWD/examples/job-picsum/test_renderer.py",dst=/app/test_renderer.py,readonly \
             --entrypoint python3 picsum-renderer:ci \
             -m unittest -v test_renderer
-      - run: make disposable-cluster-smoke IMAGE=arprt:ci LOAD_IMAGE=true
 
   helm:
     needs: changes
@@ -94,8 +93,9 @@ jobs:
       fail-fast: false
       matrix:
         client: [3, 4]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

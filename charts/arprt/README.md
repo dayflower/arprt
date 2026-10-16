@@ -11,8 +11,10 @@ release-specific naming does not support multiple controllers in one namespace.
 
 ## Local installation
 
-Use a fresh installation. Existing Kustomize resources and differently owned
-CRDs are not automatically adopted. The commands below assume `helm` is
+Helm is the sole supported controller installation path. Use a fresh
+installation; existing resources and differently owned CRDs are not automatically
+adopted. Existing operators must read the
+[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations). The commands below assume `helm` is
 installed on your `PATH`. From the repository root:
 
 ```sh
@@ -151,6 +153,6 @@ assembling dependencies after schema changes.
 build outputs; always run `dependency build` before packaging. The parent package
 contains the dependency, so installation needs neither local chart sources nor
 dependency resolution. `make chart-check` checks both charts and package contents;
-`make helm-smoke` checks the full cluster lifecycle. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
+`make helm-smoke` checks the full cluster lifecycle and all four software smoke suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
 for client selection and the validation boundary. OCI publication and anonymous
 acceptance from published charts remain a separate distribution milestone.

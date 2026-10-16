@@ -17,7 +17,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 type object map[string]any
@@ -30,7 +33,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Println("PASS: chart render matrix, invalid values, Kustomize contracts and self-contained packages")
+	fmt.Println("PASS: chart render matrix, invalid values, deployment contracts and self-contained packages")
 }
 
 func command(helm string, args ...string) ([]byte, error) {
@@ -121,14 +124,6 @@ func run(helm, packages string) error {
 	}
 	defaultImage := defaults[0]["image"].(map[string]any)
 	expectedImage := fmt.Sprint(defaultImage["repository"], "@", defaultImage["digest"])
-	base := []object{}
-	for _, filename := range []string{"deployment.yaml", "rbac.yaml", "pvc.yaml", "service.yaml"} {
-		objs, err := readObjects(filepath.Join("config/default", filename))
-		if err != nil {
-			return err
-		}
-		base = append(base, objs...)
-	}
 	for _, name := range []struct{ release, namespace string }{{"arprt", "arprt"}, {"home", "custom-space"}} {
 		for _, bundled := range []bool{true, false} {
 			for _, existing := range []bool{false, true} {
@@ -148,7 +143,7 @@ func run(helm, packages string) error {
 					if err != nil {
 						return err
 					}
-					if err := check(objects, base, name.release, name.namespace, bundled, existing, jobs, expectedImage); err != nil {
+					if err := check(objects, name.release, name.namespace, bundled, existing, jobs, expectedImage); err != nil {
 						return fmt.Errorf("release=%s bundled=%t existing=%t jobs=%t: %w", name.release, bundled, existing, jobs, err)
 					}
 				}
@@ -265,7 +260,7 @@ func run(helm, packages string) error {
 			return err
 		}
 		if chart == "arprt" {
-			if err := check(objects, base, "home", "custom-space", true, false, true, expectedImage); err != nil {
+			if err := check(objects, "home", "custom-space", true, false, true, expectedImage); err != nil {
 				return err
 			}
 		} else {
@@ -312,20 +307,33 @@ func permissions(role rbacv1.Role) []string {
 	return result
 }
 
-func check(objects, base []object, release, namespace string, bundled, existing, jobs bool, image string) error {
-	var deployment, canonical appsv1.Deployment
+func check(objects []object, release, namespace string, bundled, existing, jobs bool, image string) error {
+	var deployment appsv1.Deployment
 	if err := one(objects, "Deployment", &deployment); err != nil {
 		return err
 	}
-	if err := one(base, "Deployment", &canonical); err != nil {
-		return err
-	}
 	name := release + "-arprt"
-	pod, original := deployment.Spec.Template.Spec, canonical.Spec.Template.Spec
+	pod := deployment.Spec.Template.Spec
 	if len(pod.Containers) != 1 || deployment.Spec.Replicas == nil {
 		return fmt.Errorf("expected one controller container and replica setting")
 	}
-	controller, originalController := pod.Containers[0], original.Containers[0]
+	controller := pod.Containers[0]
+	expectedPodSecurity := &corev1.PodSecurityContext{
+		RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), FSGroup: ptr.To(int64(1000)),
+		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
+	expectedSecurity := &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true),
+		Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+	}
+	expectedResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
+	}
+	probe := func(path string) *corev1.Probe {
+		return &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: path, Port: intstr.FromString("probes")}}}
+	}
+
 	claim := name + "-data"
 	if existing {
 		claim = "external-data"
@@ -333,10 +341,12 @@ func check(objects, base []object, release, namespace string, bundled, existing,
 	labels := map[string]string{"app.kubernetes.io/name": "arprt", "app.kubernetes.io/instance": release}
 	if err := require(deployment.Name == name && deployment.Namespace == namespace && *deployment.Spec.Replicas == 1 && deployment.Spec.Strategy.Type == appsv1.RecreateDeploymentStrategyType &&
 		reflect.DeepEqual(deployment.Spec.Selector.MatchLabels, labels) && reflect.DeepEqual(deployment.Spec.Template.Labels, labels) && pod.ServiceAccountName == name &&
-		reflect.DeepEqual(pod.SecurityContext, original.SecurityContext) && reflect.DeepEqual(controller.SecurityContext, originalController.SecurityContext) &&
-		reflect.DeepEqual(controller.VolumeMounts, originalController.VolumeMounts) && controller.Image == image &&
-		reflect.DeepEqual(controller.Resources, originalController.Resources) && reflect.DeepEqual(controller.LivenessProbe, originalController.LivenessProbe) && reflect.DeepEqual(controller.ReadinessProbe, originalController.ReadinessProbe) &&
-		len(pod.Volumes) == 1 && pod.Volumes[0].PersistentVolumeClaim != nil && pod.Volumes[0].PersistentVolumeClaim.ClaimName == claim, "Deployment differs from fixed Kustomize contracts"); err != nil {
+		reflect.DeepEqual(pod.SecurityContext, expectedPodSecurity) && reflect.DeepEqual(controller.SecurityContext, expectedSecurity) &&
+		reflect.DeepEqual(controller.VolumeMounts, []corev1.VolumeMount{{Name: "data", MountPath: "/var/lib/arprt"}}) && controller.Image == image &&
+		reflect.DeepEqual(controller.Resources, expectedResources) && reflect.DeepEqual(controller.LivenessProbe, probe("/healthz")) && reflect.DeepEqual(controller.ReadinessProbe, probe("/readyz")) &&
+		len(pod.Volumes) == 1 && pod.Volumes[0].PersistentVolumeClaim != nil && pod.Volumes[0].Name == "data" && !pod.Volumes[0].PersistentVolumeClaim.ReadOnly && pod.Volumes[0].PersistentVolumeClaim.ClaimName == claim &&
+		pod.TerminationGracePeriodSeconds != nil && *pod.TerminationGracePeriodSeconds == 30 &&
+		reflect.DeepEqual(controller.Ports, []corev1.ContainerPort{{Name: "byos", ContainerPort: 8080}, {Name: "metrics", ContainerPort: 8082}, {Name: "probes", ContainerPort: 8081}}), "Deployment violates fixed security/storage/runtime contracts"); err != nil {
 		return err
 	}
 	jobClaim := ""
@@ -356,30 +366,47 @@ func check(objects, base []object, release, namespace string, bundled, existing,
 	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 11 || len(controller.Args) != 12 {
 		return fmt.Errorf("runtime defaults or environment/argument set differs")
 	}
+	expectedEnvironment := map[string]corev1.EnvVarSource{
+		"POD_NAMESPACE": {FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"}},
+		"POD_NAME":      {FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}},
+	}
+	for env, key := range map[string]string{
+		"PUBLIC_BASE_URL": "publicBaseURL", "PROXY_STRIPS_PREFIX": "proxyStripsPrefix", "ENABLE_SETUP": "setupEnabled",
+		"DEVICE_REFRESH_SECONDS": "deviceRefreshSeconds", "OVERLAY_TIME_ZONE": "overlayTimeZone", "STORAGE_MAX_BYTES": "storageMaxBytes",
+		"STORAGE_MIN_FREE_BYTES": "storageMinFreeBytes", "JOB_CONCURRENCY": "jobConcurrency", "JOB_DEADLINE_SECONDS": "jobDeadlineSeconds",
+	} {
+		expectedEnvironment[env] = corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: config.Name}, Key: key}}
+	}
 	for _, env := range controller.Env {
-		if env.ValueFrom == nil {
-			return fmt.Errorf("literal runtime environment %s", env.Name)
+		expected, ok := expectedEnvironment[env.Name]
+		if !ok || env.ValueFrom == nil || env.Value != "" || !reflect.DeepEqual(*env.ValueFrom, expected) {
+			return fmt.Errorf("broken runtime environment reference %s", env.Name)
 		}
-		if ref := env.ValueFrom.ConfigMapKeyRef; ref != nil {
-			if ref.Name != config.Name || config.Data[ref.Key] == "" {
-				return fmt.Errorf("broken ConfigMap reference %s", env.Name)
-			}
-			if env.Name != "PUBLIC_BASE_URL" && !contains(controller.Args, "--"+map[string]string{"PROXY_STRIPS_PREFIX": "proxy-strips-prefix", "ENABLE_SETUP": "enable-setup", "DEVICE_REFRESH_SECONDS": "device-refresh-seconds", "OVERLAY_TIME_ZONE": "overlay-time-zone", "STORAGE_MAX_BYTES": "storage-max-bytes", "STORAGE_MIN_FREE_BYTES": "storage-min-free-bytes", "JOB_CONCURRENCY": "job-concurrency", "JOB_DEADLINE_SECONDS": "job-deadline-seconds"}[env.Name]+"=$("+env.Name+")") {
-				return fmt.Errorf("unwired setting %s", env.Name)
-			}
-		} else if ref := env.ValueFrom.FieldRef; ref == nil || (env.Name == "POD_NAMESPACE" && ref.FieldPath != "metadata.namespace") || (env.Name == "POD_NAME" && ref.FieldPath != "metadata.name") {
-			return fmt.Errorf("broken downward API reference")
+		delete(expectedEnvironment, env.Name)
+		if env.Name != "PUBLIC_BASE_URL" && !strings.HasPrefix(env.Name, "POD_") && !contains(controller.Args, "--"+map[string]string{"PROXY_STRIPS_PREFIX": "proxy-strips-prefix", "ENABLE_SETUP": "enable-setup", "DEVICE_REFRESH_SECONDS": "device-refresh-seconds", "OVERLAY_TIME_ZONE": "overlay-time-zone", "STORAGE_MAX_BYTES": "storage-max-bytes", "STORAGE_MIN_FREE_BYTES": "storage-min-free-bytes", "JOB_CONCURRENCY": "job-concurrency", "JOB_DEADLINE_SECONDS": "job-deadline-seconds"}[env.Name]+"=$("+env.Name+")") {
+			return fmt.Errorf("unwired setting %s", env.Name)
 		}
 	}
-	var role, baseRole rbacv1.Role
+	if len(expectedEnvironment) != 0 {
+		return fmt.Errorf("missing runtime environment references")
+	}
+	var role rbacv1.Role
 	if err := one(objects, "Role", &role); err != nil {
 		return err
 	}
-	if err := one(base, "Role", &baseRole); err != nil {
-		return err
-	}
-	if !reflect.DeepEqual(permissions(role), permissions(baseRole)) {
-		return fmt.Errorf("RBAC grants differ from Kustomize")
+	// Exact grants are independent of installation manifests; deny additional
+	// resources, wildcard names/verbs and cluster-wide alternatives.
+	expectedRole := rbacv1.Role{Rules: []rbacv1.PolicyRule{
+		{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get", "list", "watch", "create", "delete"}},
+		{APIGroups: []string{""}, Resources: []string{"pods", "persistentvolumeclaims"}, Verbs: []string{"get", "list"}},
+		{APIGroups: []string{"", "events.k8s.io"}, Resources: []string{"events"}, Verbs: []string{"create", "patch"}},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"living-room-auth"}, Verbs: []string{"get", "patch"}},
+		{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"living-room-identity"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"arprt.dayflower.github.io"}, Resources: []string{"arprtscreens", "arprtdevices", "arprtplaylists"}, Verbs: []string{"get", "list", "watch"}},
+		{APIGroups: []string{"arprt.dayflower.github.io"}, Resources: []string{"arprtscreens/status", "arprtdevices/status", "arprtplaylists/status"}, Verbs: []string{"get", "patch", "update"}},
+	}}
+	if !reflect.DeepEqual(permissions(role), permissions(expectedRole)) {
+		return fmt.Errorf("RBAC violates explicit namespace/named Secret grants")
 	}
 	var account corev1.ServiceAccount
 	if err := one(objects, "ServiceAccount", &account); err != nil {
@@ -419,20 +446,15 @@ func check(objects, base []object, release, namespace string, bundled, existing,
 			}
 		case "PersistentVolumeClaim":
 			pvcs++
-			var pvc, originalPVC corev1.PersistentVolumeClaim
+			var pvc corev1.PersistentVolumeClaim
 			if err := one(objects, "PersistentVolumeClaim", &pvc); err != nil {
 				return err
 			}
-			if err := one(base, "PersistentVolumeClaim", &originalPVC); err != nil {
-				return err
-			}
-			// Kubernetes defaults an omitted volumeMode to Filesystem.
-			filesystem := corev1.PersistentVolumeFilesystem
-			if originalPVC.Spec.VolumeMode == nil {
-				originalPVC.Spec.VolumeMode = &filesystem
-			}
-			if pvc.Name != claim || !reflect.DeepEqual(pvc.Spec, originalPVC.Spec) {
-				return fmt.Errorf("PVC differs from filesystem RWO contract")
+			if pvc.Name != claim || !reflect.DeepEqual(pvc.Spec.AccessModes, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}) ||
+				pvc.Spec.VolumeMode == nil || *pvc.Spec.VolumeMode != corev1.PersistentVolumeFilesystem ||
+				pvc.Spec.StorageClassName != nil || pvc.Spec.Resources.Requests.Storage().String() != "1Gi" ||
+				pvc.Spec.Selector != nil || pvc.Spec.DataSource != nil || pvc.Spec.DataSourceRef != nil || pvc.Spec.VolumeName != "" {
+				return fmt.Errorf("PVC violates filesystem RWO contract")
 			}
 		case "Secret":
 			secrets++

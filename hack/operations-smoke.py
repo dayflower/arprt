@@ -6,10 +6,10 @@ existing device namespace; uses a temporary administrative PVC inspection Pod.
 """
 import argparse
 import overlay_checks
+import helm_install
 import hashlib
 import importlib.util
 import json
-import os
 from pathlib import Path
 import tempfile
 import urllib.request
@@ -25,36 +25,18 @@ kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', required=True)
+    helm_install.arguments(parser)
     args = parser.parse_args()
     namespace = 'arprt-phase6-' + uuid.uuid4().hex[:8]
-    created_crds, created_namespace = [], False
-    try:
-        for name in smoke.CRDS:
-            plural, group = name.split('.', 1)
-            path = str(ROOT / 'config/crd/bases' / (group + '_' + plural + '.yaml'))
-            existing = kubectl('get', 'crd', name, '--ignore-not-found', '-o', 'json').stdout.strip()
-            if existing:
-                expected = json.loads(kubectl('create', '--dry-run=client', '-f', path, '-o', 'json').stdout)['spec']
-                actual = json.loads(existing)['spec']
-                version = next(v for v in actual['versions'] if v['name'] == 'v1alpha1')
-                if actual['group'] != expected['group'] or actual['scope'] != expected['scope'] or version['schema'] != expected['versions'][0]['schema']:
-                    raise RuntimeError('installed CRD contract differs; refusing to modify it')
-            else:
-                kubectl('create', '-f', path)
-                created_crds.append(name)
-                kubectl('wait', '--for=condition=Established', 'crd/' + name, '--timeout=30s')
-        kubectl('create', 'namespace', namespace)
-        created_namespace = True
-        with tempfile.TemporaryDirectory(prefix='arprt-operations-') as temporary:
-            directory = Path(temporary)
-            (directory / 'kustomization.yaml').write_text(json.dumps({
-                'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization', 'namespace': namespace,
-                'resources': [os.path.relpath(ROOT / p, directory) for p in ['config/default', 'examples/http-get', 'examples/http-post', 'examples/job']],
-                'images': [smoke.kustomize_image(args.image)],
-            }))
-            kubectl('apply', '--validate=strict', '-k', str(directory))
-            for name in ['arprt', 'example-renderer', 'device-status-renderer']:
+    with tempfile.TemporaryDirectory(prefix='arprt-operations-') as temporary:
+        directory = Path(temporary)
+        installation = helm_install.Installation(args, namespace, directory)
+        try:
+            installation.install()
+
+            for example in ['http-get', 'http-post', 'job']:
+                helm_install.apply_example(namespace, example)
+            for name in ['arprt-arprt', 'example-renderer', 'device-status-renderer']:
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + name, '--timeout=180s')
 
             def resource(kind, name):
@@ -97,7 +79,7 @@ def main():
                 'securityContext': {'runAsUser': 1000, 'runAsGroup': 1000, 'fsGroup': 1000},
                 'containers': [{'name': 'inspect', 'image': 'busybox:1.37.0', 'command': ['sleep', '3600'],
                                 'volumeMounts': [{'name': 'data', 'mountPath': '/data'}]}],
-                'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-data'}}]}}
+                'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': 'arprt-arprt-data'}}]}}
             controller_pods = json.loads(kubectl('-n', namespace, 'get', 'pods', '-l', 'app.kubernetes.io/name=arprt', '-o', 'json').stdout)['items']
             pod['spec']['nodeName'] = controller_pods[0]['spec']['nodeName']
             (directory / 'inspector.json').write_text(json.dumps(pod))
@@ -137,16 +119,8 @@ def main():
                 assert fetch(base, composite_route) == composite_bytes
             patch('arprtdevice', 'living-room', {'spec': {'screenRef': {'name': 'photo'}}})
             patch('arprtscreen', 'photo', {'spec': {'overlay': None}})
-            standard_args = ['--namespace=$(POD_NAMESPACE)', '--job-pvc=arprt-data', '--metrics-bind-address=:8082']
-
-            def runtime_args(values):
-                deployment = resource('deployment', 'arprt')
-                container = deployment['spec']['template']['spec']['containers'][0]
-                container['args'] = values
-                patch('deployment', 'arprt', {'spec': {'template': {'spec': {'containers': [container]}}}})
-                kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt', '--timeout=180s')
-
-            runtime_args(standard_args + ['--storage-max-bytes=1'])
+            installation.settings['storage'] = {'maxBytes': 1}
+            installation.upgrade()
             patch('arprtscreen', 'photo', {'spec': {'refreshInterval': '1s'}})
             assert ready_display()['image_url'] == result['image_url']
             conditions = {c['type']: c for c in resource('arprtdevice', 'living-room')['status']['conditions']}
@@ -158,29 +132,27 @@ def main():
                 assert 'arprt_storage_errors_total{operation="capacity"}' in metrics
                 for sensitive in [headers['ID'], headers['Access-Token'], 'living-room', 'screenUID', 'contextDigest']:
                     assert sensitive not in metrics, 'sensitive/high-cardinality metrics'
-            runtime_args(standard_args)
+            installation.settings.pop('storage')
+            installation.upgrade()
             assert ready_display()['status'] == 0
             print('PASS: capacity admission preserves stale success and issued URL; metrics redact identities', flush=True)
 
             # HTTP-only startup must also collect abandoned data without touching issued bytes.
             orphan = 'f' * 64
             inspect('printf orphan > /data/blobs/' + orphan + '.png; touch -d 2020-01-01 /data/blobs/' + orphan + '.png')
-            runtime_args(['--namespace=$(POD_NAMESPACE)', '--metrics-bind-address=:8082'])
+            installation.settings['jobs'] = {'enabled': False}
+            installation.upgrade()
             wait(lambda: inspect('test ! -e /data/blobs/' + orphan + '.png && printf removed || true') == 'removed', 75)
             with forwarded(namespace, 8080, directory) as base:
                 assert fetch(base, image_route).startswith(b'\x89PNG')
-            logs = kubectl('-n', namespace, 'logs', 'deployment/arprt').stdout
+            logs = kubectl('-n', namespace, 'logs', 'deployment/arprt-arprt').stdout
             assert headers['Access-Token'] not in logs and headers['ID'] not in logs
             with forwarded(namespace, 8080, directory) as base:
                 assert fetch(base, composite_route) == composite_bytes
             print('PASS: graceful restart, HTTP-only GC, base/composite issued URL retention and redacted logs', flush=True)
-    finally:
-        if created_namespace:
-            kubectl('delete', 'namespace', namespace, '--wait=true', '--timeout=120s')
-        for name in created_crds:
-            if not json.loads(kubectl('get', name, '--all-namespaces', '-o', 'json').stdout)['items']:
-                kubectl('delete', 'crd', name)
-        print('Disposable operations test resources removed; existing CRDs untouched')
+        finally:
+            installation.cleanup()
+            print('Disposable Helm test resources removed; existing CRDs untouched')
 
 
 if __name__ == '__main__':
