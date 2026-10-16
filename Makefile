@@ -9,10 +9,12 @@ VERSION ?= dev
 REVISION ?= $(shell git rev-parse HEAD)
 KIND_VERSION := v0.33.0
 KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
-HELM_VERSION := v4.3.0
+HELM_VERSION ?= v4.3.0
+HELM3_VERSION := v3.21.4
+CHART_OUTPUT ?= $(CURDIR)/bin/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check
+.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke helm3-version
 
 tools: bin/controller-gen
 
@@ -37,8 +39,36 @@ crd-chart-check: $(HELM)
 	$(HELM) lint --strict charts/arprt-crds --kube-version 1.36.0
 	$(GO) run ./hack/crd-chart --check --helm $(HELM)
 
+helm3-version:
+	@echo $(HELM3_VERSION)
+
+chart-dependencies: $(HELM)
+	rm -rf charts/arprt/charts
+	$(HELM) dependency build charts/arprt --skip-refresh
+	git diff --exit-code -- charts/arprt/Chart.lock
+
+chart-lint: chart-dependencies
+	$(HELM) lint --strict charts/arprt-crds --kube-version 1.36.0
+	$(HELM) lint --strict charts/arprt --kube-version 1.36.0 --set byos.publicBaseURL=https://byos.example.test/arprt
+
+chart-package: chart-dependencies
+	mkdir -p "$(CHART_OUTPUT)"
+	$(HELM) package charts/arprt-crds --destination "$(CHART_OUTPUT)"
+	$(HELM) package charts/arprt --destination "$(CHART_OUTPUT)"
+
+chart-check: crd-chart-check chart-lint chart-package
+	$(GO) run ./hack/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+
+# Both entrypoints own their kind cluster and kubeconfig, including failure cleanup.
+helm-smoke: bin/kind chart-package
+	PATH="$(CURDIR)/bin:$$PATH" python3 hack/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,)
+
+# Available once the OCI charts are published; never falls back to local sources.
+helm-published-smoke: bin/kind $(HELM)
+	PATH="$(CURDIR)/bin:$$PATH" python3 hack/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)"
+
 fmt:
-	gofmt -w api cmd internal hack/crd-chart
+	gofmt -w api cmd internal hack/crd-chart hack/chart-check
 
 vet:
 	$(GO) vet ./...
@@ -51,9 +81,9 @@ test:
 
 verify: manifests release-check
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
-	$(MAKE) crd-chart-check
+	$(MAKE) chart-check
 	$(GO) mod tidy -diff
-	@test -z "$$(gofmt -l api cmd internal hack/crd-chart)"
+	@test -z "$$(gofmt -l api cmd internal hack/crd-chart hack/chart-check)"
 	$(MAKE) vet test build
 
 integration: manifests bin/setup-envtest $(HELM)

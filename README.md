@@ -32,9 +32,10 @@ patch releases within minor 1.36 remain supported without separate envtest runs.
 
 A local [controller Helm chart](charts/arprt/README.md) is available for fresh
 installations, with CRDs bundled by default. The [CRD-only chart](charts/arprt-crds/README.md)
-also supports separate management. Chart publication and full controller Helm
-lifecycle validation are separate milestones; the installation below uses
-Kustomize. See
+also supports separate management. Helm 3.21.4 and 4.3.0 are checked for
+installation, compatible upgrades, retained state and same-owner reinstall on
+Kubernetes 1.36. Chart publication and anonymous public-chart acceptance remain
+separate milestones; the installation below uses Kustomize. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) before changing
 ownership or deleting retained CRDs.
 

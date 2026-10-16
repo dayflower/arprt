@@ -55,4 +55,6 @@ Using `templates/` allows Helm to update schemas, unlike its special `crds/`
 installation path. See [DEVELOP](../../notes/DEVELOP.md#crd-chart-generation-and-checks)
 for synchronization and semantic checks. Those development checks install and
 use the Makefile's pinned Helm client; this does not change your `helm` command
-or establish compatibility with other client versions.
+or establish compatibility with other client versions. Helm 3.21.4 and 4.3.0
+are checked for standalone and bundled lifecycle behavior; see
+[Helm checks](../../notes/DEVELOP.md#helm-chart-checks) for the full validation scope.

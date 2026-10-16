@@ -10,7 +10,7 @@ runtime administration and [RENDERERS](RENDERERS.md) for example usage.
 Use Go, Make, a C compiler for race tests, Python 3 for examples/smoke/release checks,
 and Docker for images. The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest/kind and the kind node image;
-it also pins the Helm client used for CRD chart checks.
+it also pins the Helm 3 and Helm 4 clients used for chart checks.
 [go.mod](../go.mod) pins dependencies and [CI](../.github/workflows/ci.yaml)
 defines the Kubernetes test version.
 Use those files when changing versions rather than adding another version list.
@@ -37,8 +37,9 @@ make verify
 ```
 
 `make verify` regenerates deepcopy/CRDs and chart copies, checks their diff, checks module tidiness
-and formatting, checks release guards/digest wiring and the CRD chart, then runs vet, all race tests
-and the controller build. It does not run API integration or cluster tests. For API changes, edit types/validation
+and formatting, checks release guards/digest wiring and both charts (including
+dependencies, templates and packages), then runs vet, all race tests and the
+controller build. It does not run API integration or cluster tests. For API changes, edit types/validation
 markers in [types.go](../api/v1alpha1/types.go), then run `make manifests` and
 include both the types and generated files in the change. `make generate` only
 regenerates deepcopy code. `make fmt` applies Go formatting.
@@ -72,9 +73,10 @@ checks and the chart copies in its generated Git diff check, so existing CI
 and release checks exercise them.
 
 The Makefile selects the Helm version; [install-helm.py](../hack/install-helm.py)
-downloads the official checksummed binary into ignored `bin/`. The current
-checks use Helm 4; this does not establish compatibility with other clients.
-The full controller chart lifecycle/client matrix is a separate check scope.
+downloads the official checksummed binary into ignored `bin/`. The checked
+clients are Helm 3.21.4 and Helm 4.3.0. Other client versions are unverified.
+Use `HELM_VERSION` to select a pinned client for any chart or integration target;
+`make helm3-version` prints the Helm 3 pin for CI.
 `make integration ENVTEST_K8S_VERSION=1.36.0` also exercises the CRD chart on a
 disposable API server: fresh install, a real compatible optional-field schema
 upgrade, preservation of existing CR/CRD UIDs, uninstall/reinstall with the same
@@ -86,8 +88,9 @@ fixtures exist only in temporary chart copies, never in production API types.
 The [controller chart](../charts/arprt/README.md) packages the existing namespace
 Deployment and supporting resources. Its exact `arprt-crds` dependency is pinned
 in `Chart.yaml` and committed `Chart.lock`, using a local source for development.
-Run `make crd-chart-check`, then `bin/helm-v4.3.0 dependency build charts/arprt --skip-refresh`
-after CRD changes and before linting or packaging. Dependency archives under
+Run `make chart-dependencies` after CRD changes and before linting or packaging.
+It discards old dependency archives, rebuilds from the local source and checks
+that the committed lock file remains unchanged. Dependency archives under
 `charts/arprt/charts/` are ignored build outputs; parent packages include them,
 so consumers do not need the local source. Required public URL values must be
 supplied for lint/render/install. See the chart README for commands and settings.
@@ -100,8 +103,79 @@ and reintroduction of auth entries, and reuse without ownership of external
 Secrets/PVCs. It uses Helm's normal release operations without forced adoption.
 No keys or MACs are stored in chart fixtures or command output. Envtest has no
 kubelet or storage provisioner; it cannot verify mounted data, readiness or HTTP
-delivery. The full cluster lifecycle/client matrix and OCI publication remain
-separate milestones; current `make verify` checks only the CRD chart.
+delivery. The cluster lifecycle checks below cover those boundaries. OCI
+publication and anonymous acceptance from published charts remain a separate
+distribution milestone.
+
+## Helm chart checks
+
+```sh
+make chart-check
+make chart-check HELM_VERSION=v3.21.4
+make chart-package
+make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true
+make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true HELM_VERSION=v3.21.4
+```
+
+`chart-lint` assembles the dependency and strictly lints both charts with a valid
+public URL. `chart-package` assembles and writes both packages under ignored
+`bin/charts` (override with `CHART_OUTPUT`). `chart-check` combines these with the
+read-only CRD source/render checks and [chart-check](../hack/chart-check/main.go).
+The render matrix covers default/custom release names and namespaces, bundled
+and separate CRDs, created/existing PVCs and auth Secrets, and Jobs on/off. It
+checks namespace/name/selector references, named Secret permissions, Pod security,
+filesystem RWO storage and runtime wiring against Kustomize; invalid values must
+fail with a relevant diagnostic. Non-default settings check tag/digest precedence,
+metrics, ConfigMap wiring and rollout checksums. Archive-only renders from a
+temporary directory prove that parent packages contain the dependency without
+requiring sibling chart sources. These checks are part of `make verify`.
+Do not run dependency-writing targets concurrently in the same checkout.
+
+[helm-smoke.py](../hack/helm-smoke.py) owns a dedicated kind cluster and temporary
+kubeconfig, isolates Helm configuration and deletes the cluster on success,
+exceptions or termination. It installs packages without preinstalling CRDs,
+checks readiness through normal Helm waiting, then tests the bundled/default and
+separate/custom-release paths. It reuses the HTTP example by creating a ConfigMap
+from its Python source and applying its Deployment/Service manifest directly in
+the test namespace, without Kustomize or temporary copies. It also reuses the PNG
+fixture and smoke protocol/port-forward helpers. Real Jobs check the claim
+reference, mounted context/output and same-node execution. Config upgrades and
+same-owner reinstalls must preserve CR/CRD/PVC UIDs, generated auth, registered
+identity and authenticated fetching of a previously issued URL. Reinstall also
+exercises explicit existing storage, external auth and Jobs disabled before
+resuming normal management.
+Separately owned CRDs must remain unchanged, including their resource versions,
+through controller operations;
+their uninstall retains CRs. Named, undeclared and cross-namespace RBAC are probed.
+
+A temporary parent package adds an optional playlist field only to its embedded
+CRD schema. The old schema must reject it with strict validation; a parent upgrade
+must accept and persist it while preserving existing resources. The dedicated
+cluster removes this fixture before the next scenario. Existing Kustomize smoke
+scripts still refuse mismatched schemas and never see this fixture. No production
+API field or install-order hook is introduced.
+
+PR CI runs chart checks, API integration and Helm smoke on both pinned clients.
+Image releases also gate publication on this matrix on native amd64/arm64 runners,
+using the exact archived image that already passed the Kustomize smoke matrix.
+Local software checks do not establish physical-device or additional storage
+support, cross-major Helm release migration, downgrade safety or ownership transfer.
+
+Once public OCI charts exist, run anonymous retrieval and the same lifecycle
+matrix without local sources or preloaded controller images:
+
+```sh
+make helm-published-smoke \
+  OCI_CHART_REPOSITORY=oci://ghcr.io/dayflower/charts CHART_VERSION=0.1.0 \
+  IMAGE=ghcr.io/dayflower/arprt@sha256:<published-index-digest>
+```
+
+Use the actual published repository/version/index digest; the repository above is
+an example, not an available distribution endpoint. This target uses empty Helm
+registry and Docker configurations, pulls both chart packages, and never falls
+back to local charts. Run it with each pinned client when accepting publication.
+Until that succeeds, local packaging/lifecycle evidence is not public-artifact
+acceptance.
 
 ## Local controller
 

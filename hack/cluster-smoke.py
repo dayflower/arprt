@@ -40,9 +40,9 @@ def wait(check, timeout=60):
 
 
 @contextmanager
-def forwarded(namespace, port, directory):
+def forwarded(namespace, port, directory, target='deployment/arprt'):
     with (directory / ('forward-' + str(port))).open('w+') as log:
-        process = subprocess.Popen(['kubectl', '-n', namespace, 'port-forward', 'deployment/arprt', ':' + str(port)], stdout=log, stderr=log)
+        process = subprocess.Popen(['kubectl', '-n', namespace, 'port-forward', target, ':' + str(port)], stdout=log, stderr=log)
         try:
             def ready():
                 log.seek(0)
@@ -54,6 +54,16 @@ def forwarded(namespace, port, directory):
         finally:
             process.terminate()
             process.wait(timeout=10)
+
+
+def request(base, path, headers):
+    """Return protocol status/headers/body without logging device credentials."""
+    req = urllib.request.Request(base + path, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.status, response.headers, response.read()
+    except urllib.error.HTTPError as response:
+        return response.code, response.headers, response.read()
 
 
 def kustomize_image(image):
@@ -150,12 +160,7 @@ def main():
                        'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91', 'RSSI': '-48'}
 
             def fetch(base, path, authenticated=True, request_headers=None):
-                req = urllib.request.Request(base + path, headers=(request_headers or headers) if authenticated else {})
-                try:
-                    with urllib.request.urlopen(req, timeout=15) as response:
-                        return response.status, response.headers, response.read()
-                except urllib.error.HTTPError as response:
-                    return response.code, response.headers, response.read()
+                return request(base, path, (request_headers or headers) if authenticated else {})
 
             def display(base, path):
                 status, _, body = fetch(base, path + '/api/display')
