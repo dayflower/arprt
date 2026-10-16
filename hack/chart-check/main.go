@@ -27,7 +27,7 @@ type object map[string]any
 
 func main() {
 	helm := flag.String("helm", "helm", "Helm executable")
-	packages := flag.String("packages", "bin/charts", "assembled chart packages")
+	packages := flag.String("packages", "dist/charts", "assembled chart packages")
 	flag.Parse()
 	if err := run(*helm, *packages); err != nil {
 		fmt.Fprintln(os.Stderr, err)

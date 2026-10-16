@@ -7,6 +7,13 @@ Copy [httproute.yaml](httproute.yaml) to private configuration and set:
 - The hostname to match `byos.publicBaseURL`.
 - The parent Gateway namespace/name and HTTPS listener to your existing Gateway.
 - The backend Service to `<release>-arprt` (`home-arprt` for release `home`).
+- The path prefix to the path in `byos.publicBaseURL` (`/arprt` here).
+
+Use the resolved Service name from the Helm installation for long release names;
+see [chart naming](../../charts/arprt/README.md#local-installation). Apply the
+HTTPRoute in the controller's namespace so its backend reference resolves there.
+The backend port is the BYOS Service's 8080; metrics and health probes have no
+route in this example.
 
 The Gateway must have a certificate for the hostname, allow HTTPRoutes from the
 controller namespace and be reachable through DNS. This example preserves

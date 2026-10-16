@@ -11,9 +11,10 @@ the [project support boundary](../../README.md#security-and-support-boundary):
 
 ## Local installation
 
-Helm 4 is required; Helm 3 is unsupported. The commands below assume `helm` is
-installed on your `PATH`. From the repository root, with a fresh cluster that
-does not already contain ARPRT CRDs:
+Helm 4 is required; Helm 4.3.0 is verified and Helm 3 is unsupported. The commands
+below assume the verified client is installed as `helm` on your `PATH`. OCI chart
+publication is pending. From the repository root, with a fresh cluster that
+does not already contain ARPRT CRDs, install directly from the chart directory:
 
 ```sh
 helm install arprt-crds ./charts/arprt-crds \
@@ -26,9 +27,11 @@ cluster-scoped. Release names and namespaces never change CRD names or the
 Use one owner for these CRDs. Existing Kustomize-managed or differently owned
 CRDs are not automatically adopted; ownership migration is outside the tested
 installation path. Existing operators must read the
-[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations). The [controller chart](../arprt/README.md) can include this
-chart as a dependency or use this separately managed installation. Published
-chart packages are a separate distribution milestone.
+[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations).
+The [controller chart](../arprt/README.md#separate-crd-management) can include this
+chart as a dependency or use this separately managed installation. In the latter
+case, keep `crds.enabled: false` in the controller's private values throughout
+its lifecycle. The standalone CRD chart has no dependencies to assemble.
 
 ## Updates and retained resources
 
@@ -36,7 +39,6 @@ Compatible chart upgrades update CRD schemas through normal Helm templates:
 
 ```sh
 helm upgrade arprt-crds ./charts/arprt-crds --namespace arprt --wait
-helm uninstall arprt-crds --namespace arprt
 ```
 
 Every CRD has `helm.sh/resource-policy: keep`, retaining it when uninstall or
@@ -45,6 +47,22 @@ CRDs remain. This annotation does not prevent schema updates or make rollback
 safe. Retained CRDs keep the original release ownership metadata. See
 [OPERATIONS](../../notes/OPERATIONS.md#helm-managed-crds) for ownership, backup,
 rollback and explicit removal.
+
+For separate management, upgrade compatible schemas before a controller that
+requires them, following the
+[upgrade procedure](../../notes/OPERATIONS.md#compatible-upgrades). With bundled
+management, upgrade the parent release; the dependency is part of that same
+release, including rollback. To uninstall a standalone CRD release while retaining
+its schemas and custom resources:
+
+```sh
+helm uninstall arprt-crds --namespace arprt --wait
+```
+
+Reinstall the compatible chart with the same release name and namespace to
+resume ownership. Uninstall does not stop controllers or delete their PVCs;
+coordinate controller lifecycle separately. Do not delete the release namespace
+as a substitute for uninstall.
 
 ## Generated schemas
 
