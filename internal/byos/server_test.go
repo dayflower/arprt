@@ -79,7 +79,7 @@ func loadDevice(t *testing.T, c client.Client) *api.ArprtDevice {
 }
 func pngFixture(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

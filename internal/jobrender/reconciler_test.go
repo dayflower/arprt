@@ -105,7 +105,7 @@ func finish(t *testing.T, r *Reconciler, d *api.ArprtDevice, output []byte, fail
 
 func png(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

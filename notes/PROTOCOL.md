@@ -26,7 +26,7 @@ BYOS examples:
   [refresh/backoff](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/lib/trmnl/src/refresh_interval.cpp).
 - [Official BYOS overview](https://docs.trmnl.com/go/diy/byos) for endpoint scope.
 
-Source inspection, [synthetic fixtures](../testdata/phase0/README.md) and
+Source inspection, [synthetic fixtures](../testdata/protocol/README.md) and
 [physical acceptance](DEVELOP.md#recorded-acceptance-baseline) are distinct evidence.
 Other model/firmware tuples require explicit compatibility review.
 
@@ -148,9 +148,9 @@ and assignment mode; see [DESIGN](DESIGN.md#rendering-and-assignment).
 ## Render Context v1
 
 The same JSON schema is used for POST bodies and immutable Job context files.
-The [complete fixture](../testdata/phase0/render-context-v1.json) and
-[no-telemetry fixture](../testdata/phase0/render-context-no-telemetry.json) are
-serialization examples used by tests; the [fractional-percentage fixture](../testdata/phase0/render-context-fractional-percent.json)
+The [complete fixture](../testdata/render-context/render-context-v1.json) and
+[no-telemetry fixture](../testdata/render-context/render-context-no-telemetry.json) are
+serialization examples used by tests; the [fractional-percentage fixture](../testdata/render-context/render-context-fractional-percent.json)
 adds an explicitly measured decimal value while preserving the old fixtures.
 
 | Field | Contract |
@@ -196,8 +196,8 @@ samples outside the opaque overlay; it performs no resampling or quantization
 and does not accept otherwise invalid renderer output. Generic PNG encoders often need
 explicit configuration to avoid their RGB/8-bit defaults.
 
-Both [grayscale](../testdata/phase0/target-gray4.png) and
-[indexed](../testdata/phase2/README.md) fixtures are maintained test inputs.
+Both [grayscale](../testdata/png/target-gray4.png) and
+[indexed](../testdata/png/README.md) fixtures are maintained test inputs.
 Job file/mount/exit requirements are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
 ## Controller overlays

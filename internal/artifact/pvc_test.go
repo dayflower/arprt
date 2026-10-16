@@ -19,7 +19,7 @@ func TestPublicationRecoveryOwnershipAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	png, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	png, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestDeviceAwareIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	png, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	png, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ import urllib.parse
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'hack/cluster-smoke.py')
+spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'tools/cluster-smoke.py')
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
@@ -27,14 +27,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
     args = parser.parse_args()
-    namespace = 'arprt-phase6-' + uuid.uuid4().hex[:8]
+    namespace = 'arprt-operations-' + uuid.uuid4().hex[:8]
     with tempfile.TemporaryDirectory(prefix='arprt-operations-') as temporary:
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
         try:
             installation.install()
 
-            for example in ['http-get', 'http-post', 'job']:
+            for example in ['http/gray-bands', 'http/device-status', 'job/gray-bands']:
                 helm_install.apply_example(namespace, example)
             for name in ['arprt-arprt', 'example-renderer', 'device-status-renderer']:
                 kubectl('-n', namespace, 'rollout', 'status', 'deployment/' + name, '--timeout=180s')
@@ -45,7 +45,7 @@ def main():
             def patch(kind, name, value):
                 kubectl('-n', namespace, 'patch', kind, name, '--type=merge', '-p', json.dumps(value))
 
-            kubectl('-n', namespace, 'apply', '-f', str(ROOT / 'config/samples/device.yaml'))
+            kubectl('-n', namespace, 'apply', '-f', str(ROOT / 'examples/custom-resources/device.yaml'))
             headers = {'ID': '02:00:00:00:00:01', 'Model': 'og', 'FW-Version': '1.8.17', 'Width': '800', 'Height': '480', 'Battery-Voltage': '3.91'}
             path = '/arprt/devices/' + namespace + '/living-room'
 

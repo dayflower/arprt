@@ -31,7 +31,7 @@ func TestContextFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile("../../testdata/phase0/" + fixture)
+		want, err := os.ReadFile("../../testdata/render-context/" + fixture)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +136,7 @@ func TestFractionalContextFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := os.ReadFile("../../testdata/phase0/render-context-fractional-percent.json")
+	fixture, err := os.ReadFile("../../testdata/render-context/render-context-fractional-percent.json")
 	if err != nil {
 		t.Fatal(err)
 	}

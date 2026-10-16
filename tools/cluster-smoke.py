@@ -63,14 +63,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
     args = parser.parse_args()
-    namespace = 'arprt-phase2-' + uuid.uuid4().hex[:8]
+    namespace = 'arprt-http-' + uuid.uuid4().hex[:8]
     with tempfile.TemporaryDirectory(prefix='arprt-smoke-') as temporary:
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
         try:
             installation.install()
 
-            kubectl('-n', namespace, 'create', 'configmap', 'renderer', '--from-file=renderer.py=' + str(ROOT / 'examples/http-get/renderer.py'))
+            kubectl('-n', namespace, 'create', 'configmap', 'renderer', '--from-file=renderer.py=' + str(ROOT / 'examples/renderers/http/gray-bands/renderer.py'))
 
             def apply(obj):
                 file = directory / 'resource.json'
@@ -87,7 +87,7 @@ def main():
             apply({'apiVersion': 'v1', 'kind': 'Service', 'metadata': {'name': 'renderer'}, 'spec': {
                 'selector': {'app': 'renderer'}, 'ports': [{'port': 8000, 'targetPort': 8000}]}})
             for sample in ['screens.yaml', 'device.yaml']:
-                kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'config/samples' / sample))
+                kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(ROOT / 'examples/custom-resources' / sample))
             kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p', json.dumps({'spec': {
                 'source': {'http': {'url': 'http://renderer:8000/?encoding=indexed'}}, 'refreshInterval': '5m', 'overlay': None}}))
             # Secret reads are restricted to the supplied auth and MAC sources.

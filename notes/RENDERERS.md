@@ -5,6 +5,8 @@ from the repository root and assume a paired `arprt/living-room` device using
 `screenRef`. When switching from a playlist, remove `playlistRef` before assigning
 `screenRef`; the two references are mutually exclusive. See [installation and
 pairing](../README.md#installation-and-pairing) for initial setup.
+The [example index](../examples/README.md) groups API configuration, HTTP/Job
+renderers and networking integrations by purpose.
 
 These examples are installed separately from the controller Helm release. They
 use namespace `arprt`; adapt every command and same-namespace reference when
@@ -80,32 +82,32 @@ output for that angle before delivery can resume.
 
 ## HTTP GET example
 
-The [minimal Python renderer](../examples/http-get/renderer.py) draws four gray
+The [minimal Python renderer](../examples/renderers/http/gray-bands/renderer.py) draws four gray
 bands using only the standard library and needs no Kubernetes API access.
-[Its screen](../examples/http-get/screen.yaml) selects `photo`; Kubernetes install
+[Its screen](../examples/renderers/http/gray-bands/screen.yaml) selects `photo`; Kubernetes install
 commands are in the README quickstart. For standalone use:
 
 ```sh
-python3 examples/http-get/renderer.py --port 8000
+python3 examples/renderers/http/gray-bands/renderer.py --port 8000
 ```
 
 The endpoint is `/render`; the controller supplies the target query. Append
 `?encoding=indexed` to the screen URL to exercise indexed output. Non-target
 query values are preserved. Grayscale and indexed output have synthetic fixtures
-under [testdata](../testdata/phase0/README.md).
+under [PNG fixtures](../testdata/png/README.md).
 
 ## HTTP POST example
 
-The [device-status renderer](../examples/http-post/renderer.py) displays device
+The [device-status renderer](../examples/renderers/http/device-status/renderer.py) displays device
 name, model, firmware, voltage and RSSI. It uses only Python's standard library,
 ignores unknown Context fields, shows UNKNOWN for missing observations and never
 infers percentage from voltage. Install and assign it:
 
 ```sh
 kubectl -n arprt create configmap device-status-renderer \
-  --from-file=renderer.py=examples/http-post/renderer.py
-kubectl -n arprt apply --validate=strict -f examples/http-post/renderer.yaml \
-  -f examples/http-post/screen.yaml
+  --from-file=renderer.py=examples/renderers/http/device-status/renderer.py
+kubectl -n arprt apply --validate=strict -f examples/renderers/http/device-status/renderer.yaml \
+  -f examples/renderers/http/device-status/screen.yaml
 kubectl -n arprt rollout status deployment/device-status-renderer
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"device-status"}}}'
@@ -114,29 +116,29 @@ kubectl -n arprt patch arprtdevice living-room --type=merge \
 Run it outside Kubernetes as an HTTP service:
 
 ```sh
-python3 examples/http-post/renderer.py --port 8000
+python3 examples/renderers/http/device-status/renderer.py --port 8000
 ```
 
 Or render the shared Context fixture directly:
 
 ```sh
-python3 examples/http-post/renderer.py \
-  --context testdata/phase0/render-context-v1.json --output /tmp/device-status.png
+python3 examples/renderers/http/device-status/renderer.py \
+  --context testdata/render-context/render-context-v1.json --output /tmp/device-status.png
 ```
 
-The complete [Context fixture](../testdata/phase0/render-context-v1.json) and
-[no-telemetry fixture](../testdata/phase0/render-context-no-telemetry.json) show
+The complete [Context fixture](../testdata/render-context/render-context-v1.json) and
+[no-telemetry fixture](../testdata/render-context/render-context-no-telemetry.json) show
 optional-value omission. POST receives current authenticated request observations
 overlaid on valid known state, with query and JSON targets agreeing.
 
 ## Job example and container requirements
 
-Install the [existing-image Job examples](../examples/job/screens.yaml):
+Install the [existing-image Job examples](../examples/renderers/job/gray-bands/screens.yaml):
 
 ```sh
 kubectl -n arprt create configmap job-example-image \
-  --from-file=image.png.b64=examples/job/image.png.b64
-kubectl -n arprt apply --validate=strict -f examples/job/screens.yaml
+  --from-file=image.png.b64=examples/renderers/job/gray-bands/image.png.b64
+kubectl -n arprt apply --validate=strict -f examples/renderers/job/gray-bands/screens.yaml
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"screenRef":{"name":"job-bands"}}}'
 ```
@@ -169,7 +171,7 @@ and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
 ## Picsum photo Job example
 
-The [Picsum renderer](../examples/job-picsum/renderer.py) downloads a random photo
+The [Picsum renderer](../examples/renderers/job/picsum/renderer.py) downloads a random photo
 from [Lorem Picsum](https://picsum.photos/) every 10 minutes and converts it to
 the accepted gray4 PNG format. It supports all four rotations and uses
 Floyd-Steinberg dithering, falling back to undithered quantization if needed to
@@ -195,7 +197,7 @@ black-and-white refresh for two-color images, but actual refresh behavior depend
 on its display state. This option does not guarantee a partial update on every
 delivery.
 
-The [screen](../examples/job-picsum/screen.yaml) enables timestamp, battery and
+The [screen](../examples/renderers/job/picsum/screen.yaml) enables timestamp, battery and
 Wi-Fi overlays with clockwise corner cycling: top-right, bottom-right,
 bottom-left, top-left. Corners advance on new deliveries, independently of photo
 generation. The timestamp is the photo's generation time; battery/Wi-Fi use
@@ -210,28 +212,28 @@ accessible to your cluster, replacing the synthetic registry below:
 
 ```sh
 picsum_image=registry.example.com/picsum-renderer:v1
-docker build -t "$picsum_image" examples/job-picsum
+docker build -t "$picsum_image" examples/renderers/job/picsum
 docker push "$picsum_image"
 ```
 
-Set `spec.source.job.renderer.image` in `examples/job-picsum/screen.yaml` to that
+Set `spec.source.job.renderer.image` in `examples/renderers/job/picsum/screen.yaml` to that
 image reference (prefer its pushed digest), then install and assign it:
 
 ```sh
-kubectl -n arprt apply --validate=strict -f examples/job-picsum/screen.yaml
+kubectl -n arprt apply --validate=strict -f examples/renderers/job/picsum/screen.yaml
 kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum"}}}'
 ```
 
 For standalone rendering, install the pinned
-[Python dependency](../examples/job-picsum/requirements.txt) in a virtual
+[Python dependency](../examples/renderers/job/picsum/requirements.txt) in a virtual
 environment, then use the shared Context fixture:
 
 ```sh
 python3 -m venv /tmp/arprt-picsum-venv
-/tmp/arprt-picsum-venv/bin/pip install -r examples/job-picsum/requirements.txt
-/tmp/arprt-picsum-venv/bin/python examples/job-picsum/renderer.py \
-  --context testdata/phase0/render-context-v1.json --output /tmp/picsum.png
+/tmp/arprt-picsum-venv/bin/pip install -r examples/renderers/job/picsum/requirements.txt
+/tmp/arprt-picsum-venv/bin/python examples/renderers/job/picsum/renderer.py \
+  --context testdata/render-context/render-context-v1.json --output /tmp/picsum.png
 ```
 
 Append `--input /path/to/photo.jpg` to render a local image without network
@@ -241,5 +243,5 @@ draws only the photo; controller overlays are added at delivery time.
 Run its conversion/download-boundary tests without external photo requests:
 
 ```sh
-/tmp/arprt-picsum-venv/bin/python -m unittest discover -s examples/job-picsum -v
+/tmp/arprt-picsum-venv/bin/python -m unittest discover -s examples/renderers/job/picsum -v
 ```

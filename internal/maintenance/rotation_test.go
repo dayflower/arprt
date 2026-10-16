@@ -31,7 +31,7 @@ func TestCollectRetainsDesiredRotationAndIssuedImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image, err := os.ReadFile("../../testdata/phase0/target-gray4.png")
+	image, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestCollectRetainsDesiredRotationAndIssuedImages(t *testing.T) {
 	var issuedDigest string
 	for _, unit := range []artifact.Unit{original, rotated} {
 		if unit == rotated {
-			image, err = os.ReadFile("../../testdata/phase2/target-indexed-gray4.png")
+			image, err = os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 			if err != nil {
 				t.Fatal(err)
 			}

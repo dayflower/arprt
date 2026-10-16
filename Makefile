@@ -28,15 +28,15 @@ generate: bin/controller-gen
 
 manifests: generate
 	bin/controller-gen crd:allowDangerousTypes=true paths=./api/... output:crd:artifacts:config=config/crd/bases
-	$(GO) run ./hack/crd-chart
+	$(GO) run ./tools/crd-chart
 
-$(HELM): hack/install-helm.py
-	python3 hack/install-helm.py $(HELM_VERSION) $@
+$(HELM): tools/install-helm.py
+	python3 tools/install-helm.py $(HELM_VERSION) $@
 
 # Read-only: catches embedded drift before regeneration can repair it.
 crd-chart-check: $(HELM)
 	$(HELM) lint --strict charts/arprt-crds --kube-version 1.36.0
-	$(GO) run ./hack/crd-chart --check --helm $(HELM)
+	$(GO) run ./tools/crd-chart --check --helm $(HELM)
 
 chart-dependencies: $(HELM)
 	rm -rf charts/arprt/charts
@@ -53,18 +53,18 @@ chart-package: chart-dependencies
 	$(HELM) package charts/arprt --destination "$(CHART_OUTPUT)"
 
 chart-check: crd-chart-check chart-lint chart-package
-	$(GO) run ./hack/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	$(GO) run ./tools/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Both entrypoints own their kind cluster and kubeconfig, including failure cleanup.
 helm-smoke: bin/kind chart-package
-	PATH="$(CURDIR)/bin:$$PATH" python3 hack/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,)
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,)
 
 # Available once the OCI charts are published; never falls back to local sources.
 helm-published-smoke: bin/kind $(HELM)
-	PATH="$(CURDIR)/bin:$$PATH" python3 hack/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)"
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)"
 
 fmt:
-	gofmt -w api cmd internal hack/crd-chart hack/chart-check
+	gofmt -w api cmd internal tools/crd-chart tools/chart-check
 
 vet:
 	$(GO) vet ./...
@@ -79,7 +79,7 @@ verify: manifests release-check
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
 	$(MAKE) chart-check
 	$(GO) mod tidy -diff
-	@test -z "$$(gofmt -l api cmd internal hack/crd-chart hack/chart-check)"
+	@test -z "$$(gofmt -l api cmd internal tools/crd-chart tools/chart-check)"
 	$(MAKE) vet test build
 
 integration: manifests bin/setup-envtest $(HELM)
@@ -90,17 +90,17 @@ docker-build:
 
 # Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
 cluster-smoke: chart-package
-	python3 hack/cluster-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
-	python3 hack/job-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
-	python3 hack/playlist-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
-	python3 hack/operations-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 tools/cluster-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 tools/job-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 tools/playlist-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 tools/operations-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Release helpers never use the operator's selected kubeconfig context.
 bin/kind:
 	GOBIN=$(CURDIR)/bin $(GO) install sigs.k8s.io/kind@$(KIND_VERSION)
 
 disposable-cluster-smoke: bin/kind chart-package
-	PATH="$(CURDIR)/bin:$$PATH" ARPRT_HELM="$(HELM)" ARPRT_CHART_PACKAGES="$(CHART_OUTPUT)" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash hack/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
+	PATH="$(CURDIR)/bin:$$PATH" ARPRT_HELM="$(HELM)" ARPRT_CHART_PACKAGES="$(CHART_OUTPUT)" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash tools/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
 
 release-check:
-	python3 -m unittest discover -s hack -p 'test_*.py'
+	python3 -m unittest discover -s tools -p 'test_*.py'

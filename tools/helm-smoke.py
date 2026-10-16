@@ -20,7 +20,7 @@ import urllib.parse
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'hack/cluster-smoke.py')
+spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'tools/cluster-smoke.py')
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait = smoke.kubectl, smoke.wait
@@ -180,14 +180,14 @@ class Lifecycle:
 
     def prepare_delivery(self):
         # Reuse the real HTTP example; it stays outside the Helm release.
-        renderer = ROOT / 'examples/http-get'
+        renderer = ROOT / 'examples/renderers/http/gray-bands'
         kubectl('-n', self.namespace, 'create', 'configmap', 'example-renderer',
                 '--from-file=renderer.py=' + str(renderer / 'renderer.py'))
         kubectl('-n', self.namespace, 'apply', '--validate=strict', '-f', str(renderer / 'renderer.yaml'))
         kubectl('-n', self.namespace, 'rollout', 'status', 'deployment/example-renderer', '--timeout=180s')
         self.apply({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'living-room-identity'}, 'type': 'Opaque'})
         self.apply({'apiVersion': 'v1', 'kind': 'ConfigMap', 'metadata': {'name': 'input'},
-                    'data': {'IMAGE_PNG': base64.b64encode((ROOT / 'testdata/phase0/target-gray4.png').read_bytes()).decode()}})
+                    'data': {'IMAGE_PNG': base64.b64encode((ROOT / 'testdata/png/target-gray4.png').read_bytes()).decode()}})
         for name, source in [
             ('http', {'http': {'url': 'http://example-renderer:8000/?encoding=indexed'}}),
             ('job', {'job': {'renderer': {'image': 'busybox:1.37.0', 'command': ['sh', '-ec'],
@@ -229,7 +229,7 @@ class Lifecycle:
             wait(lambda: self.display(base)['status'] == 0, 120)
             value = self.display(base)
             require(smoke.request(base, urllib.parse.urlsplit(value['image_url']).path, self.headers)[2] ==
-                    (ROOT / 'testdata/phase0/target-gray4.png').read_bytes(), 'real Job did not publish its image')
+                    (ROOT / 'testdata/png/target-gray4.png').read_bytes(), 'real Job did not publish its image')
         wait(lambda: all(job.get('status', {}).get('succeeded') for job in self.get('jobs')['items']), 90)
 
     def exercise(self):
@@ -337,7 +337,7 @@ def main():
             # The optional schema fixture has already been removed by Lifecycle.
             run(args.helm, 'install', 'schemas', archives['arprt-crds'], '--namespace', 'smoke-schemas',
                 '--create-namespace', '--wait', '--timeout', '60s', env=env)
-            print(run('python3', ROOT / 'hack/run-cluster-smoke.py', '--image', args.image,
+            print(run('python3', ROOT / 'tools/run-cluster-smoke.py', '--image', args.image,
                       '--helm', args.helm, '--packages', archives['arprt'].parent, '--jobs', '2', env=env).stdout,
                   flush=True)
         except Exception:

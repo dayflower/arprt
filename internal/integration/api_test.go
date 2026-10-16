@@ -195,7 +195,7 @@ func TestAPIAndController(t *testing.T) {
 	}
 	// Apply every checked-in sample, preserving native Kubernetes container fields.
 	for _, file := range []string{"screens.yaml", "screen-overlay.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
-		b, err := os.ReadFile(filepath.Join("..", "..", "config", "samples", file))
+		b, err := os.ReadFile(filepath.Join("..", "..", "examples", "custom-resources", file))
 		if err != nil {
 			t.Fatal(err)
 		}

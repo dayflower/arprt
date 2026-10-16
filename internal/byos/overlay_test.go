@@ -434,7 +434,7 @@ func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T)
 	request(s, "GET", devicePath+"/api/display", auth(), nil)
 	d := loadDevice(t, c)
 	m := artifact.Metadata{Unit: artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: devicestate.Target(d)}, InputRevision: strings.Repeat("a", 64), Sequence: 1, AttemptID: "job-attempt", ContextDigest: strings.Repeat("b", 64), RenderedAt: time.Now().UTC().Add(-48 * time.Hour)}
-	b, err := os.ReadFile("../../testdata/phase2/target-indexed-gray4.png")
+	b, err := os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

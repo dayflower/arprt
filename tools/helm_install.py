@@ -64,16 +64,16 @@ def environment(directory):
 
 
 def apply_example(namespace, example):
-    directory = ROOT / 'examples' / example
-    if example in ('http-get', 'http-post'):
-        name = 'example-renderer' if example == 'http-get' else 'device-status-renderer'
+    directory = ROOT / 'examples/renderers' / example
+    if example in ('http/gray-bands', 'http/device-status'):
+        name = 'example-renderer' if example == 'http/gray-bands' else 'device-status-renderer'
         kubectl('-n', namespace, 'create', 'configmap', name,
                 '--from-file=renderer.py=' + str(directory / 'renderer.py'))
         kubectl('-n', namespace, 'apply', '--validate=strict', '-f', directory / 'renderer.yaml')
-    elif example == 'job':
+    elif example == 'job/gray-bands':
         kubectl('-n', namespace, 'create', 'configmap', 'job-example-image',
                 '--from-file=image.png.b64=' + str(directory / 'image.png.b64'))
-    filename = 'screens.yaml' if example == 'job' else 'screen.yaml'
+    filename = 'screens.yaml' if example == 'job/gray-bands' else 'screen.yaml'
     kubectl('-n', namespace, 'apply', '--validate=strict', '-f', directory / filename)
 
 

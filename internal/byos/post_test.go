@@ -41,7 +41,7 @@ func postScreen(t *testing.T, c client.Client) *api.ArprtScreen {
 
 func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 	b := pngFixture(t)
-	indexed, err := os.ReadFile("../../testdata/phase2/target-indexed-gray4.png")
+	indexed, err := os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}

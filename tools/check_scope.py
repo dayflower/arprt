@@ -16,7 +16,10 @@ def documentation(path):
 def physical_reuse_allowed(path):
     """Installation changes still require current-image deployment/TLS checks."""
     parts = PurePosixPath(path).parts
-    if documentation(path) or path.startswith(('.github/', 'hack/', 'charts/', 'examples/envoy-gateway/')):
+    # Historical names remain eligible because baseline comparisons include
+    # deleted paths and deliberately disable rename detection.
+    if documentation(path) or path.startswith(('.github/', 'tools/', 'hack/', 'charts/',
+                                               'examples/networking/envoy-gateway/', 'examples/envoy-gateway/')):
         return True
     return bool(parts and parts[0] in ('api', 'cmd', 'internal') and path.endswith('_test.go'))
 
