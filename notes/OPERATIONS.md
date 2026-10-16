@@ -305,9 +305,12 @@ and authenticated fetching of an already-issued URL before normal operation.
 
 API-server integration tests verify key and PVC UID retention, same-owner
 reinstall, removal/reintroduction and external-object non-ownership with the
-pinned Helm client. They do not exercise actual volumes, renderer Jobs or HTTP
-recovery through a Helm deployment; that cluster lifecycle matrix remains a
-separate validation milestone. Kustomize-to-Helm adoption, bundled-to-separate
+pinned Helm clients. The [dedicated kind lifecycle checks](DEVELOP.md#helm-chart-checks)
+also exercise mounted PVC state, HTTP/Job rendering and authenticated issued-URL
+recovery across config upgrades and same-owner reinstall, with bundled and
+separately managed CRDs. These checks use compatible temporary schema fixtures;
+they do not establish arbitrary version upgrades or safe rollback.
+Kustomize-to-Helm adoption, bundled-to-separate
 CRD transfer, release renaming and forced ownership changes remain outside the
 tested path. Use a fresh installation for initial Helm adoption; these reinstall
 steps are not migration instructions.

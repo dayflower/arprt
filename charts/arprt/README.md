@@ -127,8 +127,9 @@ See [controller state operations](../../notes/OPERATIONS.md#helm-controller-stat
 for compatible reinstall, existing-PVC recovery and validation limits, and
 [CRD operations](../../notes/OPERATIONS.md#helm-managed-crds) for CRD ownership.
 API-server tests verify generated-key/PVC UID retention and named Secret access.
-The full deployment, delivery and client matrix remains a separate validation
-milestone; these checks do not establish migration or downgrade support.
+Dedicated kind tests with Helm 3.21.4 and 4.3.0 also verify readiness, HTTP/Job
+rendering, compatible schema/config upgrades and issued-image recovery after
+same-owner reinstall. These checks do not establish migration or downgrade support.
 
 ## Validation and packaging
 
@@ -149,5 +150,7 @@ assembling dependencies after schema changes.
 `Chart.lock` pins the local dependency. Assembled `charts/` archives are ignored
 build outputs; always run `dependency build` before packaging. The parent package
 contains the dependency, so installation needs neither local chart sources nor
-dependency resolution. Publication and the full automated lifecycle/client
-matrix are separate milestones.
+dependency resolution. `make chart-check` checks both charts and package contents;
+`make helm-smoke` checks the full cluster lifecycle. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
+for client selection and the validation boundary. OCI publication and anonymous
+acceptance from published charts remain a separate distribution milestone.
