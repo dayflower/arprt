@@ -32,7 +32,7 @@ func TestJobDisplayOnlyReadsCompletedPair(t *testing.T) {
 		}
 	}
 	rev, _ := screen.InputRevision(sc.Spec)
-	u := artifact.Unit{Namespace: sc.Namespace, ScreenUID: string(sc.UID), DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	u := artifact.Unit{Namespace: sc.Namespace, ScreenUID: string(sc.UID), DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 	metadata := artifact.Metadata{Unit: u, ScreenGeneration: sc.Generation, InputRevision: rev, AttemptID: "job-1", Sequence: 1, RenderedAt: time.Now()}
 	m, err := s.Repository.Publish(ctx, metadata, pngFixture(t))
 	if err != nil {

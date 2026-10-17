@@ -84,7 +84,7 @@ func TestMixedScreenCycleRestartRetriesAndPending(t *testing.T) {
 				}
 			}
 			rev, _ := screen.InputRevision(job.Spec)
-			if _, err := s.Repository.Publish(ctx, artifact.Metadata{Unit: artifact.Unit{Namespace: "arprt", ScreenUID: "job-uid", DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}, InputRevision: rev, ScreenGeneration: 1, AttemptID: "job", Sequence: 1, RenderedAt: time.Now()}, b); err != nil {
+			if _, err := s.Repository.Publish(ctx, artifact.Metadata{Unit: artifact.Unit{Namespace: "arprt", ScreenUID: "job-uid", DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}, InputRevision: rev, ScreenGeneration: 1, AttemptID: "job", Sequence: 1, RenderedAt: time.Now()}, b); err != nil {
 				t.Fatal(err)
 			}
 			for i, uid := range append(order, order[0]) {

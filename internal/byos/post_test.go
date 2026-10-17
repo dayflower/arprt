@@ -45,6 +45,7 @@ func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	indexed = distinctFixture(normalizeFixture(t, indexed))
 	var fail atomic.Bool
 	var mu sync.Mutex
 	var contexts []render.Context
@@ -119,7 +120,7 @@ func TestPOSTTelemetryOwnershipFreshnessAndRestart(t *testing.T) {
 		t.Error("latest request or known-state context was lost", contexts)
 	}
 	mu.Unlock()
-	unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 	before, err := s.Repository.Latest(context.Background(), unit)
 	if err != nil || before.Sequence != 3 || len(before.ContextDigest) != 64 {
 		t.Fatal("POST context metadata not persisted", before, err)
@@ -202,29 +203,41 @@ func TestPOSTLateAttemptAndTimeout(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { _, err := s.POST.Image(context.Background(), screen, d, snapshot); done <- err }()
 	<-entered
-	latest, err := s.POST.Image(context.Background(), screen, d, snapshot)
-	if err != nil {
-		t.Fatal(err)
+	// A later queued attempt invalidates the active ticket even if it times out
+	// before reception. It cannot enter the executor while capacity is occupied.
+	queued, cancelQueued := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	_, err := s.POST.Image(queued, screen, d, snapshot)
+	cancelQueued()
+	if err == nil || calls.Load() != 1 {
+		t.Fatal("queued attempt bypassed admission", err)
 	}
 	close(release)
 	if err := <-done; !errors.Is(err, artifact.ErrObsolete) {
 		t.Fatal("late response was allowed to publish", err)
 	}
+	latest, err := s.POST.Image(context.Background(), screen, d, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stored, err := s.Repository.Latest(context.Background(), latest.Unit)
 	if err != nil || stored.AttemptID != latest.AttemptID {
 		t.Fatal("older attempt replaced latest success", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	s.POST.NewExecutor = func(string) render.Executor {
 		return executorFunc(func(ctx context.Context, _ render.Request) (render.Output, error) {
+			// Cancel only after the compatible fallback has been validated. A short
+			// wall-clock deadline can expire during that validation under race/load.
+			cancel()
 			<-ctx.Done()
 			return render.Output{}, ctx.Err()
 		})
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
+
 	stale, err := s.POST.Image(ctx, screen, d, snapshot)
 	if err == nil || stale.AttemptID != latest.AttemptID {
-		t.Fatal("timeout did not preserve latest success", err)
+		t.Fatal("renderer cancellation did not preserve latest success", err)
 	}
 }
 
@@ -291,7 +304,7 @@ func TestPOSTChangedInputsCannotPublish(t *testing.T) {
 			if err := <-done; !errors.Is(err, artifact.ErrObsolete) {
 				t.Fatal("obsolete input published", err)
 			}
-			_, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: snapshot.RenderTarget})
+			_, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: snapshot.RenderTarget, Output: render.CurrentTarget(snapshot.RenderTarget).Output})
 			if !errors.Is(err, artifact.ErrNotFound) {
 				t.Fatal("obsolete success changed pointer", err)
 			}

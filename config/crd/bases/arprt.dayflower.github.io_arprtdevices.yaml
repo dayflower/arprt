@@ -259,6 +259,12 @@ spec:
                 properties:
                   assignment:
                     type: string
+                  compatibilityFingerprint:
+                    description: |-
+                      CompatibilityFingerprint binds replay to output constraints, rotation and
+                      processing semantics. Omission denotes a legacy turn, never current replay.
+                    pattern: ^[a-f0-9]{64}$
+                    type: string
                   filename:
                     type: string
                   imageDigest:

@@ -328,7 +328,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 	}
 	expectedResources := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
-		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("512Mi")},
 	}
 	probe := func(path string) *corev1.Probe {
 		return &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: path, Port: intstr.FromString("probes")}}}
@@ -363,7 +363,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 		return err
 	}
 	expectedConfig := map[string]string{"publicBaseURL": "https://byos.example.test/arprt", "proxyStripsPrefix": "false", "setupEnabled": "true", "deviceRefreshSeconds": "300", "overlayTimeZone": "UTC", "storageMaxBytes": "805306368", "storageMinFreeBytes": "67108864", "jobConcurrency": "4", "jobDeadlineSeconds": "120"}
-	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 11 || len(controller.Args) != 12 {
+	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 12 || len(controller.Args) != 12 {
 		return fmt.Errorf("runtime defaults or environment/argument set differs")
 	}
 	expectedEnvironment := map[string]corev1.EnvVarSource{
@@ -378,6 +378,12 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 		expectedEnvironment[env] = corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: config.Name}, Key: key}}
 	}
 	for _, env := range controller.Env {
+		if env.Name == "GOMEMLIMIT" {
+			if env.Value != "384MiB" || env.ValueFrom != nil {
+				return fmt.Errorf("invalid controller GC budget")
+			}
+			continue
+		}
 		expected, ok := expectedEnvironment[env.Name]
 		if !ok || env.ValueFrom == nil || env.Value != "" || !reflect.DeepEqual(*env.ValueFrom, expected) {
 			return fmt.Errorf("broken runtime environment reference %s", env.Name)

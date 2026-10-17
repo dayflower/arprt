@@ -82,11 +82,11 @@ func TestChargingDeliveryCurrentInputsAndCache(t *testing.T) {
 	direct := poll(h)
 	base := baseImage(t, s, c, false)
 	yes := true
-	drawing, err := overlay.Normalize(base.Unit.Target, overlay.Settings{Items: []string{"battery"}, Margin: overlay.Margins{Horizontal: 8, Vertical: 4}}, base.RenderedAt, time.UTC, overlay.Telemetry{Charging: &yes}, overlay.TopRight)
+	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery"}, Margin: overlay.Margins{Horizontal: 8, Vertical: 4}}, base.RenderedAt, time.UTC, overlay.Telemetry{Charging: &yes}, overlay.TopRight)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := overlay.Compose(context.Background(), b, base.Unit.Target, drawing)
+	expected, err := overlay.ComposeResolved(context.Background(), b, base.Unit.ResolvedTarget(), drawing)
 	if err != nil || !bytes.Equal(imageBytes(t, s, direct), expected) {
 		t.Fatal("Screen margin/charging did not reach drawing", err)
 	}

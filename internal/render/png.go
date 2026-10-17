@@ -10,7 +10,7 @@ import (
 	"io"
 )
 
-// ValidatePNG enforces the reviewed OG contract before any publication.
+// ValidatePNG enforces the original OG contract for legacy persisted records.
 // Chunk lengths, CRCs and inflated scanlines are bounded independently of decode.
 func ValidatePNG(b []byte, t Target) error {
 	bad := errors.New("image must be a complete, bounded, noninterlaced 2-bit gray4 PNG matching the target")

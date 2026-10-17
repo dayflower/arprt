@@ -74,6 +74,8 @@ func TestAPIAndController(t *testing.T) {
 		{"two-sources", func(s *api.ArprtScreen) {
 			s.Spec.Source.Job = &api.JobSource{Renderer: api.RendererContainer{Image: "renderer:v1"}}
 		}},
+		{"resize-mode", func(s *api.ArprtScreen) { s.Spec.ImageProcessing = &api.ImageProcessing{ResizeMode: "cover"} }},
+		{"dithering", func(s *api.ArprtScreen) { s.Spec.ImageProcessing = &api.ImageProcessing{Dithering: "random"} }},
 		{"method", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.Method = "PUT" }},
 		{"post-interval", func(s *api.ArprtScreen) { s.Spec.Source.HTTP.Method = "POST"; s.Spec.RefreshInterval = "5m" }},
 		{"interval-zero", func(s *api.ArprtScreen) { s.Spec.RefreshInterval = "0s" }},
@@ -94,6 +96,22 @@ func TestAPIAndController(t *testing.T) {
 				t.Fatalf("expected schema rejection, got %v", err)
 			}
 		})
+	}
+	for i, policy := range []*api.ImageProcessing{nil, {}, {ResizeMode: "stretch", Dithering: "none"}, {Dithering: "bayer"}, {Dithering: "floyd-steinberg"}} {
+		s := validScreen(fmt.Sprintf("processing-%d", i))
+		s.Spec.ImageProcessing = policy
+		if err := c.Create(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(s), s); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 && s.Spec.ImageProcessing != nil {
+			t.Fatal("omitted policy was invented")
+		}
+		if i == 1 && (s.Spec.ImageProcessing.ResizeMode != "contain" || s.Spec.ImageProcessing.Dithering != "atkinson") {
+			t.Fatal("processing defaults missing", s.Spec.ImageProcessing)
+		}
 	}
 	for i, paths := range []struct{ context, image string }{
 		{"relative", "/work/out.png"}, {"/work/../context.json", "/work/out.png"}, {"/work/context.json", "/work//out.png"}, {"/work/context.json", "/work/out.png/"},

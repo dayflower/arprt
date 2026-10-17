@@ -43,6 +43,25 @@ spec:
             type: object
           spec:
             properties:
+              imageProcessing:
+                description: ImageProcessing controls normalization of renderer PNG
+                  inputs.
+                properties:
+                  dithering:
+                    default: atkinson
+                    enum:
+                    - atkinson
+                    - floyd-steinberg
+                    - bayer
+                    - none
+                    type: string
+                  resizeMode:
+                    default: contain
+                    enum:
+                    - contain
+                    - stretch
+                    type: string
+                type: object
               overlay:
                 description: Overlay controls optional controller bitmap drawing on
                   new deliveries.

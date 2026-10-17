@@ -15,6 +15,7 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -69,20 +70,15 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 	if err != nil {
 		return artifact.Metadata{}, err
 	}
-	u := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: input.RenderTarget}
+	u := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: input.RenderTarget, Output: render.CurrentTarget(input.RenderTarget).Output}
 	key := pair{u.Namespace, u.ScreenUID, u.DeviceUID}
 	p.mu.Lock()
-	old, err := p.Repository.Latest(ctx, u)
-	if err != nil && !errors.Is(err, artifact.ErrNotFound) {
-		p.mu.Unlock()
-		return artifact.Metadata{}, err
-	}
 	entry := p.attempts[key]
 	if entry == nil {
 		entry = &order{}
 		p.attempts[key] = entry
 	}
-	entry.sequence = max(entry.sequence, old.Sequence) + 1
+	entry.sequence++
 	entry.active++
 	sequence := entry.sequence
 	defer func() {
@@ -108,42 +104,85 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 		if !current {
 			return artifact.Metadata{}, artifact.ErrObsolete
 		}
-		return old, errors.New("render concurrency wait timed out")
+		return artifact.Metadata{}, errors.New("render concurrency wait timed out")
 	}
-	out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Context: &input})
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if entry.sequence != sequence {
-		return artifact.Metadata{}, artifact.ErrObsolete
-	}
-	if renderErr != nil {
-		return old, renderErr
-	}
-	// Re-read both desired state and observed target without informer delay.
-	// Pair-owned publication requires assignment membership; BYOS separately
-	// checks the complete assignment fingerprint before issuing the image.
-	var currentScreen api.ArprtScreen
-	var currentDevice api.ArprtDevice
-	if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
-		return artifact.Metadata{}, artifact.ErrObsolete
-	}
-	if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Status.Display == nil || devicestate.Target(&currentDevice) != u.Target {
-		return artifact.Metadata{}, artifact.ErrObsolete
-	}
-	if eligible, err := (assignment.Explicit{Reader: p.Reader}).Contains(work, &currentDevice, s); err != nil || !eligible {
-		return artifact.Metadata{}, artifact.ErrObsolete
-	}
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
-		return old, err
-	}
-	m := artifact.Metadata{Unit: u, ScreenGeneration: s.Generation, InputRevision: revision, AttemptID: hex.EncodeToString(id[:]), Sequence: sequence, ContextDigest: hex.EncodeToString(digest[:]), RenderedAt: time.Now().UTC()}
-	m, err = p.Repository.Publish(work, m, out.PNG)
-	if err != nil {
-		if errors.Is(err, artifact.ErrObsolete) {
-			return artifact.Metadata{}, err
+	var result artifact.Metadata
+	err = imageprocessing.RuntimeAdmission.Do(work, func(work context.Context) error {
+		old, err := p.Repository.Latest(work, u)
+		if err != nil && !errors.Is(err, artifact.ErrNotFound) {
+			return err
 		}
-		return old, err
-	}
-	return m, nil
+		result = old
+		policy, err := screen.ProcessingPolicy(s.Spec)
+		if err != nil {
+			return err
+		}
+		p.mu.Lock()
+		current := entry.sequence == sequence
+		p.mu.Unlock()
+		if !current {
+			result = artifact.Metadata{}
+			return artifact.ErrObsolete
+		}
+		out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Context: &input, Policy: policy})
+		renderedAt := out.RenderedAt
+		if renderedAt.IsZero() {
+			renderedAt = time.Now().UTC()
+		}
+		if renderErr == nil {
+			renderErr = imageprocessing.Process(work, func(ctx context.Context) error {
+				return u.ResolvedTarget().ValidateOutput(ctx, out.PNG)
+			})
+		}
+
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if entry.sequence != sequence {
+			result = artifact.Metadata{}
+			return artifact.ErrObsolete
+		}
+		if renderErr != nil {
+			return renderErr
+		}
+		// Re-read both desired state and observed target without informer delay.
+		// Pair-owned publication requires assignment membership; BYOS separately
+		// checks the complete assignment fingerprint before issuing the image.
+		var currentScreen api.ArprtScreen
+		var currentDevice api.ArprtDevice
+		if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
+			result = artifact.Metadata{}
+			return artifact.ErrObsolete
+		}
+		if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Status.Display == nil || devicestate.Target(&currentDevice) != u.Target {
+			result = artifact.Metadata{}
+			return artifact.ErrObsolete
+		}
+		if eligible, err := (assignment.Explicit{Reader: p.Reader}).Contains(work, &currentDevice, s); err != nil || !eligible {
+			result = artifact.Metadata{}
+			return artifact.ErrObsolete
+		}
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return err
+		}
+		publishSequence := old.Sequence
+		if repository, ok := p.Repository.(*artifact.PVC); ok {
+			publishSequence, err = repository.Sequence(work, u)
+			if err != nil {
+				return err
+			}
+		}
+		m := artifact.Metadata{Unit: u, ScreenGeneration: s.Generation, InputRevision: revision, AttemptID: hex.EncodeToString(id[:]), Sequence: publishSequence + 1, ContextDigest: hex.EncodeToString(digest[:]), RenderedAt: renderedAt}
+		m, err = p.Repository.Publish(work, m, out.PNG)
+		if err != nil {
+			if errors.Is(err, artifact.ErrObsolete) {
+				result = artifact.Metadata{}
+				return err
+			}
+			return err
+		}
+		result = m
+		return nil
+	})
+	return result, err
 }

@@ -18,6 +18,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/byos"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/render"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -37,6 +38,10 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 	t.Helper()
 	ctx := context.Background()
 	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := imageprocessing.Normalize(ctx, b, render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).ImageTarget(), imageprocessing.Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +112,7 @@ func verifyHTTPDelivery(t *testing.T, c client.Client, method string) {
 			}
 			defer image.Body.Close()
 			body, err := io.ReadAll(image.Body)
-			if err != nil || image.StatusCode != 200 || !bytes.Equal(body, b) {
+			if err != nil || image.StatusCode != 200 || !bytes.Equal(body, expected) {
 				t.Error("authenticated image fetch failed")
 			}
 		})

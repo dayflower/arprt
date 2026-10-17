@@ -70,6 +70,8 @@ type ScreenSource struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
 type ArprtScreenSpec struct {
+	// ImageProcessing controls normalization of renderer PNG inputs.
+	ImageProcessing *ImageProcessing `json:"imageProcessing,omitempty"`
 	// Overlay controls optional controller bitmap drawing on new deliveries.
 	Overlay *ScreenOverlay `json:"overlay,omitempty"`
 	Source  ScreenSource   `json:"source"`
@@ -79,6 +81,16 @@ type ArprtScreenSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9]+[hms])+$`
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('24h')",message="interval must be between 1s and 24h in whole seconds"
 	RefreshInterval string `json:"refreshInterval,omitempty"`
+}
+
+// ImageProcessing describes resizing and palette quantization intent.
+type ImageProcessing struct {
+	// +kubebuilder:default=contain
+	// +kubebuilder:validation:Enum=contain;stretch
+	ResizeMode string `json:"resizeMode,omitempty"`
+	// +kubebuilder:default=atkinson
+	// +kubebuilder:validation:Enum=atkinson;floyd-steinberg;bayer;none
+	Dithering string `json:"dithering,omitempty"`
 }
 
 // OverlayItem selects a display item; layout order is independent of array order.
@@ -173,13 +185,17 @@ type ArprtPlaylistList struct {
 
 // ScreenCycleStatus persists the last successful screen-cycle display response.
 type ScreenCycleStatus struct {
-	Assignment    string           `json:"assignment"`
-	ScreenUID     string           `json:"screenUID"`
-	InputRevision string           `json:"inputRevision"`
-	Target        DisplayStatus    `json:"target"`
-	ImageDigest   string           `json:"imageDigest"`
-	Filename      string           `json:"filename"`
-	ServedAt      metav1.MicroTime `json:"servedAt"`
+	// CompatibilityFingerprint binds replay to output constraints, rotation and
+	// processing semantics. Omission denotes a legacy turn, never current replay.
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
+	CompatibilityFingerprint string           `json:"compatibilityFingerprint,omitempty"`
+	Assignment               string           `json:"assignment"`
+	ScreenUID                string           `json:"screenUID"`
+	InputRevision            string           `json:"inputRevision"`
+	Target                   DisplayStatus    `json:"target"`
+	ImageDigest              string           `json:"imageDigest"`
+	Filename                 string           `json:"filename"`
+	ServedAt                 metav1.MicroTime `json:"servedAt"`
 }
 
 // HardwareIDSecretReference selects a required key in a same-namespace Secret.

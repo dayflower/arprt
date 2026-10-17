@@ -13,6 +13,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -192,20 +193,33 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 	if !good {
 		return r.failed(ctx, d, s, st, "RendererNotSuccessful")
 	}
-	b, err := r.Store.collect(a, st.Unit.Target)
-	if err != nil {
-		return r.failed(ctx, d, s, st, "CollectionFailed")
-	}
-	// Use direct API reads again after collection; status events never override
-	// UID, assignment, definition, target, or durable attempt ordering.
-	_, _, current, err := r.desired(ctx, client.ObjectKeyFromObject(d), st.ScreenName)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if !same(st, current) {
-		return ctrl.Result{RequeueAfter: time.Millisecond}, nil
-	}
-	return r.publishCompleted(ctx, d, s, st, job, b)
+	var result ctrl.Result
+	err = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+		b, err := r.Store.collectInput(ctx, a)
+		if err == nil {
+			policy, policyErr := screen.ProcessingPolicy(s.Spec)
+			err = policyErr
+			if err == nil {
+				b, err = render.ProcessPNG(ctx, b, st.Unit.ResolvedTarget(), policy)
+			}
+		}
+		if err != nil {
+			result, err = r.failed(ctx, d, s, st, "CollectionFailed")
+			return err
+		}
+		// Recheck desired state after collection and processing, before publication.
+		_, _, current, err := r.desired(ctx, client.ObjectKeyFromObject(d), st.ScreenName)
+		if err != nil {
+			return err
+		}
+		if !same(st, current) {
+			result = ctrl.Result{RequeueAfter: time.Millisecond}
+			return nil
+		}
+		result, err = r.publishCompleted(ctx, d, s, st, job, b)
+		return err
+	})
+	return result, err
 }
 
 // publishCompleted publishes before clearing Active so an interrupted save can

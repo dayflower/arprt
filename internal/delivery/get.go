@@ -11,6 +11,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
@@ -39,7 +40,7 @@ func NewGET(repo artifact.Repository, reader client.Reader) *GET {
 // Image returns eligible old output with a nonnil render error after a failed
 // refresh. Joining callers wait independently; one disconnect cannot cancel all.
 func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Target) (artifact.Metadata, error) {
-	unit := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), Target: target}
+	unit := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), Target: target, Output: render.CurrentTarget(target).Output}
 	g.mu.Lock()
 	f, joined := g.flights[unit]
 	if !joined {
@@ -49,7 +50,11 @@ func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Targe
 		go func() {
 			work, cancel := context.WithTimeout(g.Context, render.HTTPTimeout)
 			defer cancel()
-			f.meta, f.err = g.image(work, snapshot, unit)
+			f.err = imageprocessing.RuntimeAdmission.Do(work, func(ctx context.Context) error {
+				var err error
+				f.meta, err = g.image(ctx, snapshot, unit)
+				return err
+			})
 			g.mu.Lock()
 			delete(g.flights, unit)
 			close(f.done)
@@ -100,7 +105,21 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 	if s.Spec.Source.HTTP == nil || (s.Spec.Source.HTTP.Method != "" && s.Spec.Source.HTTP.Method != "GET") {
 		return artifact.Metadata{}, errors.New("only HTTP GET is supported")
 	}
-	out, err := g.NewExecutor(s.Spec.Source.HTTP.URL).Execute(ctx, render.Request{Target: u.Target})
+	policy, err := screen.ProcessingPolicy(s.Spec)
+	if err != nil {
+		return old, err
+	}
+	out, err := g.NewExecutor(s.Spec.Source.HTTP.URL).Execute(ctx, render.Request{Target: u.Target, Policy: policy})
+	if err != nil {
+		return old, err
+	}
+	renderedAt := out.RenderedAt
+	if renderedAt.IsZero() {
+		renderedAt = time.Now().UTC()
+	}
+	err = imageprocessing.Process(ctx, func(work context.Context) error {
+		return u.ResolvedTarget().ValidateOutput(work, out.PNG)
+	})
 	if err != nil {
 		return old, err
 	}
@@ -119,7 +138,14 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 	if _, err := rand.Read(id[:]); err != nil {
 		return old, err
 	}
-	m := artifact.Metadata{Unit: u, ScreenGeneration: s.Generation, InputRevision: revision, AttemptID: hex.EncodeToString(id[:]), Sequence: old.Sequence + 1, RenderedAt: time.Now().UTC()}
+	sequence := old.Sequence
+	if repository, ok := g.Repository.(*artifact.PVC); ok {
+		sequence, err = repository.Sequence(ctx, u)
+		if err != nil {
+			return old, err
+		}
+	}
+	m := artifact.Metadata{Unit: u, ScreenGeneration: s.Generation, InputRevision: revision, AttemptID: hex.EncodeToString(id[:]), Sequence: sequence + 1, RenderedAt: renderedAt}
 	m, err = g.Repository.Publish(ctx, m, out.PNG)
 	if err != nil {
 		return old, err

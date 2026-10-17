@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// RuntimeAdmission bounds all buffered runtime image paths in this process.
+// Acquire before repository reads or renderer transport; release after storage
+// or response writes. Repository locks are always acquired inside the lease.
+var RuntimeAdmission Admission
+
 const ProcessingTimeout = 10 * time.Second
 
 // Admission is a shared memory/CPU gate. Its zero value is ready for use.

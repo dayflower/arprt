@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"math"
+	"time"
+
+	"github.com/dayflower/arprt/internal/imageprocessing"
 )
 
 type Target struct {
@@ -128,13 +131,17 @@ func validPercent(p *float64) *float64 {
 
 // Request is normalized by the Kubernetes-facing adapter. GET has no Context.
 type Request struct {
+	Policy  imageprocessing.Policy
 	Target  Target
 	Context *Context
 }
 
 // Output contains validated PNG bytes; executors must validate before returning.
-// HTTP execution and future asynchronous Job collection share this contract.
-type Output struct{ PNG []byte }
+// HTTP execution and asynchronous Job collection share ProcessPNG.
+type Output struct {
+	PNG        []byte
+	RenderedAt time.Time
+}
 type Executor interface {
 	Execute(context.Context, Request) (Output, error)
 }

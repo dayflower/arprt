@@ -21,13 +21,14 @@ Use the sequence: technical investigation, image-processing foundations,
 persistence and overlays, renderer integration, device profiles, then acceptance.
 The proposed scope is eight PRs, including the initial investigation PR.
 
-## Current implementation and requirement gaps
+## Initial implementation and requirement gaps
 
-Most differences below are intentional extensions of the current contract, not
-bugs against the existing support baseline. Until the corresponding implementation
-lands, the current contracts remain authoritative.
+The table records the starting baseline before the implementation phases. Most
+differences are intentional extensions, not bugs against the existing support
+baseline. Active behavior is maintained in the owning documents as each phase
+lands.
 
-| Area | Current implementation | Required change |
+| Area | Initial implementation | Required change |
 | --- | --- | --- |
 | Target resolution | Only `og` / `1.8.17` resolves to 800 x 480 gray4 | Resolve reviewed model profiles and explicit overrides without a runtime firmware-version allowlist |
 | Device API | No `spec.display` | Add optional width, height, palette and exclusive PNG byte-limit overrides; validate dimensions as a pair |
@@ -310,8 +311,7 @@ is complete and requirements/rationale have been integrated into their owners,
 remove `IMAGE-PROCESSING.md`. Remove this plan when completed rather than retain
 it as a task log; Git history preserves the implementation sequence.
 
-Shared PNG, normalization and persistence foundations are available for review.
-The next implementation boundary is PR 4's palette-aware overlays; renderer
-integration and public settings remain later phases. Retain the recorded
-cancellation, admission, migration and corrected-firmware assumptions. Full
-controller/native-architecture and physical acceptance remain PR 7 gates.
+Renderer integration and Screen processing settings are active for the existing
+OG target. The next boundary is Phase 5's Device API and reviewed profiles.
+Retain cancellation, admission, migration and corrected-firmware assumptions;
+full native-architecture/resource and physical acceptance remain Phase 6 gates.

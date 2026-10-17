@@ -635,7 +635,7 @@ describe the output target; Screen settings describe how to prepare content for
 that target. A separate Device-level dithering override is not required.
 
 The agreed API direction is `spec.imageProcessing`, with the following settings;
-these fields do not exist in the current CRD:
+these fields are now connected to GET, POST and Job normalization for OG:
 
 | Setting | Values | Default |
 | --- | --- | --- |

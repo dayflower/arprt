@@ -151,7 +151,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 	if err = c.Status().Update(ctx, &job); err != nil {
 		t.Fatal(err)
 	}
-	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 	var m artifact.Metadata
 	eventually(t, func() bool { m, err = repo.Latest(ctx, u); return err == nil })
 	contextBytes, err := os.ReadFile(filepath.Join(root, "runs", id, "context.json"))

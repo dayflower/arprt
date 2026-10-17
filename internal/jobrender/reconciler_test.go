@@ -13,6 +13,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/render"
 	"golang.org/x/sys/unix"
 	batchv1 "k8s.io/api/batch/v1"
@@ -106,6 +107,10 @@ func finish(t *testing.T, r *Reconciler, d *api.ArprtDevice, output []byte, fail
 func png(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err = imageprocessing.Normalize(t.Context(), b, render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).ImageTarget(), imageprocessing.Policy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,14 +351,14 @@ func TestMountsAndCollectionSafety(t *testing.T) {
 		if err := os.Symlink("/etc/passwd", out); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := r.Store.collect(st.Active, st.Unit.Target); err == nil {
+		if _, err := r.Store.collectInput(context.Background(), st.Active); err == nil {
 			t.Fatal("accepted escaped symlink")
 		}
 		_ = os.Remove(out)
 		if err := unix.Mkfifo(out, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := r.Store.collect(st.Active, st.Unit.Target); err == nil {
+		if _, err := r.Store.collectInput(context.Background(), st.Active); err == nil {
 			t.Fatal("accepted FIFO")
 		}
 	}

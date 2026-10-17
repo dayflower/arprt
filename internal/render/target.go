@@ -88,3 +88,25 @@ func (t ResolvedTarget) Fingerprint(policy imageprocessing.Policy) (string, erro
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
 }
+
+// CurrentTarget enables the normalization contract for the existing OG target.
+// Model profiles and Device overrides are introduced at their own API boundary.
+func CurrentTarget(t Target) ResolvedTarget {
+	return ResolvedTarget{Target: t, Output: OutputConstraints{PNGByteLimit: 90000, Compatibility: OutputCompatibilityVersion}}
+}
+
+// ProcessPNG is the common HTTP/Job input-to-publication boundary. The caller
+// owns runtime admission from before reception until durable publication. The
+// processing deadline covers validation, conversion and final compatibility.
+func ProcessPNG(ctx context.Context, source []byte, target ResolvedTarget, policy imageprocessing.Policy) ([]byte, error) {
+	var output []byte
+	err := imageprocessing.Process(ctx, func(work context.Context) error {
+		var err error
+		output, err = imageprocessing.Normalize(work, source, target.ImageTarget(), policy)
+		if err != nil {
+			return err
+		}
+		return target.ValidateOutput(work, output)
+	})
+	return output, err
+}

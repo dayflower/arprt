@@ -2,10 +2,12 @@
 package jobrender
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +16,6 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
-	"github.com/dayflower/arprt/internal/render"
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -212,7 +213,7 @@ func syncDirectory(path string) error {
 	return f.Sync()
 }
 
-func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
+func (s *Store) collectInput(ctx context.Context, a *attempt) ([]byte, error) {
 	snapshotRoot, err := os.OpenRoot(s.run(a.ID))
 	if err != nil {
 		return nil, err
@@ -252,11 +253,11 @@ func (s *Store) collect(a *attempt, target render.Target) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("renderer output must be a regular file")
 	}
-	b, err := io.ReadAll(io.LimitReader(f, 90000))
-	if err != nil {
-		return nil, err
+	if info.Size() > imageprocessing.MaxInputBytes {
+		return nil, errors.New("renderer input exceeds byte limit")
 	}
-	if err = render.ValidatePNG(b, target); err != nil {
+	b, err := imageprocessing.ReadInput(ctx, f)
+	if err != nil {
 		return nil, err
 	}
 	return b, nil

@@ -116,7 +116,7 @@ including IANA zone availability and existing PVC topology. Defaults follow
 | `jobs.deadlineSeconds` | `120` | Job execution deadline |
 | `credentials.authSecrets` | `[]` | Explicit `name`/`create` objects; named `get`/`patch` permission |
 | `credentials.identitySecrets` | `[]` | External names; `get` permission only |
-| `resources` | 50m/64Mi requests, 500m/256Mi limits | Controller resources |
+| `resources` | 50m/64Mi requests, 500m/512Mi limits | Controller resources; `GOMEMLIMIT=384MiB` bounds the Go GC budget |
 | `nodeSelector`, `tolerations` | `{}`, `[]` | Pod scheduling |
 | `service.type`, `service.annotations` | `ClusterIP`, `{}` | BYOS Service configuration |
 | `metrics.enabled` | `true` | Internal port 8082; never added to the BYOS Service |

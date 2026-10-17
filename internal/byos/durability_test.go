@@ -66,6 +66,7 @@ func TestDeliveryPersistenceFailuresHoldTurnAndRecover(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			postPNG = distinctFixture(normalizeFixture(t, postPNG))
 			s.GET.NewExecutor = func(string) render.Executor {
 				return executorFunc(func(context.Context, render.Request) (render.Output, error) {
 					return render.Output{PNG: getPNG}, nil
@@ -112,7 +113,7 @@ func TestDeliveryPersistenceFailuresHoldTurnAndRecover(t *testing.T) {
 			if !reflect.DeepEqual(before, loadDevice(t, c).Status.ScreenCycle) {
 				t.Fatal("failed persistence advanced the turn")
 			}
-			unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(post.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+			unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(post.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 			published, err := repository.Latest(ctx, unit)
 			if err != nil {
 				t.Fatal("failed delivery lost published output", err)
@@ -206,7 +207,7 @@ func TestObservationRequiredAndOutcomeReportingBestEffort(t *testing.T) {
 				if response.Code != 503 || response.Body.String() != `{"status":503}` || calls != 0 {
 					t.Fatal("failed observation allowed rendering or delivery", response.Code, response.Body.String(), calls)
 				}
-				unit := artifact.Unit{Namespace: post.Namespace, ScreenUID: string(post.UID), DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}}
+				unit := artifact.Unit{Namespace: post.Namespace, ScreenUID: string(post.UID), DeviceUID: "device-1", Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 				if _, err := s.Repository.Latest(context.Background(), unit); !errors.Is(err, artifact.ErrNotFound) {
 					t.Fatal("failed observation published output", err)
 				}

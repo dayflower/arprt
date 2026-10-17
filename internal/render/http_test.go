@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"hash/crc32"
 	"io"
 	"net/http"
@@ -85,7 +86,8 @@ func TestHTTPGETContract(t *testing.T) {
 	target := og
 	target.Rotation = 270
 	out, err := (HTTPGET{URL: server.URL + "?key=a&key=b&width=1&width=2&palette=bw&rotation=90&rotation=180"}).Execute(context.Background(), Request{Target: target})
-	if err != nil || !bytes.Equal(out.PNG, b) {
+	expected, normErr := imageprocessing.Normalize(t.Context(), b, CurrentTarget(target).ImageTarget(), imageprocessing.Policy{})
+	if err != nil || normErr != nil || !bytes.Equal(out.PNG, expected) || bytes.Equal(out.PNG, b) {
 		t.Fatal(err)
 	}
 }
