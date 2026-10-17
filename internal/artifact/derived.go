@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dayflower/arprt/internal/overlay"
-	"github.com/dayflower/arprt/internal/render"
 )
 
 type derivedRecord struct {
@@ -83,7 +82,11 @@ func (s *PVC) FindDerived(ctx context.Context, base Metadata, drawing overlay.Dr
 	if err != nil {
 		return Metadata{}, nil, err
 	}
-	if len(b) != record.Output.Size || render.ValidatePNG(b, base.Unit.Target) != nil {
+	validationErr := base.Unit.ResolvedTarget().ValidateOutput(ctx, b)
+	if ctx.Err() != nil {
+		return Metadata{}, nil, ctx.Err()
+	}
+	if len(b) != record.Output.Size || validationErr != nil {
 		return Metadata{}, nil, s.discardPointer(path)
 	}
 	_, free, err := s.Usage(ctx)
@@ -116,7 +119,7 @@ func (s *PVC) StoreDerived(ctx context.Context, base Metadata, drawing overlay.D
 	if err := ctx.Err(); err != nil {
 		return Metadata{}, nil, err
 	}
-	if err := render.ValidatePNG(png, base.Unit.Target); err != nil {
+	if err := base.Unit.ResolvedTarget().ValidateOutput(ctx, png); err != nil {
 		return Metadata{}, nil, err
 	}
 	s.mu.Lock()
@@ -138,7 +141,11 @@ func (s *PVC) StoreDerived(ctx context.Context, base Metadata, drawing overlay.D
 	if err := ctx.Err(); err != nil {
 		return Metadata{}, nil, err
 	}
-	if err := writeJSON(filepath.Join(s.root, "derived", key+".json"), derivedRecord{1, base, drawing, output, time.Now().UTC(), time.Now().UTC()}); err != nil {
+	version := 1
+	if !base.Unit.Output.IsZero() {
+		version = 2
+	}
+	if err := writeJSON(filepath.Join(s.root, "derived", key+".json"), derivedRecord{version, base, drawing, output, time.Now().UTC(), time.Now().UTC()}); err != nil {
 		return Metadata{}, nil, err
 	}
 	return output, s.pin(imageDigest), nil
@@ -146,7 +153,11 @@ func (s *PVC) StoreDerived(ctx context.Context, base Metadata, drawing overlay.D
 
 func validDerived(r derivedRecord, key string) bool {
 	actual, err := derivedKey(r.Base, r.Drawing)
-	if err != nil || actual != key || r.Version != 1 || r.CreatedAt.IsZero() || r.LastUsedAt.IsZero() || !digestPattern.MatchString(r.Output.ImageDigest) || !filenamePattern.MatchString(r.Output.Filename) || r.Output.Size <= 0 || r.Output.Size >= 90000 || r.Output.ContentType != "image/png" {
+	version := 1
+	if !r.Base.Unit.Output.IsZero() {
+		version = 2
+	}
+	if err != nil || actual != key || r.Version != version || r.CreatedAt.IsZero() || r.LastUsedAt.IsZero() || !digestPattern.MatchString(r.Output.ImageDigest) || !filenamePattern.MatchString(r.Output.Filename) || r.Output.Size <= 0 || r.Output.Size >= r.Output.Unit.byteLimit() || r.Output.ContentType != "image/png" {
 		return false
 	}
 	expected := r.Base

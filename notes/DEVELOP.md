@@ -214,7 +214,7 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
-| `internal/imageprocessing` | Shared bounded PNG/APNG decoding, output compatibility, canonical palettes and 2/4-bit encoding; not yet connected to runtime delivery |
+| `internal/imageprocessing` | Shared bounded PNG/APNG decoding, normalization/dithering, admission, output compatibility, canonical palettes and 2/4-bit encoding; not yet connected to runtime delivery |
 | `internal/overlay` | Vendored CC0 Home Video text, original icons, current-observation levels/charging, inset foreground/edge background and bounded 2-bit encoder |
 | `internal/render`, `internal/delivery` | Context/PNG/HTTP contracts and GET/POST execution/publication policies |
 | `internal/jobrender` | Durable pair/attempt records, scheduling, Job lifecycle, recovery and collection |
@@ -236,6 +236,27 @@ behavior and numerical references. They are research tools and do not alter the
 controller's current image contract. Run them when changing the processing
 design or pinned decoder/toolchain; remeasure resources under the chart CPU
 limit and distinguish prototype evidence from integrated deployment acceptance.
+
+The normalization implementation has maximum-input/output allocation benchmarks,
+separate from the investigation prototype:
+
+```sh
+go test ./internal/imageprocessing -run '^$' -bench Maximum -benchtime=1x -benchmem
+```
+
+`BenchmarkQuantizeMaximum` covers a 16-bit maximum-area source and the
+4194304-pixel gray16 output with each dithering method. It reports processing
+time and temporary allocations, with source allocation outside the timer and
+reception/PNG decoding/encoding excluded. `BenchmarkNormalizeMaximum` streams
+a synthetic maximum-area RGBA16 Adam7 fixture during setup, then measures
+admission, capped reception, complete-file validation, decoding, white
+composition, contain/Atkinson and encoding together. It enforces the processing
+deadline; a slow environment may correctly reach that deadline. Allocation
+counts are cumulative bytes, not peak live memory. Both exclude informer caches
+and image-serving traffic, so they do not establish the integrated controller's
+memory/latency budget. Admission tests check contention and cancellation without
+changing active HTTP/Job delivery. Re-run inside the deployment CPU/memory limits
+with a 384 MiB Go memory limit before drawing resource conclusions.
 
 ## Selecting checks
 

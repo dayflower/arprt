@@ -21,11 +21,44 @@ var (
 // Unit excludes definition revision intentionally: a prior revision may be a
 // stale fallback, but UIDs and exact target must always match. GET omits DeviceUID.
 type Unit struct {
+	Namespace string                   `json:"namespace"`
+	ScreenUID string                   `json:"screenUID"`
+	DeviceUID string                   `json:"deviceUID,omitempty"`
+	Target    render.Target            `json:"target"`
+	Output    render.OutputConstraints `json:"output,omitzero"`
+}
+
+func (u Unit) Validate() error {
+	if u.Namespace == "" || u.ScreenUID == "" {
+		return errors.New("artifact unit requires namespace and screen UID")
+	}
+	if u.Output.IsZero() {
+		return u.Target.Validate()
+	}
+	return u.ResolvedTarget().Validate()
+}
+
+func (u Unit) ResolvedTarget() render.ResolvedTarget {
+	return render.ResolvedTarget{Target: u.Target, Output: u.Output}
+}
+
+func (u Unit) byteLimit() int {
+	if u.Output.IsZero() {
+		return 90000
+	}
+	return u.Output.PNGByteLimit
+}
+
+// legacyUnit is the original disk DTO. Validate its original JSON/hash before
+// applying any compatibility defaults; changing the old key would hide GC roots.
+type legacyUnit struct {
 	Namespace string        `json:"namespace"`
 	ScreenUID string        `json:"screenUID"`
 	DeviceUID string        `json:"deviceUID,omitempty"`
 	Target    render.Target `json:"target"`
 }
+
+func (u Unit) legacy() legacyUnit { return legacyUnit{u.Namespace, u.ScreenUID, u.DeviceUID, u.Target} }
 
 type Metadata struct {
 	Unit             Unit      `json:"unit"`
@@ -39,6 +72,11 @@ type Metadata struct {
 	ContentType      string    `json:"contentType"`
 	Size             int       `json:"size"`
 	RenderedAt       time.Time `json:"renderedAt"`
+}
+
+// Fresh prevents a validated legacy fallback from acquiring current freshness.
+func (m Metadata) Fresh(u Unit, revision string) bool {
+	return m.Unit == u && m.InputRevision == revision
 }
 
 // IdentityStore durably pins a hardware identity to a device UID, independently

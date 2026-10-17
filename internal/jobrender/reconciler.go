@@ -176,6 +176,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	}
 	if !same(st, wanted) {
 		if st != nil && st.Active != nil {
+			// A compatibility or definition change is terminal even if cancellation
+			// is interrupted and the desired definition later changes back.
+			if st.Active.TerminalReason == "" {
+				st.Active.TerminalReason = "ObsoleteAttempt"
+				if err := r.Store.save(st); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
 			done, err := r.cancel(ctx, st)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -216,7 +224,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 		if old.Sequence > wanted.Sequence {
 			wanted.Sequence = old.Sequence
 		}
-		if old.InputRevision == wanted.Revision && old.ScreenGeneration == wanted.ScreenGeneration {
+		if repository, ok := r.Repository.(*artifact.PVC); ok && !wanted.Unit.Output.IsZero() {
+			sequence, err := repository.Sequence(ctx, wanted.Unit)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			wanted.Sequence = max(wanted.Sequence, sequence)
+		}
+		if old.Fresh(wanted.Unit, wanted.Revision) && old.ScreenGeneration == wanted.ScreenGeneration {
 			interval, _ := screen.EffectiveInterval(s.Spec)
 			wanted.Due = old.RenderedAt.Add(interval)
 		}

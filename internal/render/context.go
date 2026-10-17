@@ -26,7 +26,7 @@ func (t Target) Validate() error {
 		return errors.New("render target rotation must be 0, 90, 180 or 270")
 	}
 	switch t.Palette {
-	case "bw", "gray4", "gray16", "bwry":
+	case "bw", "gray4", "gray16", "bwry", "spectra6":
 		return nil
 	default:
 		return errors.New("unknown semantic palette")

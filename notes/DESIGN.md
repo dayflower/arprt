@@ -432,8 +432,9 @@ physical acceptance. E1001/E1003/E1004 remain source reviewed only.
 
 [`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
 transport-independent image primitives. These foundations are not yet wired
-into HTTP/Job delivery, artifact validation or overlays; the active
-[PNG contract](PROTOCOL.md#png-contract) and public API remain unchanged.
+into HTTP/Job delivery or overlays; versioned artifact records can validate
+their explicit output contracts. Unversioned records retain the active
+[PNG contract](PROTOCOL.md#png-contract); the public API remains unchanged.
 
 `Decode` validates the complete bounded file, independently checks IDAT's exact
 inflated scanline length and compressed-stream end, and then decodes its default
@@ -453,9 +454,69 @@ packed rows with exact samples, no source metadata, and an exclusive output-byte
 budget. Gray4 selects depth after inspecting all final indices; gray16 and
 Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
 4096 per axis and 4194304 pixels independently of input limits, and contains
-only effective dimensions, palette and byte budget. Model resolution, rotation,
-normalization policy, admission and persistence identity remain with their
-owning integration phases.
+only effective dimensions, palette and byte budget. Model resolution and
+runtime wiring remain with their owning integration phases.
+
+### Normalization and persistence primitives
+
+`Normalize` decodes once and returns the original slice when compatible. Otherwise
+`Decoded.Quantize` composes straight 16-bit samples onto white, applies contain
+or stretch using the numerical rules below, and emits canonical indices for
+`Encode`. It retains no full-size resized RGB/Lab canvas: output indices and
+three Lab error rows suffice. Padding is white, never receives diffusion and
+uses the final output coordinates for the Bayer tile. Exact palette pixels in
+format-only conversions retain their colors without introducing new dithering.
+No content rotation or brightness correction is added.
+
+Encoding uses a fixed zlib default compression level. Maximum compression's
+long match search on error-diffusion patterns can exhaust the ten-second budget
+at 500m CPU even after quantization finishes. The encoder identity is `png-v2`
+for this choice. Compression never changes by content or byte budget, and output
+must still pass the same exclusive limit; no samples or dithering are changed
+to make an image fit. Compatible renderer bytes retain their own compression.
+
+Internal `Policy` canonicalizes omitted fit/dither to contain/Atkinson. Its
+revision includes processing, encoder and palette semantic versions. No public
+Screen field or active Screen revision changes until renderer integration.
+`Admission.Do` provides one shared synchronous lease; reception, processing,
+durable storage and buffer release belong inside its callback. `ReadInput`
+reserves one capped 32 MiB allocation and rejects the next byte. `Process`
+starts the earlier of ten seconds and the enclosing deadline after collection;
+all work must stop before the lease returns. Runtime wiring must share the
+same admission instance across all image paths and preserve GET waiter lifetime
+rules; merely calling `Normalize` does not acquire capacity or set a deadline.
+
+`render.ResolvedTarget` keeps the context-v1 target separate from effective PNG
+budget and output compatibility version. Its fingerprint additionally includes
+the normalized policy revision for future cycle replay. The comparable artifact
+`Unit` adds explicit output constraints only for new delivery. A zero constraint
+value explicitly means legacy semantics, not current defaults. Legacy keys are
+computed through the original Unit DTO without injecting fields before hashing.
+Derived records remain v1 for legacy units and use v2 for explicit constraints;
+their original Base/Drawing hashes, immutable blob digests, filenames and issuance
+keys stay readable. New output validation uses shared PNG compatibility while
+legacy derived validation retains its original encoder rules.
+
+For an explicit target, `Latest` can select a legacy pointer only after validating
+the original bytes against the current output contract. The returned metadata
+keeps the original Unit, so `Metadata.Fresh` rejects it as a fresh current result.
+An incompatible legacy image remains readable at its issued URL and is not
+discarded merely for being incompatible. `Sequence` and publication enumerate
+all keys for the same owned physical target under the repository lock, preserving
+the maximum validated sequence even when an image is no longer deliverable.
+GC enumerates this same directory plus derived, pending-corner and issuance
+roots, so old keys remain visible. Blob reads have an independent 32 MiB ceiling;
+each pointer retains its own exclusive output budget.
+
+Scheduler records explicitly accept the original unversioned DTO and version 2
+with output constraints. Startup preserves active ID, sequence, submission flag,
+run path and context digest without rewriting the record or snapshot. Preparing
+an existing ID cannot overwrite a different context. When desired work changes,
+the scheduler saves a terminal reason before cancellation; an interrupted cancel
+cannot revive that ID after a definition reversion. A replacement attempt follows
+cancellation and durable state replacement. Pending corner v1 records keep both
+complete original turns and resolve under the existing comparison rules before
+later status/fingerprint integration; unknown authoritative versions fail closed.
 
 ### Complete-file validation and cancellation
 

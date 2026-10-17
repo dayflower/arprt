@@ -309,7 +309,8 @@ is complete and requirements/rationale have been integrated into their owners,
 remove `IMAGE-PROCESSING.md`. Remove this plan when completed rather than retain
 it as a task log; Git history preserves the implementation sequence.
 
-Phase 0's findings and design are available for review. The next implementation
-boundary is PR 1's shared PNG foundations; retain the recorded cancellation,
-admission, migration and corrected-firmware assumptions in its design. Full
+Shared PNG, normalization and persistence foundations are available for review.
+The next implementation boundary is PR 4's palette-aware overlays; renderer
+integration and public settings remain later phases. Retain the recorded
+cancellation, admission, migration and corrected-firmware assumptions. Full
 controller/native-architecture and physical acceptance remain PR 7 gates.

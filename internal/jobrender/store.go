@@ -30,6 +30,9 @@ type attempt struct {
 }
 
 type state struct {
+	// Zero denotes the original scheduler DTO. Version 2 carries explicit
+	// output constraints; active IDs and immutable contexts are never defaulted.
+	Version          int           `json:"version,omitempty"`
 	Namespace        string        `json:"namespace"`
 	DeviceName       string        `json:"deviceName"`
 	DeviceUID        string        `json:"deviceUID"`
@@ -115,6 +118,12 @@ func validID(id string) bool {
 	return err == nil && len(b) == 16 && id == hex.EncodeToString(b)
 }
 func (s *Store) save(st *state) error {
+	if !st.Unit.Output.IsZero() {
+		st.Version = 2
+	}
+	if err := validateState(st); err != nil {
+		return err
+	}
 	b, err := json.Marshal(st)
 	if err != nil {
 		return err
@@ -129,6 +138,19 @@ func (s *Store) prepare(a *attempt, snapshot []byte) error {
 	if !validID(a.ID) {
 		return errors.New("invalid run identity")
 	}
+	if len(snapshot) > 65536 || hash(snapshot) != a.ContextDigest {
+		return errors.New("immutable context digest mismatch")
+	}
+	contextPath := filepath.Join(s.run(a.ID), "context.json")
+	existing := false
+	if old, err := readSnapshot(contextPath); err == nil {
+		if hash(old) != a.ContextDigest {
+			return errors.New("attempt context already exists with different bytes")
+		}
+		existing = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Join(s.run(a.ID), "output"), 0750); err != nil {
 		return err
 	}
@@ -136,8 +158,10 @@ func (s *Store) prepare(a *attempt, snapshot []byte) error {
 	if err := os.Chmod(s.run(a.ID), 0750); err != nil {
 		return err
 	}
-	if err := artifact.WriteAtomic(filepath.Join(s.run(a.ID), "context.json"), snapshot); err != nil {
-		return err
+	if !existing {
+		if err := artifact.WriteAtomic(contextPath, snapshot); err != nil {
+			return err
+		}
 	}
 	if err := os.Chmod(filepath.Join(s.run(a.ID), "context.json"), 0444); err != nil {
 		return err
@@ -154,6 +178,29 @@ func (s *Store) prepare(a *attempt, snapshot []byte) error {
 		return err
 	}
 	return syncDirectory(filepath.Join(s.Root, "runs"))
+}
+
+func readSnapshot(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 65536 {
+		return nil, errors.New("invalid immutable context file")
+	}
+	b, err := io.ReadAll(io.LimitReader(f, 65537))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > 65536 {
+		return nil, errors.New("immutable context exceeds size limit")
+	}
+	return b, nil
 }
 
 func syncDirectory(path string) error {
@@ -296,7 +343,10 @@ func readStateFile(path string) ([]byte, error) {
 	return b, nil
 }
 func validateState(st *state) error {
-	if st.Namespace == "" || len(validation.IsDNS1123Label(st.Namespace)) > 0 || st.DeviceName == "" || len(validation.IsDNS1123Subdomain(st.DeviceName)) > 0 || st.ScreenName == "" || len(validation.IsDNS1123Subdomain(st.ScreenName)) > 0 || st.Unit.Namespace != st.Namespace || st.Unit.DeviceUID != st.DeviceUID || st.DeviceUID == "" || st.Unit.ScreenUID == "" || st.Unit.Target.Validate() != nil || len(st.Revision) != 64 {
+	if (st.Version != 0 && st.Version != 2) || (st.Version == 0 && !st.Unit.Output.IsZero()) || (st.Version == 2 && st.Unit.Output.IsZero()) {
+		return errors.New("unknown scheduler compatibility version")
+	}
+	if st.Namespace == "" || len(validation.IsDNS1123Label(st.Namespace)) > 0 || st.DeviceName == "" || len(validation.IsDNS1123Subdomain(st.DeviceName)) > 0 || st.ScreenName == "" || len(validation.IsDNS1123Subdomain(st.ScreenName)) > 0 || st.Unit.Namespace != st.Namespace || st.Unit.DeviceUID != st.DeviceUID || st.DeviceUID == "" || st.Unit.ScreenUID == "" || st.Unit.Validate() != nil || len(st.Revision) != 64 {
 		return errors.New("invalid scheduler record")
 	}
 	if st.Active != nil {

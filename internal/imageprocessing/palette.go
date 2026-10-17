@@ -1,6 +1,6 @@
 // Package imageprocessing provides bounded PNG input, device compatibility and
 // deterministic encoding independently of renderer transports and persistence.
-// Runtime integration and normalization policies are owned by later phases.
+// Runtime integration is owned by the renderer and delivery adapters.
 package imageprocessing
 
 import (
