@@ -164,6 +164,21 @@ For example, `spectra6` does not include the intermediate neutral grays in
 `gray4`, although both include black and white. Do not rank these profiles solely
 by their numbers of colors.
 
+The allocation policy decided by the pre-implementation investigation is
+independent of PNG input limits: effective output dimensions must be at most
+4096 on each axis and at most 4194304 pixels in total. Apply these bounds to
+explicit and reported dimensions as well as profiles, using checked arithmetic.
+An invalid explicit pair is rejected by admission; an invalid reported pair
+cannot supply dimensions and permits a known model's default pair instead.
+The reviewed E1003 model default is 1872 x 1404, following FastEPD's actual
+panel configuration, with the explicit/reported/default precedence unchanged.
+Recognize upstream's `reterminal_e100N` and Seeed common's `reTerminal E100N`
+as explicit reviewed aliases for each reTerminal profile. Retain the received
+model string as an observation; neither spelling changes the agreed byte-limit
+default or removes the need for a distribution-specific explicit override.
+See [the design decisions](DESIGN.md#image-processing-design-before-integration)
+for the status representation, internal target and migration design.
+
 ## reTerminal extension boundary
 
 Use the following hardware characteristics to guide extensibility, not as a list
@@ -640,6 +655,14 @@ Image alignment is fixed rather than exposed as another resource setting.
 Use bilinear interpolation for both enlargement and reduction. A configurable
 resampling filter or a more elaborate filter is not required.
 
+The investigation fixes this as classic point-sampled, four-neighbor bilinear
+with half-pixel coordinates for both directions. Reduction does not widen the
+tent kernel or add an antialiasing filter. This distinction matters when
+evaluating `BiLinear` and `ApproxBiLinear` from `golang.org/x/image/draw`;
+[DESIGN](DESIGN.md#numerical-processing-semantics) specifies the coordinates,
+composition, rounding and numerical reference expectations. Use a bounded
+internal implementation so resizing can stop during CPU work.
+
 `none` still performs required resizing, nearest-palette-color quantization and
 encoding conversion; it only disables dithering.
 
@@ -869,11 +892,15 @@ Implementation acceptance must cover:
   E1001, E1003 and E1004 must receive firmware review; explicitly record where
   physical acceptance remains unavailable.
 
-The following details remain open and must not be inferred as agreed defaults:
-
-- Remaining model-specific E1001/E1003/E1004 decoder and transport review,
-  including differences between distribution sources beyond the agreed PNG
-  byte-budget policy.
+The pre-implementation source review and reproducible decoder/resource probes
+are recorded in [DESIGN](DESIGN.md#image-processing-design-before-integration)
+and [image-investigation](../tools/image-investigation/README.md). They resolve
+the model decoder/transport review, output allocation, arithmetic and migration
+design questions. They do not establish physical acceptance or integrated
+controller performance. In particular, Seeed common's modem image request lacks
+the authenticated headers used by its Wi-Fi path, and native type 0 / 4-bit OG
+acceptance must use firmware with the corrected expansion. Preserve these
+distribution and physical-evidence distinctions during implementation.
 
 Controller-generated PNG formats, the Spectra 6 transmission palette, model PNG
 byte-limit defaults, the explicit override policy and the whole-image

@@ -228,6 +228,14 @@ Keep protocol/context models independent of Kubernetes client objects. HTTP
 delivery and Job collection share PNG validation and artifact ownership rules.
 Use existing package boundaries rather than introducing speculative backends.
 
+The proposed image-processing pipeline has standalone
+[firmware and resource probes](../tools/image-investigation/README.md), with
+pinned public source checksums, actual PNGdec callback execution, Go decoder
+behavior and numerical references. They are research tools and do not alter the
+controller's current image contract. Run them when changing the processing
+design or pinned decoder/toolchain; remeasure resources under the chart CPU
+limit and distinguish prototype evidence from integrated deployment acceptance.
+
 ## Selecting checks
 
 Start with focused tests for changed behavior, then run the applicable matrix.
