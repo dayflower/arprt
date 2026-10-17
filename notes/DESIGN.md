@@ -328,6 +328,371 @@ Operational steps and migration limits belong in
 [OPERATIONS](OPERATIONS.md#helm-controller-state); the supporting lifecycle
 checks are described in [DEVELOP](DEVELOP.md#helm-chart-checks).
 
+## Image-processing design before integration
+
+This section records decisions for the proposed image-processing work, not
+current runtime behavior. The existing PNG, target and persistence contracts
+above remain active until their integration changes land. The requirements
+proposal is [IMAGE-PROCESSING](IMAGE-PROCESSING.md); reproducible experiments
+live beside [image-investigation](../tools/image-investigation/README.md).
+arprt remains independent and unofficial, without affiliation or endorsement
+by TRMNL. Source review and host execution do not establish physical acceptance.
+
+### Firmware evidence and profiles
+
+Use literal model header values, independently of firmware-version observations:
+
+| Header model | Profile dimensions | Palette | Exclusive PNG bytes |
+| --- | --- | --- | --- |
+| `og` | 800 x 480 | gray4 | 90000 |
+| `reterminal_e1001`, `reTerminal E1001` | 800 x 480 | gray4 | 750000 |
+| `reterminal_e1002`, `reTerminal E1002` | 800 x 480 | spectra6 | 750000 |
+| `reterminal_e1003`, `reTerminal E1003` | 1872 x 1404 | gray16 | 750000 |
+| `reterminal_e1004`, `reTerminal E1004` | 1200 x 1600 | spectra6 | 750000 |
+
+The profile review uses upstream
+[`d5f98f2`](https://github.com/usetrmnl/trmnl-firmware/tree/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa),
+v1.8.17 at
+[`9acd348`](https://github.com/usetrmnl/trmnl-firmware/tree/9acd348270a493ca5f1c627ac91a9469543267ae),
+and Seeed common and dedicated E1004 at
+[`8d97d89`](https://github.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/tree/8d97d8912987c07529287629f7e73039bb0e6384/examples/official).
+[sources.json](../tools/image-investigation/sources.json) pins individual source
+URLs and SHA-256 values, including the exact PNGdec 1.1.6 implementation and
+FastEPD dependency. Its downloader refuses changed cached/downloaded bytes.
+Panel I/O is mocked; conversion callback bodies are extracted unchanged.
+PNGdec and its bundled inflate implementation are compiled together, with
+`PNG_MAX_BUFFERED_PIXELS` set consistently for callers and decoder: 14984 for
+E1003, 6432 for the other upstream/dedicated environments, and 14984 for the
+Seeed common E1004 environment. These are byte-buffer settings despite the
+macro's name; the small library default is not a valid full-panel experiment.
+
+The upstream device table selects the OG monochrome path for E1001, Spectra for
+E1002/E1004, and IT8951/FastEPD for E1003. The pinned FastEPD
+[ED103TC2 definition](https://github.com/bitbank2/FastEPD/blob/9a84c35e52849f9f22d2a7ad5231ef501be49e04/src/FastEPD.inl#L1808)
+sets 1872 x 1404. Thus E1003 defaults use landscape firmware ordering; the
+hardware comparison's 1404 x 1872 ordering is not the profile default. Explicit
+dimensions win, followed by a valid reported pair, then this model default.
+
+The reviewed display header builders send `Model`, `FW-Version`, `Width` and
+`Height`; setup builders omit dimensions. They send no semantic palette.
+Upstream and dedicated E1004 use `reterminal_e100N`; Seeed common's config
+macros use `reTerminal E100N`. Resolve only these explicit reviewed aliases,
+without general punctuation/case stripping or changing the raw model
+observation. Both spellings use the agreed model budget; do not infer or switch
+distribution limits from the spelling. The reviewed
+upstream display flow and both Seeed flows support setup provisioning, display
+polling, filename-based cache reuse and status 202 without a new image. Their
+202 branches return an unregistered/pending outcome and sleep; this is not a
+new-image success and must not advance controller delivery state. Image requests
+use `ID` and `Access-Token`; Seeed Wi-Fi adds them only when the image URL has
+the API base prefix. Keep issued image URLs under the same public BYOS base.
+Seeed common's modem branch lacks these image headers, unlike the dedicated
+E1004 branch; source review does not establish authenticated modem delivery.
+No source review here verifies sleep/wake, networking or visible color on a
+physical reTerminal.
+
+Upstream PSRAM environments and dedicated E1004 have a 750000-byte budget.
+Seeed common E1001/E1002/E1003 retain 90000 despite PSRAM because their macros
+do not enter its larger-budget branch. Every reviewed PNG drawing gate uses
+strictly less than the selected limit. Retain the agreed upstream-based model
+defaults and require an explicit 90000 override for those Seeed common builds;
+do not infer distribution from a version string.
+
+The host harness compares full-resolution output, not just decoder return codes:
+
+- OG/E1001 indexed 1-bit polarity differs between upstream and Seeed; 2-bit
+  counting counts indices/samples and stops after row 430. Two intermediate
+  grays, grays only below that region, and grays only on the final row reproduce
+  the loss of intended shades in the selected black/white path.
+- Indexed 4/8-bit reordered gray palettes preserve shades. E1003 indexed 1-bit
+  produces black because `ReduceBpp` has no 1-bit case. Upstream indexed 2-bit
+  expands through the palette into gray16; Seeed common's inverted native
+  2-bit output cannot preserve arbitrary gray16 entries. Native grayscale
+  1/2/4-bit paths are distinct from these indexed limitations.
+- Spectra callbacks preserve intended colors for all four indexed depths,
+  reordered subsets, high indices and unused entries. All six selected EPF
+  reference RGB tuples select their corresponding panel colors through the
+  extracted RGB333 lookup. This is transmission evidence, not panel calibration.
+- v1.8.17/Seeed's unmasked low-nibble grayscale expansion corrupts one output
+  plane. The corrected upstream formula preserves it. This is separate from
+  the two-color counting heuristic and remains observable with native 4-bit
+  samples 0/5/10/15.
+
+Generated gray4 must inspect every final pixel, use native type 0 / 2-bit only
+for black/white, and use type 0 / 4-bit otherwise, without re-dithering exact
+gray4 samples. The English rationale beside that future encoding decision must
+link to the pinned callback above. Row 430 is firmware evidence, never a
+controller scan limit. Native 4-bit assumes corrected expansion: v1.8.17's
+existing physical baseline cannot validate it. New OG acceptance must record
+the actual corrected firmware revision and user visual observations; do not
+introduce a runtime firmware gate or an indexed workaround. E1002 also needs
+physical acceptance. E1001/E1003/E1004 remain source reviewed only.
+
+### Complete-file validation and cancellation
+
+The Go 1.26.8 probes exercise all 15 legal color/depth combinations, with and
+without Adam7, indexed alpha, both APNG default-image layouts, truncation,
+per-chunk CRC failures and too much/little inflated image data. `image/png`
+decodes IDAT's default image for both APNG layouts and ignores color-space
+declarations. It validates encountered CRCs and rejects incorrect inflated
+lengths, but accepts trailing bytes, unknown critical chunks and malformed APNG
+sequence numbers. Therefore `png.Decode` alone is not an input validator.
+
+Use a context-aware complete-file scanner before decoding. Bound the entire
+file to 32 MiB, axes to 16384 and canvas to 16777216 pixels before image
+allocation, using checked 64-bit arithmetic. Verify signature, ASCII chunk
+type/reserved bit, lengths, every CRC, unique first IHDR, legal type/depth,
+PLTE/tRNS lengths and ordering, consecutive IDAT, an empty final IEND and no
+trailing data. Reject unknown critical chunks. Reference
+[PNG Third Edition](https://www.w3.org/TR/2025/REC-png-3-20250624/).
+Check large CRC payloads in bounded blocks rather than one unchecked operation.
+Keep IDAT spans into the original buffer instead of concatenating a second
+32 MiB compressed copy. Decode once; do not retain a full inflated validation
+buffer alongside the decoded image. Independently account for exact expected
+scanline bytes across all seven Adam7 passes and reject an extra zlib member or
+compressed tail, even if a decoder would otherwise ignore it.
+
+For animation structure require a unique 8-byte acTL before IDAT, nonzero frame
+count matching fcTL count, 26-byte fcTL records and fdAT records of at least
+4 bytes. Check contiguous shared sequence numbers from zero without overflow,
+positive frame dimensions within the canvas using subtraction-safe bounds,
+dispose 0..2 and blend 0..1. A pre-IDAT fcTL must cover the complete canvas at
+offset zero. Require data for every frame, IDAT only for the default/shared
+first frame and fdAT only for a subsequent or separate animation frame. Allow
+ancillary chunks between fdAT chunks as the specification does. Reject orphan
+animation chunks, missing frame data and truncated sequences. Do not inflate
+fdAT, allocate frame canvases or evaluate animation timing. Re-encode IDAT's
+default image as static PNG regardless of its compatibility; no APNG passthrough.
+
+CRC/ordering checks still apply to ignored color metadata; do not decompress
+ICC/text payloads or apply gamma, ICC or chromaticity transforms. Treat decoded
+samples as sRGB and omit these declarations in generated images. Byte-preserving
+static input may retain them. The scanner's interpretation is deliberately
+narrower than full animation decoding, not a promise to validate later frames'
+compressed pixel streams.
+
+Use synchronous Go decoding with a context-checking Reader and a final context
+check, bounded resizing loops, and a packed-row encoder checking context before
+each row and compressed write. No goroutine may return a timeout while leaving
+decode/resize/encode running. PNGdec is only firmware evidence, not the server
+decoder. The pinned Go inflater has bounded buffers; the remaining noninterruptible
+work includes one scanline and Adam7 pass merging (at most half the bounded
+canvas for a pass). The experiments cancel inside decoding at several offsets,
+inside resizing and inside encoding, and measure return after the actual work
+stops. Keep admission held through that return. Use 250 ms cancellation latency
+under the deployment CPU limit as the initial acceptance threshold; add explicit
+row/merge checkpoints in a licensed local decoder fork if adversarial or native
+arm64 measurements exceed it. Re-run these probes on toolchain upgrades.
+
+### Numerical processing semantics
+
+Use a bounded internal implementation rather than adding `x/image/draw`.
+The reviewed `x/image` v0.47.0
+[interpolators](https://github.com/golang/image/blob/v0.47.0/draw/scale.go)
+distinguish a scale-widened `BiLinear` tent kernel from `ApproxBiLinear`'s
+four-neighbor reduction. Select classic point-sampled bilinear for both
+enlargement and reduction: exactly four neighboring samples, without widening
+the kernel or adding an antialiasing filter. This fixes the previously open
+downscaling detail; it does not silently substitute the tent-kernel algorithm.
+
+Determine contain dimensions with integer rational arithmetic: choose the
+limiting axis by cross multiplication, set it to the target extent and round
+the other extent to nearest, halves upward, with a minimum of one pixel. Clamp
+that extent to the target. Center with floor-half offsets, leaving odd padding
+on the right/bottom. Stretch uses the complete target rectangle. Sample only
+inside the content rectangle; padding stays white and receives no diffusion.
+
+For a resized dimension `D` from source `S`, source coordinate is
+`clamp((d + 0.5) * S / D - 0.5, 0, S - 1)`. Use floor and its clamped successor
+on each axis, combine horizontally then vertically in float64, and round once
+to a 16-bit sample, halves upward. Examples: `[0,65535]` enlarged to 3 becomes
+`[0,32768,65535]`; `[0,0,65535,65535]` reduced to 1 becomes `[32768]`.
+
+First composite each straight 16-bit sRGB source channel `c` and alpha `a`
+onto white using `(c*a + 65535*(65535-a) + 32767)/65535` with integer division
+and 64-bit intermediates. Then interpolate these opaque sRGB samples; do not
+resize premultiplied transparent colors or perform linear-light interpolation.
+Opaque channels remain exact. Fully transparent colored pixels become white.
+An 8-bit half-alpha red `(255,0,0,128)` becomes `(65535,32639,32639)`.
+
+For Lab use float64, standard sRGB decoding with breakpoint 0.04045 and
+exponent 2.4, XYZ matrix rows `(0.4124564,0.3575761,0.1804375)`,
+`(0.2126729,0.7151522,0.0721750)` and `(0.0193339,0.1191920,0.9503041)`,
+D65 white `(0.95047,1,1.08883)`, epsilon `216/24389` and kappa `24389/27`.
+For exact neutral RGB preserve the mathematical identity `a*=b*=0` and compute
+L* from its linear gray channel, avoiding tiny chroma from rounded coefficients.
+A 65536-entry transfer lookup avoids repeated powers without reducing 16-bit
+precision. Reference Lab values include white `(100,0,0)`, red
+`(53.2408,80.0925,67.2032)` and blue `(32.2970,79.1875,-107.8602)`.
+
+Scan top to bottom and left to right, without serpentine traversal. Choose
+minimum squared Delta E 1976, with lower canonical palette index winning exact
+ties. Keep Lab working/error values unclamped. Accumulate Atkinson neighbors
+in order right, right-two, next-row-left/center/right, row-two-center, each 1/8;
+Floyd-Steinberg uses right 7/16 then next-row-left 3/16, center 5/16, right 1/16.
+Discard out-of-content destinations, without renormalization. Three float64 Lab
+error rows suffice; do not allocate a full float64 Lab image. Emit exact target
+samples/indices, never a Lab-to-RGB round trip. Resize before quantization;
+renderer rotation is never applied again.
+
+Bayer considers every canonical pair `i <= j` and each integer allocation
+`k=0..64` of color `j`. Minimize squared distance from input Lab to
+`palette[i] + k/64*(palette[j]-palette[i])`; ties use lexicographic `(i,j,k)`.
+Choose `j` where `B[y%8][x%8] < k`, otherwise `i`. Use this matrix orientation:
+
+```text
+ 0 48 12 60  3 51 15 63
+32 16 44 28 35 19 47 31
+ 8 56  4 52 11 59  7 55
+40 24 36 20 43 27 39 23
+ 2 50 14 62  1 49 13 61
+34 18 46 30 33 17 45 29
+10 58  6 54  9 57  5 53
+42 26 38 22 41 25 37 21
+```
+
+Thus an exact 25/75 mixture yields 16/48 pixels per full tile. A brute-force
+pair search per pixel exceeds the CPU budget for gray16. Precompute discrete
+mixtures: neutral palettes reduce exactly to a sorted L* lookup (chroma distance
+is common to all candidates); other palettes use an exact spatial search with
+bounding-box distance pruning and original-order ties. Do not substitute an
+approximate nearest-neighbor search or content-dependent pattern. Numerical
+reference tests compare the accelerated selection with exhaustive pair results.
+
+### Admission, allocation and resource feasibility
+
+Separate output allocation from input limits. Set output axes to at most 4096
+and output area to at most 4194304 pixels; apply the same checked bounds to
+explicit dimensions, reported pairs and profiles. Reject invalid explicit
+pairs at admission; invalid reported pairs remain observable but cannot supply
+dimensions, allowing a known profile default. Unknown models remain unresolved
+without sufficient valid overrides/observations. A positive PNG byte-limit
+override remains an exclusive budget, not permission to bypass the independent
+32 MiB complete-file/input ceiling or output allocation bound.
+
+Use one controller-wide memory/CPU admission lease shared by HTTP reception,
+Job collection, normalization and overlays. Acquire it before creating a large
+HTTP response buffer or opening/reading a Job image; hold it until all image
+work and owned buffers are released. Waiting requests retain only bounded
+metadata and contexts, not eight 32 MiB bodies. Stream network response data
+into one capped allocation, avoiding `io.ReadAll` growth and whole-file copies.
+Overlay-only requests must acquire the same lease before decoding a base.
+Never wait for admission while holding repository/publication locks. GET
+coalescing keeps independent waiter cancellation and a manager-owned shared
+work context; a single cancelled waiter must not stop other waiters' work.
+
+Start the processing deadline after reception/collection, at complete-file
+validation, using the earlier of 10 seconds and enclosing deadlines. Admission
+waiting and HTTP transport retain their own enclosing deadlines. On timeout,
+wait for work to stop before releasing admission. Store completed base and
+optional derived bytes durably within admission, then release buffers; do not
+leave large result buffers in GET flights or queued overlay callers. Image URL
+retrieval must use bounded streaming from immutable blobs, or the same memory
+admission if retaining whole-byte reads. Merely serializing normalization does
+not bound serving, reception or overlay memory.
+
+The measured probe reserves a 32 MiB reception buffer, decodes maximum-area
+RGBA16/Adam7, converts using only output indices plus row errors, and packs,
+compresses, draws an overlay and encodes again. Tests cover all profile
+dimensions, high-entropy 32011838-byte RGBA16 input and both 16384-axis shapes.
+The load experiment uses eight real local HTTP clients and one completed Job
+file competing for the same lease; waiting clients do not send their GET before
+admission. This is an admission/pipeline prototype, not a running controller or
+Kubernetes Job acceptance test. A 384 MiB Go memory limit is used in experiments;
+the integrated controller should use the same default GC budget with the
+512 MiB container limit, leaving room for non-Go memory and runtime variation.
+
+Linux amd64 measurements under actual Docker `--cpus 0.5 --memory 512m
+--memory-swap 512m`, Go 1.26.8, showed maximum-input Adam7 to E1003 Atkinson
+including overlay at about 5.5 seconds, gray16 Bayer about 4.2 seconds, E1004
+Spectra Bayer about 4.3 seconds, and the 2048-square output allocation boundary
+about 5.8 seconds. Peak container memory in those individual experiments was
+under 307 MiB. Output sizes may exceed a model budget: high entropy and Bayer
+gray16 examples exceed 750000 bytes and must fail normalization in production,
+preserving fallback, without changing dithering to fit. Probe encoding measures
+static indexed packed rows; production native grayscale encoding still needs
+its own verification. These timings establish feasibility, not universal
+10-second success or integrated-controller acceptance. Native arm64 and the
+complete deployment remain acceptance gates before support expansion.
+The [raw amd64 measurements](../tools/image-investigation/measurements-linux-amd64.json)
+retain the CPU model, toolchain, binary hash and per-case outputs. The mixed
+HTTP/Job run admitted one source at a time across all nine requests and stayed
+under 334 MiB without forced GC between requests; measured cancellation return
+latencies for decode, resizing and row encoding were all below 34 ms.
+These measurements do not
+include informer caches or concurrent production image-serving traffic; the
+integrated memory test must include both before claiming the controller budget.
+
+### API, internal targets and migration
+
+Keep `status.device.model` and `firmwareVersion` as observations. Add
+`status.device.reportedDisplay` with optional int32 `width` and `height`,
+containing parsed observations before overrides or allocation validation.
+Keep the current rejection of nonnumeric, nonpositive or overflowing header
+values; preserve an individually valid but incomplete pair and a pair exceeding
+output allocation limits for diagnosis. When either dimension header is sent,
+replace the whole observed pair from that request, never combine dimensions
+from separate polls. When both are absent, retain the last observed pair.
+Preserve existing `status.display.width/height/palette`
+as effective values for API readability, and add effective `pngByteLimit` and
+`sources` with `dimensions`, `palette` and `pngByteLimit`, each `explicit`,
+`reported` or `profile` as applicable. Dimensions always have one source for
+the complete pair. An unresolved device has no effective display and gets the
+existing unresolved/pending condition; it retains observations. Spec edits
+must recompute effective values from observations, never from a previously
+overridden effective display.
+
+Add optional `spec.display` fields already agreed in the proposal and optional
+Screen processing settings only when behavior is connected. Normalize omitted
+processing to contain/Atkinson before hashing. Read legacy `bw` and `bwry` in
+old contexts/status as legacy semantic values without relabeling them as
+spectra6 or claiming delivery support. New display overrides accept only the
+three reviewed palettes. A missing new provenance field in old display status
+is not observation evidence: resolve the old known model afresh; do not
+retroactively mark its effective dimensions as device-reported.
+
+Keep `render.Target` as width, height, semantic palette and rotation for renderer
+query/context v1. Introduce an internal resolved target containing that value,
+effective PNG budget and an output-compatibility version. Keep provenance,
+model, firmware and telemetry outside its comparable delivery identity. Add
+processing/encoder/palette semantic versions to normalized Screen input
+revision. Thus equivalent effective capabilities share GET work; budget changes
+invalidate target compatibility, while policy changes invalidate freshness and
+cycle replay. Prior-policy output may be stale fallback only after validating
+its original bytes against the current exact resolved target and budget.
+
+Use explicit old/current disk DTOs and version-aware key functions, rather than
+adding defaulted fields to existing structs before validating their hashes.
+The current Unit hash is SHA-256 of its original JSON; defaulting a new field
+before that calculation would falsely classify every old pointer as corrupt.
+
+| Persisted state | Upgrade behavior |
+| --- | --- |
+| Unversioned latest metadata/Unit | Validate original legacy key/JSON, preserve its dimensions/rotation and map missing constraints to the legacy gray4 delivery rules, 90000-byte budget and legacy compatibility. Search legacy and current keys when appropriate; a valid old image is eligible only as stale after current-output validation. Carry the maximum validated attempt sequence forward under the publication lock before new writes. |
+| Blob, filename and issued records | Keep digest, filename and device-UID issuance keys unchanged. Serve old immutable bytes through the existing authorization/retention path even when no longer eligible for a new display. Never normalize on retrieval or infer ownership from a blob. |
+| Derived v1 | Validate with original Base/Drawing hash and old appearance/encoder rules. Treat as old cache, retain issuance roots, and generate new composites under a bumped drawing/encoder identity. Never rewrite an issued composite in place. |
+| Corner v1 pending proposal | Decode legacy complete Previous/Proposed turns and compare with original status before changing any fields. Finalize/cancel the pending transaction under existing rules first, preserving corner revision and issuance; only then upgrade the record. Unknown/corrupt authoritative versions fail closed. |
+| Public screenCycle target | Missing new compatibility facts denotes a legacy turn, never a current replay. Preserve original turn for pending-corner reconciliation; invalidate replay and validate fallback against current target. Retain the existing compact width/height/palette JSON through a separate target-status type, without embedding new display provenance. Add a compatibility fingerprint covering resolved constraints, rotation, processing revision and semantic versions to new turns. |
+| Scheduler pair and Active attempt | Decode legacy state, preserve UID ownership, ID, sequence, Submitted state, run directory and original context digest. Never overwrite its snapshot or reuse the attempt ID. Current model/spec/revision gates mark it obsolete, cancel any owned Job, record terminal state durably and only then prepare a new attempt. Recover a prepared/unsubmitted attempt with the same cancellation ordering. |
+
+GC must enumerate old and current key namespaces, latest pointers, scheduler
+attempts, pending corners, issued records and in-memory pins before pruning.
+A key-version change must never make protected bytes invisible. Unknown or
+corrupt authoritative identity/issuance/corner/scheduler records retain their
+existing fail-closed behavior; old optional fields alone are not corruption.
+Use atomic fsync/rename updates and make every transition restart-idempotent.
+This is an upgrade design, not a promise of downgrade compatibility.
+
+Recheck UIDs, assignment, resolved target/budget and normalized revision using
+direct reads at publication and new issuance, including Job collection and
+replay. Validate normalized base before success and final composite before
+issuance, always with exclusive byte comparison. Optional overlay failure may
+use a validated base; required delivery-state failures preserve existing
+failure behavior. Keep the base render timestamp through normalization and
+derived images, including Job completion time. Integration tests must exercise
+old-PVC startup, in-flight upgrades, every pending-corner recovery branch and
+GC before these migration rules become active.
+
 ## Scope of future work
 
 Additional device/firmware targets, general image conversion, target-only Job sharing,

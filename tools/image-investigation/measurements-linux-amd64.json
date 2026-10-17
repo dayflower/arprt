@@ -1,0 +1,476 @@
+{
+  "architecture": "x86_64",
+  "go": "go version go1.26.8 linux/amd64",
+  "cpu_limit": "500m",
+  "memory_limit_bytes": 536870912,
+  "probe_sha256": "721f37bb7147c20ae1eee4e3374c9dfcba20f53381755abbe782e51eb4c5cc9c",
+  "cases": [
+    {
+      "args": [
+        "-input",
+        "rgba16.png",
+        "-palette",
+        "gray4",
+        "-width",
+        "800",
+        "-height",
+        "480"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 34677,
+          "cgroup_peak_bytes": "173690880",
+          "convert_ms": 327,
+          "decode_ms": 715,
+          "dithering": "atkinson",
+          "heap_sys_mib": 163,
+          "input": "rgba16.png",
+          "overlay_bytes": 33202,
+          "target": "800x480/gray4",
+          "total_ms": 1240
+        }
+      ]
+    },
+    {
+      "args": [
+        "-input",
+        "rgba16-adam7.png"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "313876480",
+          "convert_ms": 3292,
+          "decode_ms": 1084,
+          "dithering": "atkinson",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5486
+        }
+      ]
+    },
+    {
+      "args": [
+        "-input",
+        "entropy16.png"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 955770,
+          "cgroup_peak_bytes": "81149952",
+          "convert_ms": 3390,
+          "decode_ms": 138,
+          "dithering": "atkinson",
+          "heap_sys_mib": 75,
+          "input": "entropy16.png",
+          "overlay_bytes": 948848,
+          "target": "1872x1404/gray16",
+          "total_ms": 3725
+        }
+      ]
+    },
+    {
+      "args": [
+        "-input",
+        "wide16.png"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 141213,
+          "cgroup_peak_bytes": "177430528",
+          "convert_ms": 3379,
+          "decode_ms": 670,
+          "dithering": "atkinson",
+          "heap_sys_mib": 171,
+          "input": "wide16.png",
+          "overlay_bytes": 140579,
+          "target": "1872x1404/gray16",
+          "total_ms": 4570
+        }
+      ]
+    },
+    {
+      "args": [
+        "-input",
+        "tall16.png"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 246309,
+          "cgroup_peak_bytes": "177762304",
+          "convert_ms": 3272,
+          "decode_ms": 741,
+          "dithering": "atkinson",
+          "heap_sys_mib": 171,
+          "input": "tall16.png",
+          "overlay_bytes": 244906,
+          "target": "1872x1404/gray16",
+          "total_ms": 5148
+        }
+      ]
+    },
+    {
+      "args": [
+        "-palette",
+        "spectra6",
+        "-width",
+        "800",
+        "-height",
+        "480"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 24402,
+          "cgroup_peak_bytes": "308076544",
+          "convert_ms": 413,
+          "decode_ms": 1026,
+          "dithering": "atkinson",
+          "heap_sys_mib": 295,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 23501,
+          "target": "800x480/spectra6",
+          "total_ms": 1538
+        }
+      ]
+    },
+    {
+      "args": [
+        "-palette",
+        "spectra6",
+        "-width",
+        "1200",
+        "-height",
+        "1600"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 115171,
+          "cgroup_peak_bytes": "310210560",
+          "convert_ms": 1791,
+          "decode_ms": 1038,
+          "dithering": "atkinson",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 114297,
+          "target": "1200x1600/spectra6",
+          "total_ms": 3321
+        }
+      ]
+    },
+    {
+      "args": [
+        "-dithering",
+        "floyd-steinberg"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 394679,
+          "cgroup_peak_bytes": "314322944",
+          "convert_ms": 2908,
+          "decode_ms": 985,
+          "dithering": "floyd-steinberg",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 392457,
+          "target": "1872x1404/gray16",
+          "total_ms": 4887
+        }
+      ]
+    },
+    {
+      "args": [
+        "-dithering",
+        "none"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 185838,
+          "cgroup_peak_bytes": "312225792",
+          "convert_ms": 2502,
+          "decode_ms": 894,
+          "dithering": "none",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 185275,
+          "target": "1872x1404/gray16",
+          "total_ms": 3875
+        }
+      ]
+    },
+    {
+      "args": [
+        "-dithering",
+        "bayer"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 951470,
+          "cgroup_peak_bytes": "320442368",
+          "convert_ms": 3091,
+          "decode_ms": 920,
+          "dithering": "bayer",
+          "heap_sys_mib": 303,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 944504,
+          "target": "1872x1404/gray16",
+          "total_ms": 4210
+        }
+      ]
+    },
+    {
+      "args": [
+        "-palette",
+        "spectra6",
+        "-width",
+        "1200",
+        "-height",
+        "1600",
+        "-dithering",
+        "bayer"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 31618,
+          "cgroup_peak_bytes": "309743616",
+          "convert_ms": 3197,
+          "decode_ms": 991,
+          "dithering": "bayer",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 31642,
+          "target": "1200x1600/spectra6",
+          "total_ms": 4298
+        }
+      ]
+    },
+    {
+      "args": [
+        "-width",
+        "2048",
+        "-height",
+        "2048",
+        "-dithering",
+        "bayer"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 16517,
+          "cgroup_peak_bytes": "314347520",
+          "convert_ms": 4728,
+          "decode_ms": 966,
+          "dithering": "bayer",
+          "heap_sys_mib": 299,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 16844,
+          "target": "2048x2048/gray16",
+          "total_ms": 5784
+        }
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "cancel",
+        "-stage",
+        "decode"
+      ],
+      "exit_code": 0,
+      "measurements": [],
+      "observations": [
+        "stage=decode stopped_after_cancel_ms=2.814"
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "cancel",
+        "-stage",
+        "decode",
+        "-cancel-after",
+        "200ms"
+      ],
+      "exit_code": 0,
+      "measurements": [],
+      "observations": [
+        "stage=decode stopped_after_cancel_ms=1.225"
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "cancel",
+        "-stage",
+        "decode",
+        "-cancel-after",
+        "400ms"
+      ],
+      "exit_code": 0,
+      "measurements": [],
+      "observations": [
+        "stage=decode stopped_after_cancel_ms=29.863"
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "cancel",
+        "-stage",
+        "resize"
+      ],
+      "exit_code": 0,
+      "measurements": [],
+      "observations": [
+        "stage=resize stopped_after_cancel_ms=0.126"
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "cancel",
+        "-stage",
+        "encode"
+      ],
+      "exit_code": 0,
+      "measurements": [],
+      "observations": [
+        "stage=encode stopped_after_cancel_ms=33.392"
+      ]
+    },
+    {
+      "args": [
+        "-mode",
+        "load"
+      ],
+      "exit_code": 0,
+      "measurements": [
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "280961024",
+          "convert_ms": 3073,
+          "decode_ms": 884,
+          "dithering": "atkinson",
+          "heap_sys_mib": 303,
+          "input": "rgba16-adam7.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 4952
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "316264448",
+          "convert_ms": 3001,
+          "decode_ms": 823,
+          "dithering": "atkinson",
+          "heap_sys_mib": 335,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 4798
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "316792832",
+          "convert_ms": 3001,
+          "decode_ms": 800,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 4786
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "324161536",
+          "convert_ms": 3319,
+          "decode_ms": 820,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5233
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "345665536",
+          "convert_ms": 3413,
+          "decode_ms": 905,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5391
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "349241344",
+          "convert_ms": 3360,
+          "decode_ms": 915,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5313
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "349401088",
+          "convert_ms": 3204,
+          "decode_ms": 892,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5187
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "349401088",
+          "convert_ms": 3397,
+          "decode_ms": 900,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5376
+        },
+        {
+          "base_bytes": 339885,
+          "cgroup_peak_bytes": "349401088",
+          "convert_ms": 3300,
+          "decode_ms": 910,
+          "dithering": "atkinson",
+          "heap_sys_mib": 367,
+          "input": "input.png",
+          "overlay_bytes": 338006,
+          "target": "1872x1404/gray16",
+          "total_ms": 5300
+        }
+      ],
+      "observations": [
+        "peak_admitted=1"
+      ]
+    }
+  ],
+  "cpu_model": "Intel(R) N100",
+  "measured_date_jst": "2026-10-17"
+}

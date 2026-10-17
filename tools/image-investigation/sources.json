@@ -1,0 +1,382 @@
+[
+  {
+    "path": "upstream/src/display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/display.cpp",
+    "sha256": "6e0e9c3800bfd37fc722cb1b310ba2633dac33d1ab997b7774361c6d9c8752a5"
+  },
+  {
+    "path": "upstream/include/config.h",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/include/config.h",
+    "sha256": "f5b51b0f8a2d7e41592e73b5ee9c3c9dae3a24c02a30f1fce67c600e067a547d"
+  },
+  {
+    "path": "upstream/platformio.ini",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/platformio.ini",
+    "sha256": "463b659c8ceae0322b8023bbf57120f7810d32f15e7afba45cbc1489bf182216"
+  },
+  {
+    "path": "upstream/lib/trmnl/src/api-client/request_headers.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/lib/trmnl/src/api-client/request_headers.cpp",
+    "sha256": "3b7eacf4f6037f293bdcee900f32bb4637a563d1df201cd85647291072ce83e8"
+  },
+  {
+    "path": "upstream/src/api-client/display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/api-client/display.cpp",
+    "sha256": "1839bec0f02e25713ab600a93014f9f2e390cb23a0f25bdad989276c4b66d023"
+  },
+  {
+    "path": "upstream/src/api-client/setup.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/api-client/setup.cpp",
+    "sha256": "32f1cae69d506e183308cf59f360863caefcb519122f7dd1aea2a7fc009ad38a"
+  },
+  {
+    "path": "upstream/src/services/http_retry_request.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/services/http_retry_request.cpp",
+    "sha256": "7e11ca157bd323c117c430d16c609d2940f801be5190a2395e9673f3abd46e31"
+  },
+  {
+    "path": "upstream/lib/trmnl/src/parse_response_api_display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/lib/trmnl/src/parse_response_api_display.cpp",
+    "sha256": "9b5238de1e9ee05424d4137f7881fb983f45bcddc0fdfd8801b39c106e5f1895"
+  },
+  {
+    "path": "upstream/src/displayed_image.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/displayed_image.cpp",
+    "sha256": "c0be81e45bbf44975e0831a880139bc842fd43042fa0872025dad86b4f1e708c"
+  },
+  {
+    "path": "v1817/src/display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/display.cpp",
+    "sha256": "841f4bcfa3e977ad81d24f5f55886c21e15642431cb66b97b3716af9352a9478"
+  },
+  {
+    "path": "v1817/include/config.h",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/include/config.h",
+    "sha256": "cfd72ba8936230977a6f9b99a0b8e4245538cb15910ef92a2d6b6c6571f8ac13"
+  },
+  {
+    "path": "v1817/platformio.ini",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/platformio.ini",
+    "sha256": "3a576706367f7ca99ccfa7b6056e3d86a54b30be2e09fce16d16b870713f491b"
+  },
+  {
+    "path": "v1817/lib/trmnl/src/api-client/request_headers.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/lib/trmnl/src/api-client/request_headers.cpp",
+    "sha256": "3b7eacf4f6037f293bdcee900f32bb4637a563d1df201cd85647291072ce83e8"
+  },
+  {
+    "path": "v1817/src/api-client/display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/api-client/display.cpp",
+    "sha256": "1839bec0f02e25713ab600a93014f9f2e390cb23a0f25bdad989276c4b66d023"
+  },
+  {
+    "path": "v1817/src/api-client/setup.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/api-client/setup.cpp",
+    "sha256": "32f1cae69d506e183308cf59f360863caefcb519122f7dd1aea2a7fc009ad38a"
+  },
+  {
+    "path": "v1817/src/services/http_retry_request.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/services/http_retry_request.cpp",
+    "sha256": "acf73dd1f3b4de4ce4a713782acd5f73c11b20a9f872548494cd1ea441fe6497"
+  },
+  {
+    "path": "v1817/lib/trmnl/src/parse_response_api_display.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/lib/trmnl/src/parse_response_api_display.cpp",
+    "sha256": "9b5238de1e9ee05424d4137f7881fb983f45bcddc0fdfd8801b39c106e5f1895"
+  },
+  {
+    "path": "v1817/src/displayed_image.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/displayed_image.cpp",
+    "sha256": "c0be81e45bbf44975e0831a880139bc842fd43042fa0872025dad86b4f1e708c"
+  },
+  {
+    "path": "seeed/src/display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/display.cpp",
+    "sha256": "6a2d7e7892f4f5df17d761642f1d39c8469a91c56c2dd4dbcfd1bf0485977322"
+  },
+  {
+    "path": "seeed/include/config.h",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/include/config.h",
+    "sha256": "fce2db41d0545caa2939fc4e487c60f1f1d45b7b044c46b4b0e1601263e00aa2"
+  },
+  {
+    "path": "seeed/platformio.ini",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/platformio.ini",
+    "sha256": "0a5697180ce1640950b76ce7adf32fb35f8a855cd99d5321a83139e893f4775e"
+  },
+  {
+    "path": "seeed/lib/trmnl/src/api-client/request_headers.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/lib/trmnl/src/api-client/request_headers.cpp",
+    "sha256": "bfe5a09d061f76b8a50f9b4ae5b9e5301ef7bce98db7a2df72fd672990ac4a97"
+  },
+  {
+    "path": "seeed/src/api-client/display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/api-client/display.cpp",
+    "sha256": "c05147f8910e3a0de75c2a6f241e843203ed95da540402f16ae634b39ebf4075"
+  },
+  {
+    "path": "seeed/src/api-client/setup.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/api-client/setup.cpp",
+    "sha256": "8b0505b6b011b9e611f4186822982d0ca5ce61f57d52d0f1c973d7277fa6b475"
+  },
+  {
+    "path": "seeed/lib/trmnl/src/parse_response_api_display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/lib/trmnl/src/parse_response_api_display.cpp",
+    "sha256": "6ad6342f3a2680ba5209bee3baa30160d9de1c9570459170ba473ce8eefb7070"
+  },
+  {
+    "path": "e1004/src/display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/display.cpp",
+    "sha256": "16a89dd96b9601588235486deb87050fbe593e8c06209543e3193ed0e3ba1aae"
+  },
+  {
+    "path": "e1004/include/config.h",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/include/config.h",
+    "sha256": "b198e3a648cb8b6bcc4e9c9edef67ec1308f82edfe4485fc52e4632e44ac2303"
+  },
+  {
+    "path": "e1004/platformio.ini",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/platformio.ini",
+    "sha256": "f32a5eb59f45e49821588d0f23f0ebe9c70787a5097ed31efa923e758b752b78"
+  },
+  {
+    "path": "e1004/lib/trmnl/src/api-client/request_headers.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/lib/trmnl/src/api-client/request_headers.cpp",
+    "sha256": "1dfbe29be815cc70d0326db5543c943ecfdfd7d16ec9fdd980fb1f38c354d089"
+  },
+  {
+    "path": "e1004/src/api-client/display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/api-client/display.cpp",
+    "sha256": "c05147f8910e3a0de75c2a6f241e843203ed95da540402f16ae634b39ebf4075"
+  },
+  {
+    "path": "e1004/src/api-client/setup.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/api-client/setup.cpp",
+    "sha256": "8b0505b6b011b9e611f4186822982d0ca5ce61f57d52d0f1c973d7277fa6b475"
+  },
+  {
+    "path": "e1004/lib/trmnl/src/parse_response_api_display.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/lib/trmnl/src/parse_response_api_display.cpp",
+    "sha256": "6ad6342f3a2680ba5209bee3baa30160d9de1c9570459170ba473ce8eefb7070"
+  },
+  {
+    "path": "e1004/src/displayed_image.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/displayed_image.cpp",
+    "sha256": "f89ebb6622ea5ec8c28ba0c2bcda232a317b00582f7c37fa98776fadb3fb657d"
+  },
+  {
+    "path": "pngdec/LICENSE",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/LICENSE",
+    "sha256": "63fefff6dd199d109389e0f413579387e9ca9cfdeeae961ecdbcb120d08432e0"
+  },
+  {
+    "path": "pngdec/src/inffixed.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inffixed.h",
+    "sha256": "237ba710f090e432b62ebf963bee8b302867e9691406b2d3f8ee89ee7bfef9b0"
+  },
+  {
+    "path": "pngdec/src/zconf.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/zconf.h",
+    "sha256": "bd7258a81ef8152bfe9f732e08edb3e0eb1cffeb1c07b9d3d52cf3775902fc87"
+  },
+  {
+    "path": "pngdec/src/zutil.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/zutil.h",
+    "sha256": "46121c1b514dfda273a605d194eb681f0e405f8995df1c626caebcb1fa59bc5d"
+  },
+  {
+    "path": "pngdec/src/inftrees.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inftrees.c",
+    "sha256": "85fb848bad9d145fc11ccd1822049999c9e23c6e0d36994cfcde199a1e69ed5c"
+  },
+  {
+    "path": "pngdec/src/inffast.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inffast.c",
+    "sha256": "baa93cfc5418a15206ee7289c4d809fe33cfe99c18ae6cea869f440e3a703b0f"
+  },
+  {
+    "path": "pngdec/src/zlib.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/zlib.h",
+    "sha256": "c579bce35b3a4e92559cef15f2af88573d8bc59f18146f6c052887accc6790e4"
+  },
+  {
+    "path": "pngdec/src/PNGDisplay.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/PNGDisplay.h",
+    "sha256": "222703bba3fd0613c19caceb5213a84fc61ca5305e3af307fcb76f4c7a09b77a"
+  },
+  {
+    "path": "pngdec/src/png.inl",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/png.inl",
+    "sha256": "8008f43fb74e578df3651791da4fb4ac74cb87f946ec6910aeab703fa5b5ea65"
+  },
+  {
+    "path": "pngdec/src/inflate.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inflate.c",
+    "sha256": "b023c8604f00d03090dee1980d7fa813f324262a1302c82ec2d91df944b8dcee"
+  },
+  {
+    "path": "pngdec/src/zutil.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/zutil.c",
+    "sha256": "78ab2048b346ea6fe257a24b28a22ec4c8aad22adcdeb010fd356e90817a9f8c"
+  },
+  {
+    "path": "pngdec/src/PNGDisplay.inl",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/PNGDisplay.inl",
+    "sha256": "8a94605842a807c44b0a1b84f88c5960ead4010159c0b5428ab000f1712b3ad9"
+  },
+  {
+    "path": "pngdec/src/adler32.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/adler32.c",
+    "sha256": "463a73a32f6cbe74f23ff30bfe67271fa9f8dcd86ef16fd0dd91836e77cbe5e7"
+  },
+  {
+    "path": "pngdec/src/crc32.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/crc32.c",
+    "sha256": "aa8966ce429fe601eb9c021d6c346c573a82fb900bcc3a511e31f9f18ec5a4ee"
+  },
+  {
+    "path": "pngdec/src/infback.c",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/infback.c",
+    "sha256": "76fa68f3b340a35cf9dbbe5a7bed3e17c971aaad90fa452e6352eabef04b327a"
+  },
+  {
+    "path": "pngdec/src/PNGdec.cpp",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/PNGdec.cpp",
+    "sha256": "2b534fbac2684848104f5eecb21ebf99402efc47659c686ecaf79e3b604a9f5c"
+  },
+  {
+    "path": "pngdec/src/inflate.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inflate.h",
+    "sha256": "404aadc74cf05deb7624532e4b6fd01e51b579ce9d22773207fb584502dcf575"
+  },
+  {
+    "path": "pngdec/src/inffast.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inffast.h",
+    "sha256": "7d8c1c873ce9bc346ad6005bb9d75cce5c6352aaf7395385be216a9452a34908"
+  },
+  {
+    "path": "pngdec/src/PNGdec.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/PNGdec.h",
+    "sha256": "f01b12dea5d14df02aa0ae7b9e24c415b7d40879221e90ab644d7215a3c2a37f"
+  },
+  {
+    "path": "pngdec/src/crc32.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/crc32.h",
+    "sha256": "407af59d0abfea84a6507c603eb29809411797f98249614fe76a661def783ce1"
+  },
+  {
+    "path": "pngdec/src/inftrees.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/PNGdec/9a9c585fd39d148c5517597b02ce490e0fdb1bb4/src/inftrees.h",
+    "sha256": "ab1b06284c832accb6b57f811fedfc4aec238d832299218bb8eb5ab5688090c1"
+  },
+  {
+    "path": "fastepd/src/FastEPD.inl",
+    "url": "https://raw.githubusercontent.com/bitbank2/FastEPD/9a84c35e52849f9f22d2a7ad5231ef501be49e04/src/FastEPD.inl",
+    "sha256": "c45ad681fa897cccb5168b9a80ef4a826fd258266b440d9b9840aff9ccaf1aba"
+  },
+  {
+    "path": "upstream/src/main.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/main.cpp",
+    "sha256": "4bd0038a01591ffbc3c7626acf6a25411a20ae06fab727ac13774bab7a218019"
+  },
+  {
+    "path": "upstream/src/http_client.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/http_client.cpp",
+    "sha256": "ac0ee77deda88a7d513ad6fda6386d658793b0cec54d43c8c94dad6ea46715ae"
+  },
+  {
+    "path": "upstream/lib/trmnl/include/hardware_types.h",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/lib/trmnl/include/hardware_types.h",
+    "sha256": "99e71460fade34cd7dacf61a566b9e3317d5ef3abed85bd937c9b76c9df427ff"
+  },
+  {
+    "path": "v1817/src/main.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/main.cpp",
+    "sha256": "4bd0038a01591ffbc3c7626acf6a25411a20ae06fab727ac13774bab7a218019"
+  },
+  {
+    "path": "v1817/src/http_client.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/http_client.cpp",
+    "sha256": "ac0ee77deda88a7d513ad6fda6386d658793b0cec54d43c8c94dad6ea46715ae"
+  },
+  {
+    "path": "v1817/lib/trmnl/include/hardware_types.h",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/lib/trmnl/include/hardware_types.h",
+    "sha256": "99e71460fade34cd7dacf61a566b9e3317d5ef3abed85bd937c9b76c9df427ff"
+  },
+  {
+    "path": "seeed/src/main.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/main.cpp",
+    "sha256": "57e0d681da48d51a4e36eec1cef579a12833a2fd8db0aeb91509d3017acb4e30"
+  },
+  {
+    "path": "seeed/src/http_client.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/http_client.cpp",
+    "sha256": "67c5521b5fb5c1b3b84933aecc2bf8894313af2e772c5742f4704b8552a6a2cb"
+  },
+  {
+    "path": "seeed/lib/trmnl/include/hardware_types.h",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/lib/trmnl/include/hardware_types.h",
+    "sha256": "fb4c508103318eb0d84ec03bd75dfb4ae76d4aef16e65887c3d1dd69c1e5c2b7"
+  },
+  {
+    "path": "e1004/src/main.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/main.cpp",
+    "sha256": "57e0d681da48d51a4e36eec1cef579a12833a2fd8db0aeb91509d3017acb4e30"
+  },
+  {
+    "path": "e1004/src/http_client.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/http_client.cpp",
+    "sha256": "67c5521b5fb5c1b3b84933aecc2bf8894313af2e772c5742f4704b8552a6a2cb"
+  },
+  {
+    "path": "e1004/lib/trmnl/include/hardware_types.h",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/lib/trmnl/include/hardware_types.h",
+    "sha256": "fb4c508103318eb0d84ec03bd75dfb4ae76d4aef16e65887c3d1dd69c1e5c2b7"
+  },
+  {
+    "path": "upstream/src/bl.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/bl.cpp",
+    "sha256": "8037efe3244bb272b7aedc654d0a0347908e399abd260fb160336b9ff5b05e03"
+  },
+  {
+    "path": "upstream/src/display_session.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/display_session.cpp",
+    "sha256": "7adac597b6a221ff255698cb6df266695acd12747f4c8c552365ef163ee18381"
+  },
+  {
+    "path": "upstream/src/services/device_setup.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/services/device_setup.cpp",
+    "sha256": "267ecdceccb5645379f796405389826824023f3cfc1b02224b82f5412a302bfb"
+  },
+  {
+    "path": "v1817/src/bl.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/bl.cpp",
+    "sha256": "bedbce90dc758e00bd0359152aff42d098e6c9f788166464ee81fce5874bb424"
+  },
+  {
+    "path": "v1817/src/services/device_setup.cpp",
+    "url": "https://raw.githubusercontent.com/usetrmnl/trmnl-firmware/9acd348270a493ca5f1c627ac91a9469543267ae/src/services/device_setup.cpp",
+    "sha256": "471b7f537b99ce648b437249db53b12b1ace0c41cf99fd117cb50ee07017522d"
+  },
+  {
+    "path": "seeed/src/bl.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/bl.cpp",
+    "sha256": "fedbdeb75f04aa88c65fe9fb62be1c4e7eab5a6fcd775d6aacb40c786507101c"
+  },
+  {
+    "path": "e1004/src/bl.cpp",
+    "url": "https://raw.githubusercontent.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL_E1004/src/bl.cpp",
+    "sha256": "7522b6fb109e6f8eff5b520fa3505d00b9f109932990f37a66f5b581f14b968e"
+  },
+  {
+    "path": "bbep/src/bb_epaper.cpp",
+    "url": "https://raw.githubusercontent.com/bitbank2/bb_epaper/1a38d706b0259d3637df65a91de09abc3f7ccd5f/src/bb_epaper.cpp",
+    "sha256": "dbb39dba58abb257f1dc173e1aa440ddcfa5d1ef47941c41228c7a2289151695"
+  },
+  {
+    "path": "bbep/src/bb_epaper.h",
+    "url": "https://raw.githubusercontent.com/bitbank2/bb_epaper/1a38d706b0259d3637df65a91de09abc3f7ccd5f/src/bb_epaper.h",
+    "sha256": "4113301797b38f207a91af4b712c0b0095ac0bfec42d3eaa63b41f49987f84ba"
+  }
+]
