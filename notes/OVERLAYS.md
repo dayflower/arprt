@@ -285,10 +285,28 @@ invalid renderer output. Validate the
 base image before compositing and the final composite before publication.
 
 Preserve base pixels outside the overlay area, physical dimensions, target
-rotation compatibility and semantic palette. Black/white bitmap drawing does
-not permit changing the final PNG to a different bit depth. For the currently
-supported OG target, composites must still satisfy the complete 800 by 480,
-noninterlaced 2-bit gray4 PNG contract and compressed-byte limit in PROTOCOL.
+rotation compatibility and semantic palette. Active OG delivery retains the
+complete 800 by 480, noninterlaced 2-bit gray4 PNG contract and compressed-byte
+limit in PROTOCOL until renderer integration activates explicit output targets.
+Its legacy appearance/encoding identity remains readable and reusable.
+
+The internal resolved-target compositing path supports gray4, gray16 and
+Spectra 6 within the shared output dimension/allocation bounds. It maps exact
+palette colors, including reordered/subset indexed palettes, without resampling,
+quantization or dithering. The shared encoder chooses gray4 depth from the whole
+final image: 2-bit for black/white only, otherwise 4-bit. Drawing over the last
+intermediate gray may therefore change the depth. Gray16 uses 4-bit grayscale;
+Spectra 6 uses 4-bit indexed output with the six canonical transmission colors.
+All untouched pixel colors remain exact; source PNG metadata is not copied.
+
+Both base and final candidate must satisfy the resolved target's exclusive
+`encodedBytes < pngByteLimit` budget. An oversized optional composite returns
+failure for validated-base fallback; it never changes content or compression
+to fit. The resolved drawing cache identity includes bitmap, encoder and palette
+versions, preserving the original base render time. Legacy derived records and
+previously issued URLs retain their immutable bytes across restart and GC.
+These internal capabilities do not expand the current public Device/Screen API
+or establish physical acceptance for another model.
 
 Base and composite artifacts must preserve UID ownership, exact-target
 compatibility, ordered publication, current assignment and authentication

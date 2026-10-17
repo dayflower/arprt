@@ -15,6 +15,20 @@ var errOutputSize = errors.New("PNG exceeds exclusive output byte limit")
 // resize, quantize, dither or copy source metadata. Gray4 indices 0/1/2/3 map
 // exactly to native samples 0/5/10/15 at depth 4, or 0/3 at depth 2 for black/white.
 func Encode(ctx context.Context, indices []byte, t Target) ([]byte, error) {
+	return encode(ctx, indices, t, false)
+}
+
+// EncodeLegacyGray4 preserves the original overlay encoding while delivery
+// still uses legacy output constraints. New resolved targets must use Encode.
+// Keeping this migration path here avoids a second PNG writer in overlay.
+func EncodeLegacyGray4(ctx context.Context, indices []byte, t Target) ([]byte, error) {
+	if t.Palette != Gray4 || int64(t.Width)*int64(t.Height) > 384000 {
+		return nil, errors.New("invalid legacy gray4 target")
+	}
+	return encode(ctx, indices, t, true)
+}
+
+func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -42,6 +56,9 @@ func Encode(ctx context.Context, indices []byte, t Target) ([]byte, error) {
 	depth, kind := byte(4), byte(0)
 	if t.Palette == Gray4 {
 		depth = gray4Depth(blackWhite)
+		if legacy {
+			depth = 2
+		}
 	}
 	overhead := 57 // Signature, IHDR, IDAT framing and IEND.
 	if t.Palette == Spectra6 {
@@ -56,7 +73,11 @@ func Encode(ctx context.Context, indices []byte, t Target) ([]byte, error) {
 	// BestCompression's long match search on diffusion patterns can consume
 	// the processing deadline at the controller's 500m CPU limit. Default
 	// compression preserves every sample while bounding that extra search.
-	z, err := zlib.NewWriterLevel(compressed, zlib.DefaultCompression)
+	level := zlib.DefaultCompression
+	if legacy {
+		level = zlib.BestCompression
+	}
+	z, err := zlib.NewWriterLevel(compressed, level)
 	if err != nil {
 		return nil, err
 	}

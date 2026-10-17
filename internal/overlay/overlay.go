@@ -1,21 +1,23 @@
-// Package overlay draws bounded bitmap assets on validated gray4 PNGs.
+// Package overlay draws bounded bitmap assets on validated palette PNGs.
 // It has no HTTP or Kubernetes dependencies and never estimates a percentage.
 package overlay
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"image"
-	"image/png"
 	"math"
 	"time"
 
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/overlay/homevideo"
 	"github.com/dayflower/arprt/internal/render"
 )
 
-const AppearanceVersion = "bitmap-v1-gray2-v1"
+const (
+	LegacyAppearanceVersion = "bitmap-v1-gray2-v1"
+	AppearanceVersion       = "bitmap-v1-" + imageprocessing.EncoderVersion + "-" + imageprocessing.PaletteVersion
+)
 
 type Corner string
 
@@ -120,11 +122,13 @@ func WiFiLevel(rssi *int32) *int {
 	return &level
 }
 func AutoScale(width, height int32) int { return max(1, int(min(width, height)/480)) }
+
+// Normalize retains the legacy drawing identity until runtime integration.
 func Normalize(t render.Target, s Settings, renderedAt time.Time, location *time.Location, telemetry Telemetry, corner Corner) (Drawing, error) {
 	if t.Validate() != nil || !corner.Valid() || location == nil || renderedAt.IsZero() || s.Scale < 0 || !s.Margin.valid() {
 		return Drawing{}, errors.New("invalid overlay inputs")
 	}
-	d := Drawing{Version: AppearanceVersion, Corner: corner, Scale: AutoScale(t.Width, t.Height), Margin: s.Margin}
+	d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: AutoScale(t.Width, t.Height), Margin: s.Margin}
 	if s.Scale != 0 {
 		d.Scale = int(s.Scale)
 	}
@@ -145,6 +149,22 @@ func Normalize(t render.Target, s Settings, renderedAt time.Time, location *time
 	}
 	return d, nil
 }
+
+// NormalizeResolved binds drawing identity to the selected encoding semantics.
+// RenderedAt is the original base success time, including for stale delivery.
+func NormalizeResolved(t render.ResolvedTarget, s Settings, renderedAt time.Time, location *time.Location, telemetry Telemetry, corner Corner) (Drawing, error) {
+	if !t.Output.IsZero() {
+		if err := t.Validate(); err != nil {
+			return Drawing{}, err
+		}
+	}
+	d, err := Normalize(t.Target, s, renderedAt, location, telemetry, corner)
+	if !t.Output.IsZero() {
+		d.Version = AppearanceVersion
+	}
+	return d, err
+}
+
 func (d Drawing) Empty() bool {
 	return d.Timestamp == "" && d.Battery == nil && !d.Charging && d.WiFi == nil
 }
@@ -231,43 +251,89 @@ func Physical(t render.Target, x, y int) (int, int) {
 		return x, y
 	}
 }
+
+// Compose preserves legacy OG delivery until callers resolve output constraints.
 func Compose(ctx context.Context, base []byte, t render.Target, d Drawing) ([]byte, error) {
+	return ComposeResolved(ctx, base, render.ResolvedTarget{Target: t}, d)
+}
+
+// ComposeResolved draws exact black/white palette indices after normalization.
+// It never resizes, quantizes, dithers or rotates the renderer's base content.
+// The caller owns shared admission and the enclosing processing deadline.
+func ComposeResolved(ctx context.Context, base []byte, resolved render.ResolvedTarget, d Drawing) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := render.ValidatePNG(base, t); err != nil {
+	t := resolved.Target
+	legacy := resolved.Output.IsZero()
+	version := AppearanceVersion
+	it := resolved.ImageTarget()
+	if legacy {
+		version = LegacyAppearanceVersion
+		it.PNGByteLimit = render.MaxPNGBytes + 1
+		if err := render.ValidatePNG(base, t); err != nil {
+			return nil, err
+		}
+	} else if err := resolved.Validate(); err != nil {
 		return nil, err
+	}
+	decoded, err := imageprocessing.Decode(ctx, base)
+	if err != nil {
+		return nil, err
+	}
+	if !legacy {
+		ok, err := decoded.Compatible(ctx, it)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errors.New("incompatible overlay base")
+		}
 	}
 	if d.Empty() {
 		return nil, nil
 	}
-	if d.Version != AppearanceVersion || (d.Timestamp != "" && len(d.Timestamp) != 16) || (d.Battery != nil && (*d.Battery < 0 || *d.Battery > 2)) || (d.WiFi != nil && (*d.WiFi < 0 || *d.WiFi > 4)) {
-		return nil, errors.New("invalid drawing")
+	if d.Version != version {
+		return nil, errors.New("invalid drawing version")
 	}
 	foreground, background, err := d.layout(t)
 	if err != nil {
 		return nil, err
 	}
-	decoded, err := png.Decode(bytes.NewReader(base))
-	if err != nil {
-		return nil, err
+	// Convert exact samples to canonical indices, preserving reordered indexed
+	// palettes and every color outside the overlay. Compatibility has already
+	// excluded alpha and off-palette samples; no nearest-color matching is used.
+	colors := it.Palette.Colors()
+	indices := make(map[uint64]byte, len(colors))
+	var white byte
+	key := func(r, g, b uint32) uint64 { return uint64(r)<<32 | uint64(g)<<16 | uint64(b) }
+	for i, c := range colors {
+		indices[key(uint32(c.R)*257, uint32(c.G)*257, uint32(c.B)*257)] = byte(i)
+		if c.R == 255 && c.G == 255 && c.B == 255 {
+			white = byte(i)
+		}
 	}
-	// Validation bounds this to 384,000 samples. Both accepted formats have exact
-	// opaque gray4 values; no quantization or arbitrary conversion is performed.
-	pixels := make([]byte, int(t.Width)*int(t.Height))
-	for py := 0; py < int(t.Height); py++ {
+	pixels := make([]byte, it.Width*it.Height)
+	for py := 0; py < it.Height; py++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		for px := 0; px < int(t.Width); px++ {
-			r, _, _, _ := decoded.At(px, py).RGBA()
-			pixels[py*int(t.Width)+px] = byte(r / 21845)
+		for px := 0; px < it.Width; px++ {
+			r, g, b, a := decoded.Pixels().At(px, py).RGBA()
+			index, ok := indices[key(r, g, b)]
+			if !ok || a != 65535 {
+				return nil, errors.New("invalid overlay palette sample")
+			}
+			pixels[py*it.Width+px] = index
 		}
 	}
 	put := func(lx, ly int, value byte) { px, py := Physical(t, lx, ly); pixels[py*int(t.Width)+px] = value }
 	for ly := background.Min.Y; ly < background.Max.Y; ly++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		for lx := background.Min.X; lx < background.Max.X; lx++ {
-			put(lx, ly, 3)
+			put(lx, ly, white)
 		}
 	}
 	cursor, count := foreground.Min.X, 0
@@ -278,6 +344,9 @@ func Compose(ctx context.Context, base []byte, t render.Target, d Drawing) ([]by
 		count++
 		oy := foreground.Min.Y + (foreground.Dy()-height*d.Scale)/2
 		for row := 0; row < height; row++ {
+			if ctx.Err() != nil {
+				return
+			}
 			for col := 0; col < width; col++ {
 				if pixel(col, row) {
 					for sy := 0; sy < d.Scale; sy++ {
@@ -312,11 +381,15 @@ func Compose(ctx context.Context, base []byte, t render.Target, d Drawing) ([]by
 	if d.WiFi != nil {
 		drawIcon(wifi[*d.WiFi])
 	}
-	output, err := encode(ctx, pixels, int(t.Width), int(t.Height))
+	encoder := imageprocessing.Encode
+	if legacy {
+		encoder = imageprocessing.EncodeLegacyGray4
+	}
+	output, err := encoder(ctx, pixels, it)
 	if err != nil {
 		return nil, err
 	}
-	if err := render.ValidatePNG(output, t); err != nil {
+	if err := resolved.ValidateOutput(ctx, output); err != nil {
 		return nil, err
 	}
 	return output, nil

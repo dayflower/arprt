@@ -214,8 +214,8 @@ listener/credential settings are in [OPERATIONS](OPERATIONS.md#runtime-configura
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
-| `internal/imageprocessing` | Shared bounded PNG/APNG decoding, normalization/dithering, admission, output compatibility, canonical palettes and 2/4-bit encoding; not yet connected to runtime delivery |
-| `internal/overlay` | Vendored CC0 Home Video text, original icons, current-observation levels/charging, inset foreground/edge background and bounded 2-bit encoder |
+| `internal/imageprocessing` | Shared bounded PNG/APNG decoding, normalization/dithering, admission, output compatibility, canonical palettes and 2/4-bit encoding, including the legacy overlay writer; normalization not yet connected to runtime delivery |
+| `internal/overlay` | Vendored CC0 Home Video text, original icons, current-observation levels/charging, inset foreground/edge background and palette-aware composition through shared encoding; legacy runtime adapters until renderer integration |
 | `internal/render`, `internal/delivery` | Context/PNG/HTTP contracts and GET/POST execution/publication policies |
 | `internal/jobrender` | Durable pair/attempt records, scheduling, Job lifecycle, recovery and collection |
 | `internal/artifact`, `internal/maintenance` | PVC publication, identity/issuance, capacity and assignment-aware retention |

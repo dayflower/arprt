@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/overlay/homevideo"
 	"hash/crc32"
 	"image/png"
@@ -30,7 +31,7 @@ func patternedPNG(t *testing.T, indexed bool) []byte {
 			pixels[y*800+x] = byte((x/3 + y/7) % 4)
 		}
 	}
-	b, err := encode(context.Background(), pixels, 800, 480)
+	b, err := imageprocessing.EncodeLegacyGray4(context.Background(), pixels, imageprocessing.Target{Width: 800, Height: 480, Palette: imageprocessing.Gray4, PNGByteLimit: 90000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							t.Parallel()
 							rt := target
 							rt.Rotation = rotation
-							d := Drawing{Version: AppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4}, {Vertical: 8}}[(selection+scale)%4]}
+							d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4}, {Vertical: 8}}[(selection+scale)%4]}
 							if selection&1 != 0 {
 								d.Timestamp = "2026-10-09 12:34"
 							}
@@ -264,7 +265,7 @@ func TestTimeZonesLayoutAndLimits(t *testing.T) {
 			t.Fatal(tt)
 		}
 	}
-	d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(0), WiFi: pointer(0), Corner: TopRight, Scale: 1}
+	d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(0), WiFi: pointer(0), Corner: TopRight, Scale: 1}
 	_, _, w, h, err := d.Bounds(target)
 	if err != nil || w != 258 || h != 18 {
 		t.Fatal(w, h, err)
@@ -292,7 +293,7 @@ func TestTimeZonesLayoutAndLimits(t *testing.T) {
 	for i := range pixels {
 		pixels[i] = byte(r.Intn(4))
 	}
-	if _, err := encode(context.Background(), pixels, 800, 480); err == nil {
+	if _, err := imageprocessing.EncodeLegacyGray4(context.Background(), pixels, imageprocessing.Target{Width: 800, Height: 480, Palette: imageprocessing.Gray4, PNGByteLimit: 90000}); err == nil {
 		t.Fatal("oversized compressed output accepted")
 	}
 	for _, level := range []int{0, 1, 2} {
@@ -372,7 +373,7 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 	}
 	base := patternedPNG(t, false)
 	for _, scale := range []int{1, 2} {
-		d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale, Margin: Margins{Horizontal: 12, Vertical: 4}}
+		d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale, Margin: Margins{Horizontal: 12, Vertical: 4}}
 		out, err := Compose(context.Background(), base, target, d)
 		if err != nil {
 			t.Fatal(err)
@@ -420,7 +421,7 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 }
 
 func TestMarginLimitsAndEmptyLayout(t *testing.T) {
-	d := Drawing{Version: AppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1, Margin: Margins{Horizontal: 782, Vertical: 462}}
+	d := Drawing{Version: LegacyAppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1, Margin: Margins{Horizontal: 782, Vertical: 462}}
 	// Independent margins plus an 18-pixel icon exactly fill the 800x480 canvas.
 	if _, _, w, h, err := d.Bounds(target); err != nil || w != 800 || h != 480 {
 		t.Fatal("exact fit rejected", w, h, err)
@@ -450,7 +451,7 @@ func TestAllMarginBounds(t *testing.T) {
 				for _, margin := range []Margins{{}, {Horizontal: 4}, {Vertical: 4}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4, Vertical: 8}} {
 					rt := target
 					rt.Rotation = rotation
-					d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(2), WiFi: pointer(4), Corner: corner, Scale: scale, Margin: margin}
+					d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(2), WiFi: pointer(4), Corner: corner, Scale: scale, Margin: margin}
 					x, y, w, h, err := d.Bounds(rt)
 					if scale == 2 && (rotation == 90 || rotation == 270) {
 						if err == nil {
@@ -479,7 +480,7 @@ func TestAllMarginBounds(t *testing.T) {
 			}
 		}
 	}
-	d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", WiFi: pointer(4), Corner: TopRight, Scale: 2, Margin: Margins{Horizontal: 4}}
+	d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", WiFi: pointer(4), Corner: TopRight, Scale: 2, Margin: Margins{Horizontal: 4}}
 	rt := target
 	rt.Rotation = 90
 	if _, _, w, _, err := d.Bounds(rt); err != nil || w != 480 {
