@@ -15,7 +15,9 @@ import urllib.request
 from check_scope import physical_changes
 
 SEMVER = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?'
-SCOPE = 'OG / firmware 1.8.17; DEVELOP physical-device regression'
+LEGACY_SCOPE = 'OG / firmware 1.8.17; DEVELOP physical-device regression'
+SCOPE = 'OG corrected gray4 firmware + E1002; DEVELOP physical-device regression'
+FIRMWARE_FIELDS = ('Physical-device-og-firmware', 'Physical-device-e1002-firmware')
 
 
 def field(message, name, default=None):
@@ -29,14 +31,21 @@ def run(*args):
     return subprocess.check_output(args, text=True).strip()
 
 
-def validate_tag(tag, revision, message):
+def validate_tag(tag, revision, message, *, allow_legacy_scope=False):
     if not re.fullmatch('v' + SEMVER, tag):
         raise ValueError('release tag must be vMAJOR.MINOR.PATCH with optional SemVer prerelease')
     lines = message.splitlines()
     if lines.count('Physical-device-acceptance: ' + revision) != 1:
         raise ValueError('annotated tag must attest physical acceptance of this exact revision')
-    if lines.count('Physical-device-scope: ' + SCOPE) != 1:
+    scope = field(message, 'Physical-device-scope')
+    if scope != SCOPE and not (allow_legacy_scope and scope == LEGACY_SCOPE):
         raise ValueError('annotated tag must record the required physical-device regression scope')
+    if scope == SCOPE:
+        for name in FIRMWARE_FIELDS:
+            value = field(message, name, '')
+            if (not value.strip() or value != value.strip() or len(value) > 256
+                    or any(c in value for c in '<>\t\r') or value.lower() in ('unknown', 'pending', 'unavailable')):
+                raise ValueError('annotated tag must record exact firmware and distribution: ' + name)
     dates = [line.removeprefix('Physical-device-date: ') for line in lines if line.startswith('Physical-device-date: ')]
     if len(dates) != 1 or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', dates[0]):
         raise ValueError('annotated tag must record one YYYY-MM-DD physical acceptance date (JST)')
@@ -63,15 +72,17 @@ def physical_scope(baseline, revision):
         raise ValueError('physical baseline must be annotated')
     base_revision = run('git', 'rev-parse', ref + '^{commit}')
     message = run('git', 'for-each-ref', '--format=%(contents)', ref)
-    validate_tag(baseline, base_revision, message)
+    validate_tag(baseline, base_revision, message, allow_legacy_scope=True)
     if field(message, 'Physical-device-mode', 'full') != 'full':
         raise ValueError('reuse must refer directly to a full physical acceptance, not another reuse')
     subprocess.run(['git', 'merge-base', '--is-ancestor', base_revision, 'origin/main'], check=True)
     subprocess.run(['git', 'merge-base', '--is-ancestor', base_revision, revision], check=True)
     changed = physical_changes(base_revision, revision)
-    return {'mode': 'full' if changed else 'reuse', 'baseline': baseline,
+    scope_changed = field(message, 'Physical-device-scope') != SCOPE
+    return {'mode': 'full' if changed or scope_changed else 'reuse', 'baseline': baseline,
             'baselineRevision': base_revision, 'revision': revision,
-            'physicalChanges': changed, 'baselineDate': field(message, 'Physical-device-date')}
+            'physicalChanges': changed, 'baselineDate': field(message, 'Physical-device-date'),
+            'scopeChanged': scope_changed, 'firmware': {name: field(message, name) for name in FIRMWARE_FIELDS}}
 
 
 def guard(tag):
@@ -89,7 +100,9 @@ def guard(tag):
     if mode == 'reuse':
         scope = physical_scope(baseline, revision)
         if scope['mode'] != 'reuse':
-            raise ValueError('runtime/unknown changes require full physical regression: ' + ', '.join(scope['physicalChanges']))
+            raise ValueError('runtime/unknown changes or a legacy scope require full physical regression: ' + ', '.join(scope['physicalChanges']))
+        if any(field(message, name) != scope['firmware'][name] for name in FIRMWARE_FIELDS):
+            raise ValueError('firmware/distribution changes require full physical regression')
         if field(message, 'Physical-device-date') < scope['baselineDate']:
             raise ValueError('installation acceptance cannot predate its full baseline')
     outputs = {'tag': tag, 'version': version, 'revision': revision,

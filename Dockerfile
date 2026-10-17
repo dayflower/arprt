@@ -3,13 +3,14 @@ ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 ARG REVISION=unknown
+ARG GO_BUILD_TAGS=
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY api/ api/
 COPY internal/ internal/
 COPY cmd/ cmd/
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -tags="$GO_BUILD_TAGS" \
     -ldflags="-s -w -X main.version=$VERSION -X main.revision=$REVISION" -o /arprt ./cmd/controller
 
 FROM scratch

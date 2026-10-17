@@ -6,6 +6,7 @@ production charts and the matching-schema smoke suites.
 """
 import argparse
 import helm_install
+from image_checks import GRAY4_FIXTURE
 import base64
 import importlib.util
 import json
@@ -229,7 +230,7 @@ class Lifecycle:
             wait(lambda: self.display(base)['status'] == 0, 120)
             value = self.display(base)
             require(smoke.request(base, urllib.parse.urlsplit(value['image_url']).path, self.headers)[2] ==
-                    (ROOT / 'testdata/png/normalized-gray4.png').read_bytes(), 'real Job did not publish its image')
+                    (ROOT / 'testdata/png' / GRAY4_FIXTURE).read_bytes(), 'real Job did not publish its image')
         wait(lambda: all(job.get('status', {}).get('succeeded') for job in self.get('jobs')['items']), 90)
 
     def exercise(self):
@@ -333,6 +334,7 @@ def main():
                 run('kind', 'load', 'docker-image', args.image, '--name', cluster, env=env)
             for separate in (False, True):
                 Lifecycle(args, directory, archives, env, separate).exercise()
+            env['ARPRT_KIND_RESOURCE_PROBE'] = 'true'
             # Prepare one shared CRD owner before concurrent isolated namespaces.
             # The optional schema fixture has already been removed by Lifecycle.
             run(args.helm, 'install', 'schemas', archives['arprt-crds'], '--namespace', 'smoke-schemas',

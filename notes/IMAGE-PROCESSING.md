@@ -23,9 +23,20 @@ the review. A shared product family or palette alone is not compatibility eviden
 Active contracts are maintained in [PROTOCOL](PROTOCOL.md), [DESIGN](DESIGN.md)
 and [RENDERERS](RENDERERS.md). General PNG normalization, Screen processing
 settings, Device overrides and reviewed model profiles are connected across
-GET, POST and Job. The remaining acceptance and documentation work is tracked
-in [the implementation plan](IMAGE-PROCESSING.PLAN.md). Retain this requirements
+GET, POST and Job. Acceptance tooling, renderer examples and owning-document
+integration are present. Candidate-specific native resource results and physical
+observations remain tracked in [the implementation plan](IMAGE-PROCESSING.PLAN.md).
+Retain this requirements
 baseline until that acceptance is complete.
+
+Temporary firmware-migration exception: normal builds emit native two-bit
+gray4 for all four shades, accepting the historical color-count heuristic.
+The intended four-bit encoding and passthrough rules below remain implemented
+behind the [`gray4_native4` build switch](DEVELOP.md#temporary-gray4-encoding-switch).
+The selected mode applies consistently to normalization, compatibility and
+overlays and has a distinct encoder identity for cache/replay invalidation.
+Remove the switch after corrected-firmware acceptance. This temporary decision
+does not change gray16 or Spectra 6 and does not establish physical acceptance.
 
 ### Document lifecycle
 

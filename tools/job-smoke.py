@@ -7,6 +7,7 @@ resources this run created. Requires kubectl and a cluster-accessible image.
 import argparse
 import overlay_checks
 import helm_install
+from image_checks import GRAY4_FIXTURE
 import base64
 import hashlib
 import importlib.util
@@ -139,7 +140,7 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 result = display(base)
                 path = result['image_url'].removeprefix('https://byos.example.test')
-                if result['status'] != 0 or fetch(base, path) != (ROOT / 'testdata/png/normalized-gray4.png').read_bytes():
+                if result['status'] != 0 or fetch(base, path) != (ROOT / 'testdata/png' / GRAY4_FIXTURE).read_bytes():
                     raise RuntimeError('authenticated Job image fetch failed')
                 wait(lambda: latest().get('sequence', 0) > first['sequence'], 60)
                 running = jobs()
@@ -210,7 +211,7 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 if display(base) != {'status': 202}:
                     raise RuntimeError('rotated Job borrowed another rotation fallback')
-                if fetch(base, path) != (ROOT / 'testdata/png/normalized-gray4.png').read_bytes():
+                if fetch(base, path) != (ROOT / 'testdata/png' / GRAY4_FIXTURE).read_bytes():
                     raise RuntimeError('rotation change revoked issued Job image')
                 wait(lambda: latest().get('attemptID') == rotated_attempt, 60)
                 snapshot = json.loads(read('runs/' + rotated_attempt + '/context.json'))

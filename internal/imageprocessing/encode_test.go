@@ -69,7 +69,7 @@ func TestEncodeExactPixels(t *testing.T) {
 						}
 					}
 					depth, kind := byte(4), byte(0)
-					if p == Gray4 && blackWhite {
+					if p == Gray4 && (!Gray4Native4 || blackWhite) {
 						depth = 2
 					}
 					if p == Spectra6 {

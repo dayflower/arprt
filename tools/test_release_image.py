@@ -24,7 +24,8 @@ def load(name, file):
 
 release = load('release_image', 'release-image.py')
 SHA = 'a' * 40
-MESSAGE = f'Physical-device-acceptance: {SHA}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n'
+MESSAGE = (f'Physical-device-acceptance: {SHA}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n'
+           'Physical-device-og-firmware: synthetic fixed v9.0.0\nPhysical-device-e1002-firmware: synthetic v9.0.0\n')
 
 
 class ReleaseGateTests(unittest.TestCase):
@@ -34,11 +35,22 @@ class ReleaseGateTests(unittest.TestCase):
         for tag in ['latest', 'v01.0.0', 'v1.0', 'v1.0.0+build', 'v1.0.0-01', 'v1.0.0-rc.01']:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
                 release.validate_tag(tag, SHA, MESSAGE)
-        for message in ['', MESSAGE.replace(SHA, 'b' * 40), MESSAGE.replace('1.8.17', '1.8.16'),
+        for message in ['', MESSAGE.replace(SHA, 'b' * 40), MESSAGE.replace(release.SCOPE, release.LEGACY_SCOPE),
                         MESSAGE.replace('2026-10-08', '2099-01-01'), MESSAGE + MESSAGE,
                         MESSAGE.replace('2026-10-08', '2026-02-30')]:
             with self.subTest(message=message), self.assertRaises(ValueError):
                 release.validate_tag('v0.1.0', SHA, message)
+
+    def test_new_scope_requires_both_exact_firmware_annotations(self):
+        for name in release.FIRMWARE_FIELDS:
+            line = next(line for line in MESSAGE.splitlines(keepends=True) if line.startswith(name + ': '))
+            for message in (MESSAGE.replace(line, ''), MESSAGE + line, MESSAGE.replace(line, name + ': \n'),
+                            MESSAGE.replace(line, name + ': <accepted firmware>\n')):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    release.validate_tag('v1.0.0', SHA, message)
+        legacy = MESSAGE.replace(release.SCOPE, release.LEGACY_SCOPE)
+        legacy = '\n'.join(line for line in legacy.splitlines() if not line.startswith(release.FIRMWARE_FIELDS))
+        release.validate_tag('v0.1.0', SHA, legacy, allow_legacy_scope=True)
 
     def test_tag_must_be_annotated_on_main_and_checked_out(self):
         with tempfile.TemporaryDirectory() as directory:

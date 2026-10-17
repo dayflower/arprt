@@ -1,93 +1,47 @@
-"""Bounded gray4 pixel checks for controller overlay cluster smoke tests."""
+"""Palette-aware pixel checks for controller overlay cluster smoke tests."""
 from pathlib import Path
-import struct
-import zlib
+from image_checks import PALETTES, inspect
 
 CORNERS = ('top-right', 'bottom-right', 'bottom-left', 'top-left')
 
 
-def samples(png):
-    assert png[:8] == b'\x89PNG\r\n\x1a\n' and len(png) < 90000
-    data, pos, palette = bytearray(), 8, None
-    while pos < len(png):
-        length = struct.unpack('>I', png[pos:pos + 4])[0]
-        kind, body = png[pos + 4:pos + 8], png[pos + 8:pos + 8 + length]
-        assert zlib.crc32(kind + body) == struct.unpack('>I', png[pos + 8 + length:pos + 12 + length])[0]
-        if kind == b'IHDR':
-            width, height, depth, color, compression, filtering, interlace = struct.unpack('>IIBBBBB', body)
-            assert (width, height, compression, filtering, interlace) == (800, 480, 0, 0, 0)
-            assert depth in (2, 4)
-            assert color in (0, 3)
-        elif kind == b'PLTE':
-            palette = body
-        elif kind == b'IDAT':
-            data.extend(body)
-        pos += length + 12
-    if color == 3:
-        assert palette == bytes((0, 0, 0, 85, 85, 85, 170, 170, 170, 255, 255, 255))
-    packed = zlib.decompress(data)
-    stride = (width * depth + 7) // 8
-    assert len(packed) == (stride + 1) * height
-    pixels, previous = [], [0] * stride
-    for y in range(height):
-        offset = y * (stride + 1)
-        mode, row = packed[offset], list(packed[offset + 1:offset + 1 + stride])
-        for x in range(stride):
-            a, b, c = row[x - 1] if x else 0, previous[x], previous[x - 1] if x else 0
-            if mode == 1:
-                row[x] = (row[x] + a) & 255
-            elif mode == 2:
-                row[x] = (row[x] + b) & 255
-            elif mode == 3:
-                row[x] = (row[x] + (a + b) // 2) & 255
-            elif mode == 4:
-                p = a + b - c
-                nearest = min((a, b, c), key=lambda v: abs(p - v))
-                row[x] = (row[x] + nearest) & 255
-            else:
-                assert mode == 0
-        for value in row:
-            for shift in range(8 - depth, -1, -depth):
-                sample = (value >> shift) & ((1 << depth) - 1)
-                if color == 0 and depth == 4:
-                    assert sample in (0, 5, 10, 15)
-                    sample //= 5
-                pixels.append(sample)
-        previous = row
-    return pixels
+def samples(png, image_width=800, image_height=480, palette='gray4', png_byte_limit=90000, legacy=False):
+    return inspect(png, image_width, image_height, palette, png_byte_limit, allow_legacy_gray4=legacy)
 
 
-def physical(x, y, rotation):
+def physical(x, y, rotation, image_width=800, image_height=480):
     if rotation == 90:
-        return 799 - y, x
+        return image_width - 1 - y, x
     if rotation == 180:
-        return 799 - x, 479 - y
+        return image_width - 1 - x, image_height - 1 - y
     if rotation == 270:
-        return y, 479 - x
+        return y, image_height - 1 - x
     return x, y
 
 
-def origin(corner, width, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1):
-    logical_width, logical_height = (480, 800) if rotation in (90, 270) else (800, 480)
+def origin(corner, width, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1, image_width=800, image_height=480):
+    logical_width, logical_height = (image_height, image_width) if rotation in (90, 270) else (image_width, image_height)
     return (logical_width - (width + margin_horizontal) * scale if corner.endswith('right') else margin_horizontal * scale,
             logical_height - (height + margin_vertical) * scale if corner.startswith('bottom') else margin_vertical * scale)
 
 
-def assert_overlay(base, composite, corner='top-right', width=258, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1):
-    original, drawn = samples(base), samples(composite)
-    fx, fy = origin(corner, width, rotation, height, margin_horizontal, margin_vertical, scale)
+def assert_overlay(base, composite, corner='top-right', width=258, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1, image_width=800, image_height=480, palette='gray4', png_byte_limit=90000):
+    original = samples(base, image_width, image_height, palette, png_byte_limit, legacy=True)
+    drawn = samples(composite, image_width, image_height, palette, png_byte_limit, legacy=False)
+    white = PALETTES[palette].index((255, 255, 255))
+    fx, fy = origin(corner, width, rotation, height, margin_horizontal, margin_vertical, scale, image_width, image_height)
     x = fx if corner.endswith('right') else 0
     y = fy if corner.startswith('bottom') else 0
-    region = {py * 800 + px for ly in range(y, y + (height + margin_vertical) * scale)
+    region = {py * image_width + px for ly in range(y, y + (height + margin_vertical) * scale)
               for lx in range(x, x + (width + margin_horizontal) * scale)
-              for px, py in [physical(lx, ly, rotation)]}
+              for px, py in [physical(lx, ly, rotation, image_width, image_height)]}
     for i, (old, new) in enumerate(zip(original, drawn)):
-        assert new in (0, 3) if i in region else new == old, 'overlay changed unexpected pixels'
+        assert new in (0, white) if i in region else new == old, 'overlay changed unexpected pixels'
     for ly in range(y, y + (height + margin_vertical) * scale):
         for lx in range(x, x + (width + margin_horizontal) * scale):
             if lx < fx or lx >= fx + width * scale or ly < fy or ly >= fy + height * scale:
-                px, py = physical(lx, ly, rotation)
-                assert drawn[py * 800 + px] == 3, 'foreground entered the edge margin'
+                px, py = physical(lx, ly, rotation, image_width, image_height)
+                assert drawn[py * image_width + px] == white, 'foreground entered the edge margin'
     assert any(original[i] != drawn[i] for i in region), 'overlay was not drawn'
     return drawn
 

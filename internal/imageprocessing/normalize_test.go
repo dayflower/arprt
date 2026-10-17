@@ -224,10 +224,14 @@ func TestNormalizePreservesExactPixels(t *testing.T) {
 			}
 		}
 	}
-	// Legacy native 2-bit intermediate grays are re-encoded exactly at depth 4.
+	// Native 2-bit intermediate grays retain their values in either build mode.
 	source := testPNG(4, 1, 0, 2, false, nil, func(x, y, c int) uint16 { return uint16(x) })
 	out, err := Normalize(ctx, source, Target{4, 1, Gray4, 90000}, Policy{})
-	if err != nil || out[24] != 4 {
+	wantDepth := byte(2)
+	if Gray4Native4 {
+		wantDepth = 4
+	}
+	if err != nil || out[24] != wantDepth {
 		t.Fatalf("legacy gray conversion: %v", err)
 	}
 	d, _ := Decode(ctx, out)

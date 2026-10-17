@@ -8,7 +8,8 @@ endorsed by TRMNL.
 
 ## Security and support boundary
 
-Verified support is **TRMNL OG / firmware 1.8.17 / 800 × 480 gray4** on Linux,
+The accepted public release's verified physical baseline is
+**TRMNL OG / firmware 1.8.17 / 800 × 480 gray4** on Linux,
 Kubernetes **1.36.0+ within minor 1.36**, one namespace and one active controller.
 Use a POSIX filesystem RWO PVC with same-node renderer mounts, atomic rename,
 fsync and advisory locking. The supplied Deployment runs as UID/GID 1000 with
@@ -18,7 +19,14 @@ backends, multiple active replicas and multi-node failover are unverified.
 
 Runtime model profiles include OG and reTerminal E1001–E1004 with gray4, gray16
 and Spectra 6 outputs. These profiles are source reviewed and software tested;
-new physical acceptance remains pending. See [profile defaults](notes/DESIGN.md#firmware-evidence-and-profiles)
+full physical acceptance remains pending. E1002 has
+[initial six-color and delivery observations](notes/DEVELOP.md#image-processing-physical-observations).
+Native four-bit gray4 output assumes corrected firmware expansion: physical
+testing confirmed corrupted grayscale on OG / 1.8.17. Normal builds temporarily
+use two-bit gray4 for all four shades; the four-bit path remains behind a
+[build flag](notes/DEVELOP.md#temporary-gray4-encoding-switch) pending firmware
+migration. The temporary mode accepts the historical two-bit color-count bug.
+See [profile defaults](notes/DESIGN.md#firmware-evidence-and-profiles)
 and [Device display overrides](notes/OPERATIONS.md#display-overrides). Firmware
 versions do not gate target resolution; overrides do not expand verified support.
 
@@ -194,9 +202,9 @@ images. The controller normalizes to the resolved Device display using Screen
 `imageProcessing.resizeMode` (`contain`/`stretch`) and `imageProcessing.dithering`
 (`atkinson`/`floyd-steinberg`/`bayer`/`none`); defaults are contain/Atkinson.
 Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
-are drawn afterwards. Generated intermediate gray now uses native 4-bit PNG;
-this assumes corrected firmware expansion and needs new physical acceptance,
-separate from the historical OG / 1.8.17 baseline.
+are drawn afterwards. Generated gray4 temporarily uses native two-bit PNG;
+the opt-in four-bit build assumes corrected firmware expansion and needs new
+physical acceptance, separate from the historical OG / 1.8.17 baseline.
 GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending. Firmware can retain the previous image

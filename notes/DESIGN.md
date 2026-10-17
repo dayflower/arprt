@@ -423,9 +423,19 @@ The host harness compares full-resolution output, not just decoder return codes:
   the two-color counting heuristic and remains observable with native 4-bit
   samples 0/5/10/15.
 
-Generated gray4 must inspect every final pixel, use native type 0 / 2-bit only
-for black/white, and use type 0 / 4-bit otherwise, without re-dithering exact
-gray4 samples. The English rationale beside the shared encoding decision
+The intended gray4 encoding inspects every final pixel, uses native type 0 /
+2-bit only for black/white, and uses type 0 / 4-bit otherwise, without
+re-dithering exact gray4 samples. It remains available behind the temporary
+`gray4_native4` build tag. Normal builds currently generate native 2-bit gray4
+for all four shades, explicitly accepting the historical counting heuristic
+until corrected firmware is accepted. Both encoding and passthrough use the
+same immutable build setting; higher-depth gray4 inputs normalize to 2-bit in
+the default mode. There is no new CRD field or runtime firmware-version gate.
+The build variants have distinct encoder semantic identities, invalidating
+freshness, replay and derived caches while preserving immutable issued URLs.
+Remove this switch after the firmware migration. Build commands are in
+[DEVELOP](DEVELOP.md#temporary-gray4-encoding-switch).
+The English rationale beside the shared encoding decision
 links to the pinned callback above. Row 430 is firmware evidence, never a
 controller scan limit. Native 4-bit assumes corrected expansion: v1.8.17's
 existing physical baseline cannot validate it. New OG acceptance must record
@@ -472,9 +482,10 @@ indices, and draw black/white bitmap pixels after dithering. Indexed palette
 order does not affect sample preservation. Content is already rotated by the
 renderer; only overlay coordinates are transformed. The final image is encoded
 with `imageprocessing.Encode` and revalidated against the same target. Gray4
-classification runs after drawing across every final pixel, so removing the
-last intermediate gray can select depth 2 while any surviving gray requires
-depth 4. Gray16 and Spectra 6 remain depth 4. No compression, palette or content
+classification runs after drawing across every final pixel. With
+`gray4_native4`, removing the last intermediate gray can select depth 2 while
+any surviving gray requires depth 4; default builds always generate depth 2
+for gray4. Gray16 and Spectra 6 remain depth 4. No compression, palette or content
 change is attempted to fit the byte budget; failure permits validated-base
 fallback at the delivery adapter.
 
@@ -507,8 +518,9 @@ No content rotation or brightness correction is added.
 
 Encoding uses a fixed zlib default compression level. Maximum compression's
 long match search on error-diffusion patterns can exhaust the ten-second budget
-at 500m CPU even after quantization finishes. The encoder identity is `png-v2`
-for this choice. Compression never changes by content or byte budget, and output
+at 500m CPU even after quantization finishes. Encoder identities are
+`png-v3-gray4-2bit` by default and `png-v3-gray4-native4` for the opt-in build.
+Compression never changes by content or byte budget, and output
 must still pass the same exclusive limit; no samples or dithering are changed
 to make an image fit. Compatible renderer bytes retain their own compression.
 
@@ -738,8 +750,11 @@ about 5.8 seconds. Peak container memory in those individual experiments was
 under 307 MiB. Output sizes may exceed a model budget: high entropy and Bayer
 gray16 examples exceed 750000 bytes and must fail normalization in production,
 preserving fallback, without changing dithering to fit. Probe encoding measures
-static indexed packed rows; production native grayscale encoding still needs
-its own verification. These timings establish feasibility, not universal
+static indexed packed rows and excludes production native grayscale encoding.
+The [integrated acceptance harness](DEVELOP.md#integrated-image-acceptance) now
+measures production normalization, overlays, transport and real Job collection
+under the deployed controller limits; keep its candidate-specific records
+separate from these prototype findings. These timings establish feasibility, not universal
 10-second success or integrated-controller acceptance. Native arm64 and the
 complete deployment remain acceptance gates before support expansion.
 The [raw amd64 measurements](../tools/image-investigation/measurements-linux-amd64.json)

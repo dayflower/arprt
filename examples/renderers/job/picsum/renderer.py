@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch a random Picsum photo and write an arprt-compatible gray4 PNG."""
+"""Fetch a random Picsum photo and write gray4 or controller-normalized RGB PNG."""
 
 import argparse
 import io
@@ -35,13 +35,14 @@ def encode(image):
 
 def render(context, source=None, palette="gray4"):
     target = context["renderTarget"]
+    if palette not in ("gray4", "bw", "rgb"):
+        raise ValueError("Expected output palette gray4, bw or rgb")
+    target_palettes = ("gray4", "spectra6") if palette == "rgb" else ("gray4",)
     if context["version"] != "v1" or any(
         target.get(key) != value
-        for key, value in {"width": 800, "height": 480, "palette": "gray4"}.items()
-    ):
-        raise ValueError("Expected Render Context v1 for 800 x 480 / gray4")
-    if palette not in ("gray4", "bw"):
-        raise ValueError("Expected output palette gray4 or bw")
+        for key, value in {"width": 800, "height": 480}.items()
+    ) or target.get("palette") not in target_palettes:
+        raise ValueError("Expected Render Context v1 for 800 x 480 / " + " or ".join(target_palettes))
     rotation = target.get("rotation", 0)
     if type(rotation) is not int or rotation not in (0, 90, 180, 270):
         raise ValueError("Expected rotation 0, 90, 180 or 270")
@@ -64,7 +65,19 @@ def render(context, source=None, palette="gray4"):
                     raise
                 time.sleep(2)
     with Image.open(io.BytesIO(source)) as photo:
-        gray = ImageOps.fit(ImageOps.exif_transpose(photo).convert("L"), size, method=Image.Resampling.LANCZOS)
+        fitted = ImageOps.fit(ImageOps.exif_transpose(photo).convert("RGB" if palette == "rgb" else "L"),
+                              size, method=Image.Resampling.LANCZOS)
+    if palette == "rgb":
+        if rotation:
+            fitted = fitted.rotate(-rotation, expand=True)
+        output = io.BytesIO()
+        fitted.save(output, format="PNG")
+        png = output.getvalue()
+        # This is renderer input, not device-ready output. The controller owns
+        # palette conversion, dithering, overlays and the final device budget.
+        print(f"Rendered Picsum photo {photo_id}: 800x480 rgb input, {len(png)} bytes", flush=True)
+        return png
+    gray = fitted
     gray = ImageOps.autocontrast(gray, cutoff=0.5)
     shades = (0, 255) if palette == "bw" else (0, 85, 170, 255)
     quantization_palette = Image.new("P", (1, 1))
@@ -92,8 +105,8 @@ def main():
     parser.add_argument("--context", default="/arprt/context.json")
     parser.add_argument("--output", default="/arprt/output.png")
     parser.add_argument("--input", help="Use a local JPEG for offline checks")
-    parser.add_argument("--palette", choices=("gray4", "bw"), default="gray4",
-                        help="Photo shades (default: gray4); both modes write a 2-bit gray4 PNG")
+    parser.add_argument("--palette", choices=("gray4", "bw", "rgb"), default="gray4",
+                        help="gray4/bw write a 2-bit PNG; rgb delegates device palette conversion to arprt")
     args = parser.parse_args()
     context = json.loads(Path(args.context).read_text())
     source = Path(args.input).read_bytes() if args.input else None

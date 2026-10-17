@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: palette-renderer
+  namespace: arprt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: palette-renderer
+  template:
+    metadata:
+      labels:
+        app: palette-renderer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: renderer
+          image: python:3.13-alpine
+          command: [python3, /app/renderer.py]
+          ports:
+            - containerPort: 8000
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: palette-renderer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: palette-renderer
+  namespace: arprt
+spec:
+  selector:
+    app: palette-renderer
+  ports:
+    - port: 8000
+      targetPort: 8000

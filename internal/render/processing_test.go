@@ -53,13 +53,17 @@ func TestHTTPProcessingInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	higherDepth := normalized
+	if !imageprocessing.Gray4Native4 {
+		normalized = legacy
+	}
 	// A complete PNG above the old output budget remains valid input. The
 	// compatible opaque bytes are preserved when under the output budget only.
 	large := append([]byte(nil), source.Bytes()[:len(source.Bytes())-12]...)
 	large = append(large, pngChunk("raNd", make([]byte, 100000))...)
 	large = append(large, source.Bytes()[len(source.Bytes())-12:]...)
 	for _, method := range []string{"GET", "POST"} {
-		for name, b := range map[string][]byte{"rgba": source.Bytes(), "large": large, "legacy": legacy, "passthrough": normalized, "shared-apng": animated(source.Bytes(), true), "separate-apng": animated(source.Bytes(), false)} {
+		for name, b := range map[string][]byte{"rgba": source.Bytes(), "large": large, "legacy": legacy, "higher-depth": higherDepth, "passthrough": normalized, "shared-apng": animated(source.Bytes(), true), "separate-apng": animated(source.Bytes(), false)} {
 			t.Run(method+"/"+name, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "image/apng; charset=binary")
@@ -88,6 +92,9 @@ func TestHTTPProcessingInputs(t *testing.T) {
 				}
 				if name == "legacy" && !bytes.Equal(normalized, out.PNG) {
 					t.Fatal("legacy gray samples changed")
+				}
+				if name == "higher-depth" && !imageprocessing.Gray4Native4 && out.PNG[24] != 2 {
+					t.Fatal("higher-depth gray bypassed temporary 2-bit delivery")
 				}
 			})
 		}

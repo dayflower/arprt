@@ -95,8 +95,8 @@ func TestProcessingPolicyEditInvalidatesReplay(t *testing.T) {
 
 func TestLegacyIssuedImageSurvivesNormalizationUpgrade(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
-	// Legacy native 2-bit intermediate grays remain retrievable, but cannot be
-	// selected for a fresh display or normalized under the same immutable URL.
+	// Legacy native 2-bit intermediate grays remain retrievable under the same
+	// immutable URL, regardless of the current build's output compatibility.
 	legacy, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +121,8 @@ func TestLegacyIssuedImageSurvivesNormalizationUpgrade(t *testing.T) {
 	if !bytes.Equal(legacy, imageBytes(t, s, legacyResponse)) {
 		t.Fatal("legacy URL changed bytes")
 	}
-	if err := render.CurrentTarget(base.Unit.Target).ValidateOutput(t.Context(), legacy); err == nil {
-		t.Fatal("legacy gray accepted as current output")
+	if err := render.CurrentTarget(base.Unit.Target).ValidateOutput(t.Context(), legacy); (err == nil) == imageprocessing.Gray4Native4 {
+		t.Fatal("legacy gray compatibility disagrees with build mode", err)
 	}
 	// The normal current success remains independently addressable.
 	if _, err := imageprocessing.Decode(t.Context(), imageBytes(t, s, result)); err != nil {

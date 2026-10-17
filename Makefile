@@ -7,13 +7,14 @@ ENVTEST_BIN := $(CURDIR)/bin/k8s
 IMAGE ?= arprt:dev
 VERSION ?= dev
 REVISION ?= $(shell git rev-parse HEAD)
+GO_BUILD_TAGS ?=
 KIND_VERSION := v0.33.0
 KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke
+.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke image-benchmark
 
 tools: bin/controller-gen
 
@@ -70,10 +71,11 @@ vet:
 	$(GO) vet ./...
 
 build:
-	CGO_ENABLED=0 $(GO) build -trimpath -o bin/arprt ./cmd/controller
+	CGO_ENABLED=0 $(GO) build -trimpath -tags="$(GO_BUILD_TAGS)" -o bin/arprt ./cmd/controller
 
 test:
 	$(GO) test -race ./...
+	$(GO) test -race -tags=gray4_native4 ./...
 
 verify: manifests release-check
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
@@ -86,7 +88,7 @@ integration: manifests bin/setup-envtest $(HELM)
 	ARPRT_HELM="$(HELM)" KUBEBUILDER_ASSETS="$$($(CURDIR)/bin/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_BIN) -p path)" $(GO) test -tags=integration -count=1 -v ./internal/integration
 
 docker-build:
-	docker build --build-arg VERSION=$(VERSION) --build-arg REVISION=$(REVISION) -t $(IMAGE) .
+	docker build --build-arg VERSION=$(VERSION) --build-arg REVISION=$(REVISION) --build-arg GO_BUILD_TAGS="$(GO_BUILD_TAGS)" -t $(IMAGE) .
 
 # Run against an explicitly selected disposable cluster and loaded/pushed IMAGE.
 cluster-smoke: chart-package
@@ -94,6 +96,7 @@ cluster-smoke: chart-package
 	python3 tools/job-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 	python3 tools/playlist-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 	python3 tools/operations-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+	python3 tools/image-smoke.py --image "$(IMAGE)" --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Release helpers never use the operator's selected kubeconfig context.
 bin/kind:
@@ -101,6 +104,10 @@ bin/kind:
 
 disposable-cluster-smoke: bin/kind chart-package
 	PATH="$(CURDIR)/bin:$$PATH" ARPRT_HELM="$(HELM)" ARPRT_CHART_PACKAGES="$(CHART_OUTPUT)" KIND_NODE_IMAGE="$(KIND_NODE_IMAGE)" bash tools/disposable-cluster-smoke.sh "$(IMAGE)" $(if $(filter true,$(LOAD_IMAGE)),--load,)
+
+# Measures production processing in an isolated 500m CPU / 512 MiB cgroup.
+image-benchmark:
+	python3 tools/image-benchmark.py
 
 release-check:
 	python3 -m unittest discover -s tools -p 'test_*.py'

@@ -97,7 +97,16 @@ jobs:
             --tag "arprt:release-$ARCH" .
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "arprt:release-$ARCH")" = "linux/$ARCH"
           test "$(docker run --rm --platform "linux/$ARCH" "arprt:release-$ARCH" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
+      - run: make image-benchmark
       - run: make disposable-cluster-smoke IMAGE="arprt:release-$ARCH" LOAD_IMAGE=true
+        env:
+          ARPRT_IMAGE_ACCEPTANCE_OUTPUT: ${{ github.workspace }}/dist/acceptance/image-smoke.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: image-resources-${{ matrix.arch }}
+          path: dist/acceptance/*.json
+          retention-days: 90
       - name: Export the exact tested image
         run: docker save "arprt:release-$ARCH" --output "/tmp/image-$ARCH.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -287,11 +296,11 @@ jobs:
           print(f"Multi-platform index: `{evidence['image']}@{evidence['indexDigest']}`\n")
           for platform, digest in evidence['platformDigests'].items():
               print(f'- {platform}: `{digest}`')
-          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and four-suite smoke matrix with the pinned Helm 4 client. Anonymous tag/digest pulls and the same Helm matrix using local chart packages and the published image index digest passed on both architectures.')
+          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and five-suite smoke matrix with the pinned Helm 4 client. Anonymous tag/digest pulls and the same Helm matrix using local chart packages and the published image index digest passed on both architectures.')
           if os.environ['PHYSICAL_MODE'] == 'reuse':
-              print(f"\nPhysical acceptance: current-revision installation/TLS/normal-display checks, with full OG / firmware 1.8.17 regression reused from `{os.environ['PHYSICAL_BASELINE']}`. The tag guard verified that runtime inputs have not changed.")
+              print(f"\nPhysical acceptance: current-revision installation/TLS/normal-display checks, with full OG corrected-gray4 and E1002 regression reused from `{os.environ['PHYSICAL_BASELINE']}`. The tag guard verified that runtime inputs have not changed.")
           else:
-              print('\nThe annotated release tag records operator-attested full OG / firmware 1.8.17 physical-device regression.')
+              print('\nThe annotated release tag records operator-attested full OG corrected-gray4 and E1002 physical regression, with exact firmware/distribution annotations.')
           print('Architecture publication does not expand device or storage support.')
           print(f"\n[Acceptance workflow](https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['GITHUB_RUN_ID']})")
           PY
