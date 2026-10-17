@@ -431,9 +431,9 @@ physical acceptance. E1001/E1003/E1004 remain source reviewed only.
 ### Shared PNG foundations
 
 [`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
-transport-independent image primitives. These foundations are not yet wired
-into HTTP/Job delivery or overlays; versioned artifact records can validate
-their explicit output contracts. Unversioned records retain the active
+transport-independent image primitives. Normalization is not yet wired into
+HTTP/Job delivery. Palette-aware overlays and versioned artifact records use
+explicit output contracts internally. Active delivery retains the legacy
 [PNG contract](PROTOCOL.md#png-contract); the public API remains unchanged.
 
 `Decode` validates the complete bounded file, independently checks IDAT's exact
@@ -456,6 +456,38 @@ Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
 4096 per axis and 4194304 pixels independently of input limits, and contains
 only effective dimensions, palette and byte budget. Model resolution and
 runtime wiring remain with their owning integration phases.
+
+### Palette-aware overlay primitives
+
+`overlay.NormalizeResolved` and `ComposeResolved` use the effective
+`render.ResolvedTarget`, including its exclusive PNG byte budget. They validate
+the base with shared decoding/compatibility, map exact opaque samples to canonical
+indices, and draw black/white bitmap pixels after dithering. Indexed palette
+order does not affect sample preservation. Content is already rotated by the
+renderer; only overlay coordinates are transformed. The final image is encoded
+with `imageprocessing.Encode` and revalidated against the same target. Gray4
+classification runs after drawing across every final pixel, so removing the
+last intermediate gray can select depth 2 while any surviving gray requires
+depth 4. Gray16 and Spectra 6 remain depth 4. No compression, palette or content
+change is attempted to fit the byte budget; failure permits validated-base
+fallback at the delivery adapter.
+
+Current drawing identity combines the bitmap appearance, shared encoder and
+palette semantic versions. It changes the derived cache key without rewriting
+old Base/Drawing hashes, timestamps, blobs, filenames or issued URLs. Old
+records retain their original validation and remain GC roots under the existing
+retention rules. Replay continues to read the selected immutable bytes without
+recompositing or advancing a corner.
+
+Until renderer integration, active BYOS calls the legacy `Normalize`/`Compose`
+adapters with zero output constraints. These keep `bitmap-v1-gray2-v1` identity
+and the original 2-bit gray4/default-budget behavior. The shared PNG writer's
+`EncodeLegacyGray4` path retains the original best-compression settings; there
+is no private overlay encoder. Explicit targets use the new encoder identity
+and generated-depth contract. This keeps this foundation change from enabling
+new renderer inputs or device profiles early. The caller must hold shared
+admission and a processing deadline around resolved compositing, storage and
+buffer release when connecting the runtime pipeline.
 
 ### Normalization and persistence primitives
 

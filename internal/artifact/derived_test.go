@@ -1,7 +1,9 @@
 package artifact
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/overlay"
 	"github.com/dayflower/arprt/internal/render"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -292,5 +295,138 @@ func TestDerivedMarginAndChargingIdentity(t *testing.T) {
 	}
 	if _, err := repo.Read(context.Background(), image.ImageDigest); err != nil {
 		t.Fatal("charging output collected early", err)
+	}
+}
+
+// An upgrade creates a new cache identity while retaining old provenance,
+// pending corner roots and the immutable bytes at already-issued URLs.
+func TestDerivedEncodingMigration(t *testing.T) {
+	ctx := t.Context()
+	repo, oldBase, oldDrawing, oldPNG := derivedFixture(t)
+	old, unpin, err := repo.StoreDerived(ctx, oldBase, oldDrawing, oldPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unpin()
+	if oldDrawing.Version != overlay.LegacyAppearanceVersion {
+		t.Fatal("fixture is not legacy")
+	}
+	if err := repo.Issue(ctx, "device", old.ImageDigest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oldKey, err := derivedKey(oldBase, oldDrawing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(repo.root, "derived", oldKey+".json")
+	originalRecord, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same legacy Unit and PNG remain independently readable after upgrade.
+	repo, err = NewPVC(repo.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, unpin, err := repo.FindDerived(ctx, oldBase, oldDrawing)
+	if err != nil || cached != old {
+		t.Fatal("legacy cache lost", err)
+	}
+	unpin()
+	after, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeRecord, afterRecord derivedRecord
+	if err := json.Unmarshal(originalRecord, &beforeRecord); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(after, &afterRecord); err != nil {
+		t.Fatal(err)
+	}
+	beforeRecord.LastUsedAt = afterRecord.LastUsedAt
+	if !reflect.DeepEqual(beforeRecord, afterRecord) {
+		t.Fatal("legacy identity rewritten")
+	}
+	u := oldBase.Unit
+	u.Output = render.OutputConstraints{PNGByteLimit: 90000, Compatibility: render.OutputCompatibilityVersion}
+	baseBytes, err := repo.Read(ctx, oldBase.ImageDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized, err := imageprocessing.Normalize(ctx, baseBytes, u.ResolvedTarget().ImageTarget(), imageprocessing.Policy{Dither: imageprocessing.None})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := oldBase
+	next.Unit = u
+	next.Sequence++
+	next.AttemptID = "new-attempt"
+	base, err := repo.Publish(ctx, next, normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drawing, err := overlay.NormalizeResolved(u.ResolvedTarget(), overlay.Settings{Items: []string{"timestamp"}}, base.RenderedAt, time.UTC, overlay.Telemetry{}, overlay.TopRight)
+	if err != nil || drawing.Version != overlay.AppearanceVersion || drawing.Timestamp != oldDrawing.Timestamp {
+		t.Fatal("timestamp/version changed", drawing, err)
+	}
+	// A version change alone changes the cache key even when visible inputs match.
+	changed := oldDrawing
+	changed.Version = drawing.Version
+	newKey, err := derivedKey(oldBase, changed)
+	if err != nil || newKey == oldKey {
+		t.Fatal("encoder identity reused", err)
+	}
+	if _, _, err := repo.FindDerived(ctx, oldBase, changed); !errors.Is(err, ErrNotFound) {
+		t.Fatal("new drawing reused legacy cache", err)
+	}
+	composite, err := overlay.ComposeResolved(ctx, normalized, u.ResolvedTarget(), drawing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, unpin, err := repo.StoreDerived(ctx, base, drawing, composite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unpin()
+	if current.RenderedAt != oldBase.RenderedAt {
+		t.Fatal("render time lost")
+	}
+	corner, err := repo.Corner(ctx, "device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposed := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: u.ScreenUID, InputRevision: base.InputRevision, Target: api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: current.ImageDigest, Filename: current.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+	if err := repo.PrepareCorner(ctx, corner, CornerPending{Next: corner.Current.Next(), Proposed: proposed}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err = NewPVC(repo.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, unpin, err := repo.FindDerived(ctx, base, drawing)
+	if err != nil || got != current {
+		t.Fatal("current composite lost on restart", err)
+	}
+	unpin()
+	// Replay reads committed bytes directly; no re-composition or telemetry input.
+	replay, err := repo.Read(ctx, proposed.ImageDigest)
+	if err != nil || !bytes.Equal(replay, composite) {
+		t.Fatal("replay bytes changed", err)
+	}
+	if err := repo.Collect(ctx, func(Unit) bool { return true }, map[string]bool{"device": true}, time.Now().Add(23*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range []struct {
+		m    Metadata
+		data []byte
+	}{{old, oldPNG}, {current, composite}} {
+		got, err := repo.Read(ctx, pair.m.ImageDigest)
+		if err != nil || !bytes.Equal(got, pair.data) {
+			t.Fatal("issued/pending bytes changed", err)
+		}
+	}
+	if allowed, err := repo.Authorized(ctx, "device", old.ImageDigest); err != nil || !allowed {
+		t.Fatal("old issuance lost", err)
 	}
 }
