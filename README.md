@@ -183,8 +183,14 @@ see [GitOps and rotation](notes/OPERATIONS.md#setup-and-credentials).
 | HTTP POST | Render Context with current device observations; suitable for device-status screens |
 | Job | Immutable Context file plus image output path; suitable for an existing container CLI |
 
-Renderers return compatible base PNGs; optional controller overlays add validated
-2-bit bitmaps at delivery time without resampling or quantization.
+Renderers can return general PNG inputs, including RGB, alpha and APNG default
+images. The controller normalizes to OG 800 × 480 gray4 using Screen
+`imageProcessing.resizeMode` (`contain`/`stretch`) and `imageProcessing.dithering`
+(`atkinson`/`floyd-steinberg`/`bayer`/`none`); defaults are contain/Atkinson.
+Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
+are drawn afterwards. Generated intermediate gray now uses native 4-bit PNG;
+this assumes corrected firmware expansion and needs new physical acceptance,
+separate from the historical OG / 1.8.17 baseline.
 GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending. Firmware can retain the previous image

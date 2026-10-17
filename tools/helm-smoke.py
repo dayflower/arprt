@@ -229,7 +229,7 @@ class Lifecycle:
             wait(lambda: self.display(base)['status'] == 0, 120)
             value = self.display(base)
             require(smoke.request(base, urllib.parse.urlsplit(value['image_url']).path, self.headers)[2] ==
-                    (ROOT / 'testdata/png/target-gray4.png').read_bytes(), 'real Job did not publish its image')
+                    (ROOT / 'testdata/png/normalized-gray4.png').read_bytes(), 'real Job did not publish its image')
         wait(lambda: all(job.get('status', {}).get('succeeded') for job in self.get('jobs')['items']), 90)
 
     def exercise(self):

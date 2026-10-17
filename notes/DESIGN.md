@@ -52,7 +52,11 @@ HTTP execution; display reads completed Job output and never creates or waits
 for a Job. Telemetry changes affect future Job snapshots without starting work
 on every poll. Default normalization and input revisions live in
 [screen/input.go](../internal/screen/input.go); revisions include context and
-collector contract versions and exclude metadata/status/credentials.
+collector, processing, encoder and palette semantic versions and exclude
+metadata/status/credentials. Screen processing defaults are contain/Atkinson;
+equivalent explicit/omitted settings share a revision. Replay also requires
+`screenCycle.compatibilityFingerprint`, covering resolved output constraints,
+rotation and processing revision. A missing fingerprint denotes a legacy turn.
 
 With `screenRef`, one existing screen is selected. With `playlistRef`, missing
 or deleting entries are skipped while remaining order is preserved. With neither,
@@ -248,8 +252,9 @@ There is no extra writable `/tmp`. Pods run as non-root with a read-only root,
 dropped capabilities, no privilege escalation and no ServiceAccount token.
 
 Collection requires Job `Complete=True` and successful renderer termination.
-Verify context integrity, open bounded output beneath its directory, reject
-escaping symlinks/special files and validate the complete PNG. Missing/partial
+Verify context integrity, acquire shared image capacity, open output beneath
+its directory, reject escaping symlinks/special files, collect at most 32 MiB
+and normalize/validate the complete PNG before publication. Missing/partial
 output or exit failure never becomes success. Recheck desired pair state after
 collection and before publication. The reconciliation/maintenance lock spans
 preparation, publication and durable bookkeeping so cleanup cannot remove work
@@ -431,10 +436,11 @@ physical acceptance. E1001/E1003/E1004 remain source reviewed only.
 ### Shared PNG foundations
 
 [`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
-transport-independent image primitives. Normalization is not yet wired into
-HTTP/Job delivery. Palette-aware overlays and versioned artifact records use
-explicit output contracts internally. Active delivery retains the legacy
-[PNG contract](PROTOCOL.md#png-contract); the public API remains unchanged.
+transport-independent image primitives. HTTP GET/POST and Job collection now
+normalize inputs for the existing OG target. New artifact Units carry explicit
+output constraints; BYOS uses resolved palette-aware overlays. Device profiles
+and overrides remain a later boundary. Active input/output contracts belong to
+[PROTOCOL](PROTOCOL.md#png-contract).
 
 `Decode` validates the complete bounded file, independently checks IDAT's exact
 inflated scanline length and compressed-stream end, and then decodes its default
@@ -454,8 +460,8 @@ packed rows with exact samples, no source metadata, and an exclusive output-byte
 budget. Gray4 selects depth after inspecting all final indices; gray16 and
 Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
 4096 per axis and 4194304 pixels independently of input limits, and contains
-only effective dimensions, palette and byte budget. Model resolution and
-runtime wiring remain with their owning integration phases.
+only effective dimensions, palette and byte budget. Device profile resolution
+remains with its owning integration phase.
 
 ### Palette-aware overlay primitives
 
@@ -479,15 +485,14 @@ records retain their original validation and remain GC roots under the existing
 retention rules. Replay continues to read the selected immutable bytes without
 recompositing or advancing a corner.
 
-Until renderer integration, active BYOS calls the legacy `Normalize`/`Compose`
-adapters with zero output constraints. These keep `bitmap-v1-gray2-v1` identity
-and the original 2-bit gray4/default-budget behavior. The shared PNG writer's
-`EncodeLegacyGray4` path retains the original best-compression settings; there
-is no private overlay encoder. Explicit targets use the new encoder identity
-and generated-depth contract. This keeps this foundation change from enabling
-new renderer inputs or device profiles early. The caller must hold shared
-admission and a processing deadline around resolved compositing, storage and
-buffer release when connecting the runtime pipeline.
+Active BYOS uses `NormalizeResolved`/`ComposeResolved` after base normalization.
+Legacy `Normalize`/`Compose` adapters and `EncodeLegacyGray4` remain available to
+read/check original records with `bitmap-v1-gray2-v1` identity and 2-bit gray4
+rules. A compatible legacy fallback can supply a new derived image using current
+constraints without changing its original latest pointer or immutable bytes.
+Runtime compositing holds the shared admission lease and a processing deadline
+through cache lookup/storage and buffer release. Required issuance/state writes
+remain outside optional-overlay fallback.
 
 ### Normalization and persistence primitives
 
@@ -508,8 +513,9 @@ must still pass the same exclusive limit; no samples or dithering are changed
 to make an image fit. Compatible renderer bytes retain their own compression.
 
 Internal `Policy` canonicalizes omitted fit/dither to contain/Atkinson. Its
-revision includes processing, encoder and palette semantic versions. No public
-Screen field or active Screen revision changes until renderer integration.
+revision includes processing, encoder and palette semantic versions.
+`screen.ProcessingPolicy` maps the public resizeMode/dithering settings to this
+policy for all sources, and Screen revisions include its semantic identity.
 `Admission.Do` provides one shared synchronous lease; reception, processing,
 durable storage and buffer release belong inside its callback. `ReadInput`
 reserves one capped 32 MiB allocation and rejects the next byte. `Process`
@@ -520,7 +526,7 @@ rules; merely calling `Normalize` does not acquire capacity or set a deadline.
 
 `render.ResolvedTarget` keeps the context-v1 target separate from effective PNG
 budget and output compatibility version. Its fingerprint additionally includes
-the normalized policy revision for future cycle replay. The comparable artifact
+the normalized policy revision for cycle replay. The comparable artifact
 `Unit` adds explicit output constraints only for new delivery. A zero constraint
 value explicitly means legacy semantics, not current defaults. Legacy keys are
 computed through the original Unit DTO without injecting fields before hashing.

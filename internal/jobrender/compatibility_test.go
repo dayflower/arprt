@@ -23,6 +23,10 @@ func TestSchedulerCompatibilityRoundTripPreservesActiveAttempt(t *testing.T) {
 			step(t, r, d)
 			st := load(t, r, d)
 			st.Active.Submitted = submitted
+			if !current {
+				st.Version = 0
+				st.Unit.Output = render.OutputConstraints{}
+			}
 			if current {
 				st.Unit.Output = render.OutputConstraints{PNGByteLimit: 90000, Compatibility: render.OutputCompatibilityVersion}
 			}

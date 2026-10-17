@@ -12,6 +12,7 @@ import (
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/deviceidentity"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,13 +30,14 @@ var (
 // selectedDelivery captures one selection. Revalidation compares fresh reads
 // against this snapshot, including the complete assignment fingerprint.
 type selectedDelivery struct {
-	screen      *api.ArprtScreen
-	target      render.Target
-	revision    string
-	fingerprint string
-	cycling     bool
-	replay      *api.ScreenCycleStatus
-	reporting   renderReporting
+	screen        *api.ArprtScreen
+	target        render.Target
+	revision      string
+	fingerprint   string
+	cycling       bool
+	replay        *api.ScreenCycleStatus
+	reporting     renderReporting
+	compatibility string
 }
 
 type deliveryImage struct {
@@ -103,7 +105,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 	defer release()
 	var proposed *api.ScreenCycleStatus
 	if image.metadata.ImageDigest != "" && selected.cycling && selected.replay == nil {
-		proposed = &api.ScreenCycleStatus{Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.DisplayStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.DisplayStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 		if image.advanceCorner {
 			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
 			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
@@ -167,14 +169,28 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, target 
 		return selectedDelivery{}, err
 	}
 	assigned, replay := eligible.Select(d, time.Now().UTC(), time.Duration(s.Config.RefreshSeconds)*time.Second)
-	revision, _ := screen.InputRevision(assigned.Spec)
+	revision, err := screen.InputRevision(assigned.Spec)
+	if err != nil {
+		return selectedDelivery{}, err
+	}
+	policy, err := screen.ProcessingPolicy(assigned.Spec)
+	if err != nil {
+		return selectedDelivery{}, err
+	}
+	compatibility, err := render.CurrentTarget(target).Fingerprint(policy)
+	if err != nil {
+		return selectedDelivery{}, err
+	}
+	if replay && d.Status.ScreenCycle.CompatibilityFingerprint != compatibility {
+		replay = false
+	}
 	if replay && d.Status.ScreenCycle.InputRevision != revision {
 		replay = false
 	}
 	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
 		return selectedDelivery{}, errUnsupportedScreen
 	}
-	selected := selectedDelivery{screen: assigned, target: target, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
+	selected := selectedDelivery{compatibility: compatibility, screen: assigned, target: target, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
 	if assigned.Spec.Source.Job != nil {
 		selected.reporting = reportJob
 	}
@@ -191,13 +207,20 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 	var renderErr error
 	if selected.replay != nil {
 		last := selected.replay
-		if _, err := s.Repository.Read(ctx, last.ImageDigest); err != nil {
+		if err := imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+			_, err := s.Repository.Read(ctx, last.ImageDigest)
+			return err
+		}); err != nil {
 			return deliveryImage{}, err
 		}
 		m = artifact.Metadata{ImageDigest: last.ImageDigest, Filename: last.Filename}
 	} else if assigned.Spec.Source.Job != nil {
 		// Polling only reads completed output. Scheduling belongs to reconciliation.
-		m, renderErr = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target})
+		renderErr = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+			var err error
+			m, err = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target, Output: render.CurrentTarget(target).Output})
+			return err
+		})
 		if errors.Is(renderErr, artifact.ErrNotFound) {
 			renderErr = errors.New("Job image pending")
 		}

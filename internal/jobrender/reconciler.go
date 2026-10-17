@@ -15,8 +15,10 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/maintenance"
 	"github.com/dayflower/arprt/internal/observe"
+	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -96,7 +98,7 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return &d, s, &state{Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: t}, Revision: revision}, nil
+	return &d, s, &state{Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: t, Output: render.CurrentTarget(t).Output}, Revision: revision}, nil
 }
 
 func same(a, b *state) bool {
@@ -217,7 +219,12 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 		if st != nil && st.DeviceUID == wanted.DeviceUID {
 			wanted.Sequence = st.Sequence
 		}
-		old, err := r.Repository.Latest(ctx, wanted.Unit)
+		var old artifact.Metadata
+		err := imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+			var err error
+			old, err = r.Repository.Latest(ctx, wanted.Unit)
+			return err
+		})
 		if err != nil && !errors.Is(err, artifact.ErrNotFound) {
 			return ctrl.Result{}, err
 		}

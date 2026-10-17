@@ -6,6 +6,26 @@ support limits. [RENDERERS](RENDERERS.md) covers renderer examples,
 [DESIGN](DESIGN.md) explains internal guarantees, and [PROTOCOL](PROTOCOL.md)
 defines device responses and image/context contracts.
 
+## Image processing resources
+
+The controller chart defaults to a 512 MiB memory limit, 500m CPU limit and
+`GOMEMLIMIT=384MiB`. Renderer Jobs retain their independent 500m/256Mi defaults.
+One shared image lease covers HTTP reception, Job collection, normalization,
+overlays and buffered image retrieval; queued work retains metadata rather than
+full PNG buffers. Slow sources/clients can therefore delay other image work.
+The transport and processing deadlines are defined in
+[PROTOCOL](PROTOCOL.md#png-contract): input up to 32 MiB, 16,777,216 pixels and
+16,384 per axis; processing up to 10 seconds bounded by enclosing contexts.
+The active OG output budget remains strictly below 90,000 bytes.
+
+An invalid or oversized conversion preserves compatible prior output or pending.
+Policy changes invalidate fresh reuse and cycle replay, while an exact-target
+compatible prior-policy image may remain a stale fallback. Previously issued
+URLs retain their original immutable bytes. Legacy active Jobs become obsolete
+under the new processing revision and are cancelled before replacement; completed
+current attempts remain recoverable across restart. Device profiles/overrides
+and new physical acceptance are separate implementation boundaries.
+
 ## Hardware identity
 
 `ArprtDevice.spec` accepts at most one of:

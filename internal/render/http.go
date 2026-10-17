@@ -5,16 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 )
 
+// MaxPNGBytes is retained only for legacy persisted PNG validation.
 const MaxPNGBytes = 89999
 const HTTPTimeout = 10 * time.Second
 
@@ -72,6 +73,9 @@ func (h HTTPPOST) Execute(ctx context.Context, input Request) (Output, error) {
 func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, method string, input Request, body []byte) (output Output, resultErr error) {
 	started := time.Now()
 	defer func() { observe.Render(method, started, resultErr) }()
+	if err := CurrentTarget(input.Target).Validate(); err != nil {
+		return Output{}, err
+	}
 	raw, err := TargetURL(rawURL, input.Target)
 	if err != nil {
 		return Output{}, err
@@ -100,18 +104,20 @@ func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, meth
 		return Output{}, errors.New("renderer must return HTTP 200 without redirects")
 	}
 	media, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
-	if err != nil || media != "image/png" {
-		return Output{}, errors.New("renderer must return Content-Type image/png")
+	if err != nil || (media != "image/png" && media != "image/apng") {
+		return Output{}, errors.New("renderer must return Content-Type image/png or image/apng")
 	}
-	if resp.ContentLength > MaxPNGBytes {
+	if resp.ContentLength > imageprocessing.MaxInputBytes {
 		return Output{}, errors.New("renderer image exceeds byte limit")
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxPNGBytes+1))
+	b, err := imageprocessing.ReadInput(ctx, resp.Body)
 	if err != nil {
 		return Output{}, errors.New("renderer image read failed")
 	}
-	if err := ValidatePNG(b, input.Target); err != nil {
+	renderedAt := time.Now().UTC()
+	normalized, err := ProcessPNG(ctx, b, CurrentTarget(input.Target), input.Policy)
+	if err != nil {
 		return Output{}, err
 	}
-	return Output{PNG: b}, nil
+	return Output{PNG: normalized, RenderedAt: renderedAt}, nil
 }

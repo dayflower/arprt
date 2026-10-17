@@ -3,7 +3,9 @@ package byos
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +19,7 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/delivery"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/render"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -77,13 +80,21 @@ func loadDevice(t *testing.T, c client.Client) *api.ArprtDevice {
 	}
 	return &d
 }
+func normalizeFixture(t *testing.T, b []byte) []byte {
+	t.Helper()
+	b, err := imageprocessing.Normalize(t.Context(), b, render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).ImageTarget(), imageprocessing.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
 func pngFixture(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile("../../testdata/png/target-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return b
+	return normalizeFixture(t, b)
 }
 
 func TestSetupDisplayPersistenceOutage(t *testing.T) {
@@ -295,7 +306,7 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 	if err := <-done; err != artifact.ErrObsolete {
 		t.Fatalf("obsolete publication: %v", err)
 	}
-	m, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: sc.Namespace, ScreenUID: string(sc.UID), Target: target})
+	m, err := s.Repository.Latest(context.Background(), artifact.Unit{Namespace: sc.Namespace, ScreenUID: string(sc.UID), Target: target, Output: render.CurrentTarget(target).Output})
 	if err != nil || m.ScreenGeneration != 1 {
 		t.Fatal("obsolete success replaced pointer")
 	}
@@ -460,4 +471,16 @@ func TestCredentialRotation(t *testing.T) {
 	if request(s, "GET", devicePath+"/api/setup", auth(), nil).Code != 401 {
 		t.Fatal("non-header-safe key accepted")
 	}
+}
+
+func distinctFixture(b []byte) []byte {
+	body := []byte("Device\x00second")
+	chunk := make([]byte, len(body)+12)
+	binary.BigEndian.PutUint32(chunk, uint32(len(body)))
+	copy(chunk[4:], "tEXt")
+	copy(chunk[8:], body)
+	binary.BigEndian.PutUint32(chunk[len(chunk)-4:], crc32.ChecksumIEEE(chunk[4:len(chunk)-4]))
+	out := append([]byte(nil), b[:len(b)-12]...)
+	out = append(out, chunk...)
+	return append(out, b[len(b)-12:]...)
 }

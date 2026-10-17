@@ -279,16 +279,12 @@ keep the existing pending/error behavior.
 
 ## Image and artifact guarantees
 
-The controller adds bounded bitmap compositing to validated renderer output. It
-does not introduce general resampling, quantization or conversion of otherwise
-invalid renderer output. Validate the
-base image before compositing and the final composite before publication.
-
-Preserve base pixels outside the overlay area, physical dimensions, target
-rotation compatibility and semantic palette. Active OG delivery retains the
-complete 800 by 480, noninterlaced 2-bit gray4 PNG contract and compressed-byte
-limit in PROTOCOL until renderer integration activates explicit output targets.
-Its legacy appearance/encoding identity remains readable and reusable.
+The controller normalizes renderer input before bounded bitmap compositing.
+Validate the normalized base and the final composite against the same resolved
+target before publication/issuance. Preserve base pixels outside the overlay,
+physical dimensions, rotation compatibility and semantic palette. Active OG
+delivery uses the [PNG contract](PROTOCOL.md#png-contract), including generated
+2/4-bit gray4 depth selection. Legacy appearance/encoding records stay readable.
 
 The internal resolved-target compositing path supports gray4, gray16 and
 Spectra 6 within the shared output dimension/allocation bounds. It maps exact
@@ -305,8 +301,8 @@ failure for validated-base fallback; it never changes content or compression
 to fit. The resolved drawing cache identity includes bitmap, encoder and palette
 versions, preserving the original base render time. Legacy derived records and
 previously issued URLs retain their immutable bytes across restart and GC.
-These internal capabilities do not expand the current public Device/Screen API
-or establish physical acceptance for another model.
+These palette primitives do not enable additional Device targets or establish
+physical acceptance for another model.
 
 Base and composite artifacts must preserve UID ownership, exact-target
 compatibility, ordered publication, current assignment and authentication

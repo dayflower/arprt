@@ -7,6 +7,7 @@ import (
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 )
 
 // EffectiveInterval resolves conditional defaults without defaulting POST.
@@ -28,6 +29,15 @@ func EffectiveInterval(spec api.ArprtScreenSpec) (time.Duration, error) {
 // same revision. Transport and collection semantic changes bump these versions.
 func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 	s := spec.DeepCopy()
+	policy, err := ProcessingPolicy(spec)
+	if err != nil {
+		return "", err
+	}
+	s.ImageProcessing = &api.ImageProcessing{ResizeMode: string(policy.Fit), Dithering: string(policy.Dither)}
+	processingRevision, err := policy.Revision()
+	if err != nil {
+		return "", err
+	}
 	s.Overlay = EffectiveOverlay(s.Overlay)
 	if s.Source.HTTP != nil && s.Source.HTTP.Method == "" {
 		s.Source.HTTP.Method = "GET"
@@ -49,10 +59,11 @@ func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 		s.RefreshInterval = ""
 	}
 	b, err := json.Marshal(struct {
-		Spec             *api.ArprtScreenSpec `json:"spec"`
-		ContextVersion   string               `json:"contextVersion"`
-		CollectorVersion string               `json:"collectorVersion"`
-	}{s, "v1", "v1"})
+		Spec               *api.ArprtScreenSpec `json:"spec"`
+		ContextVersion     string               `json:"contextVersion"`
+		CollectorVersion   string               `json:"collectorVersion"`
+		ProcessingRevision string               `json:"processingRevision"`
+	}{s, "v1", "v2", processingRevision})
 	if err != nil {
 		return "", err
 	}
@@ -90,4 +101,14 @@ func EffectiveOverlay(in *api.ScreenOverlay) *api.ScreenOverlay {
 		out.Position = "top-right"
 	}
 	return out
+}
+
+// ProcessingPolicy resolves omitted API defaults for every renderer source.
+func ProcessingPolicy(spec api.ArprtScreenSpec) (imageprocessing.Policy, error) {
+	p := imageprocessing.Policy{}
+	if spec.ImageProcessing != nil {
+		p.Fit = imageprocessing.Fit(spec.ImageProcessing.ResizeMode)
+		p.Dither = imageprocessing.Dither(spec.ImageProcessing.Dithering)
+	}
+	return p.Normalize()
 }

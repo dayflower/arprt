@@ -37,7 +37,7 @@ func enableOverlay(t *testing.T, c client.Client, cycle bool, items ...api.Overl
 func baseImage(t *testing.T, s *Server, c client.Client, private bool) artifact.Metadata {
 	t.Helper()
 	d := loadDevice(t, c)
-	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: "screen-1", Target: devicestate.Target(d)}
+	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: "screen-1", Target: devicestate.Target(d), Output: render.CurrentTarget(devicestate.Target(d)).Output}
 	if private {
 		u.DeviceUID = string(d.UID)
 	}
@@ -76,11 +76,11 @@ func TestOverlayCurrentMeasurementsBaseSeparationAndSharedGET(t *testing.T) {
 		t.Fatal(first)
 	}
 	base := baseImage(t, s, c, false)
-	drawing, err := overlay.Normalize(base.Unit.Target, overlay.Settings{Items: []string{"timestamp", "battery", "wifi"}}, base.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: loadDevice(t, c).Status.Battery.Percent, RSSI: loadDevice(t, c).Status.Network.RSSI}, overlay.TopRight)
+	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"timestamp", "battery", "wifi"}}, base.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: loadDevice(t, c).Status.Battery.Percent, RSSI: loadDevice(t, c).Status.Network.RSSI}, overlay.TopRight)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := overlay.Compose(context.Background(), b, base.Unit.Target, drawing)
+	expected, err := overlay.ComposeResolved(context.Background(), b, base.Unit.ResolvedTarget(), drawing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestOverlayCurrentMeasurementsBaseSeparationAndSharedGET(t *testing.T) {
 	missing := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", headers, nil))
 	drawing.Battery = nil
 	drawing.WiFi = nil
-	expected, err = overlay.Compose(context.Background(), b, base.Unit.Target, drawing)
+	expected, err = overlay.ComposeResolved(context.Background(), b, base.Unit.ResolvedTarget(), drawing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,11 +433,12 @@ func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T)
 	// Observe target without a Job image, then publish an older immutable snapshot.
 	request(s, "GET", devicePath+"/api/display", auth(), nil)
 	d := loadDevice(t, c)
-	m := artifact.Metadata{Unit: artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: devicestate.Target(d)}, InputRevision: strings.Repeat("a", 64), Sequence: 1, AttemptID: "job-attempt", ContextDigest: strings.Repeat("b", 64), RenderedAt: time.Now().UTC().Add(-48 * time.Hour)}
+	m := artifact.Metadata{Unit: artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: devicestate.Target(d), Output: render.CurrentTarget(devicestate.Target(d)).Output}, InputRevision: strings.Repeat("a", 64), Sequence: 1, AttemptID: "job-attempt", ContextDigest: strings.Repeat("b", 64), RenderedAt: time.Now().UTC().Add(-48 * time.Hour)}
 	b, err := os.ReadFile("../../testdata/png/target-indexed-gray4.png")
 	if err != nil {
 		t.Fatal(err)
 	}
+	b = normalizeFixture(t, b)
 	published, err := s.Repository.Publish(context.Background(), m, b)
 	if err != nil {
 		t.Fatal(err)
@@ -450,8 +451,8 @@ func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T)
 		t.Fatal(got)
 	}
 	percent, rssi := 0.0, int32(-99)
-	drawing, _ := overlay.Normalize(m.Unit.Target, overlay.Settings{Items: []string{"battery", "wifi"}}, m.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: &percent, RSSI: &rssi}, overlay.TopRight)
-	expected, err := overlay.Compose(context.Background(), b, m.Unit.Target, drawing)
+	drawing, _ := overlay.NormalizeResolved(m.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery", "wifi"}}, m.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: &percent, RSSI: &rssi}, overlay.TopRight)
+	expected, err := overlay.ComposeResolved(context.Background(), b, m.Unit.ResolvedTarget(), drawing)
 	if err != nil || !bytes.Equal(imageBytes(t, s, got), expected) {
 		t.Fatal("Job snapshot telemetry used for display", err)
 	}
@@ -464,7 +465,7 @@ func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T)
 	charging := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", headers, nil))
 	drawing.Battery = nil
 	drawing.Charging = true
-	expected, err = overlay.Compose(context.Background(), b, m.Unit.Target, drawing)
+	expected, err = overlay.ComposeResolved(context.Background(), b, m.Unit.ResolvedTarget(), drawing)
 	if err != nil || !bytes.Equal(imageBytes(t, s, charging), expected) {
 		t.Fatal("current Job delivery charging flag lost", err)
 	}
@@ -499,7 +500,7 @@ func TestFractionalPOSTContextAndStaleOverlay(t *testing.T) {
 		t.Fatal("current percent absent from POST context")
 	}
 	d := loadDevice(t, c)
-	unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: devicestate.Target(d)}
+	unit := artifact.Unit{Namespace: "arprt", ScreenUID: string(screen.UID), DeviceUID: string(d.UID), Target: devicestate.Target(d), Output: render.CurrentTarget(devicestate.Target(d)).Output}
 	original, err := s.Repository.Latest(context.Background(), unit)
 	if err != nil {
 		t.Fatal(err)

@@ -15,7 +15,8 @@ def samples(png):
         assert zlib.crc32(kind + body) == struct.unpack('>I', png[pos + 8 + length:pos + 12 + length])[0]
         if kind == b'IHDR':
             width, height, depth, color, compression, filtering, interlace = struct.unpack('>IIBBBBB', body)
-            assert (width, height, depth, compression, filtering, interlace) == (800, 480, 2, 0, 0, 0)
+            assert (width, height, compression, filtering, interlace) == (800, 480, 0, 0, 0)
+            assert depth in (2, 4)
             assert color in (0, 3)
         elif kind == b'PLTE':
             palette = body
@@ -25,7 +26,7 @@ def samples(png):
     if color == 3:
         assert palette == bytes((0, 0, 0, 85, 85, 85, 170, 170, 170, 255, 255, 255))
     packed = zlib.decompress(data)
-    stride = width // 4
+    stride = (width * depth + 7) // 8
     assert len(packed) == (stride + 1) * height
     pixels, previous = [], [0] * stride
     for y in range(height):
@@ -45,7 +46,13 @@ def samples(png):
                 row[x] = (row[x] + nearest) & 255
             else:
                 assert mode == 0
-        pixels.extend((value >> shift) & 3 for value in row for shift in (6, 4, 2, 0))
+        for value in row:
+            for shift in range(8 - depth, -1, -depth):
+                sample = (value >> shift) & ((1 << depth) - 1)
+                if color == 0 and depth == 4:
+                    assert sample in (0, 5, 10, 15)
+                    sample //= 5
+                pixels.append(sample)
         previous = row
     return pixels
 

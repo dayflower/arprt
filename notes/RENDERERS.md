@@ -31,11 +31,29 @@ On failure, compatible prior output can remain visible; without one, display is
 pending. See [rendering and assignment](DESIGN.md#rendering-and-assignment) for
 reuse, replay, ordering and fallback rules.
 
-Renderers produce immutable OG-compatible base images: 800 × 480 gray4 PNG. The exact HTTP headers,
-query merge, shared execution budget, Context fields/versioning and PNG constraints
-are maintained in [PROTOCOL](PROTOCOL.md#http-renderer-contract). The controller
-can add validated 2-bit bitmap overlays at delivery time; configure your encoder
-for the accepted base format. It does not quantize or repair invalid PNGs.
+Renderers may return general RGB/RGBA, grayscale or indexed PNG inputs within
+the [input limits](PROTOCOL.md#png-contract). The controller normalizes them to
+the current OG 800 × 480 gray4 target, then draws optional bitmap overlays.
+Compatible PNGs retain their original bytes and renderer-authored dithering.
+Existing examples keep their OG scope; their 2-bit intermediate gray output is
+converted exactly to native 4-bit gray4 before delivery.
+
+For a renderer returning an RGB PNG from an image library, configure the Screen:
+
+```yaml
+spec:
+  imageProcessing:
+    resizeMode: contain  # default; stretch fills the target without preserving aspect ratio
+    dithering: atkinson # default; floyd-steinberg, bayer and none are also available
+```
+
+Transparency is composed onto white. Input dimensions may differ from the target;
+renderers should still honor the target query/Context and own content rotation.
+`none` disables dithering while retaining resizing and palette conversion.
+Invalid files remain failures; conversion never changes the selected dithering
+to fit the output budget. The exact HTTP headers, query merge, execution budget,
+Context fields and output depth rules belong to
+[PROTOCOL](PROTOCOL.md#http-renderer-contract).
 
 ## Controller display overlays
 

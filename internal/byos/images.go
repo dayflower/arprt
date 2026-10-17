@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"context"
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 )
 
 //go:embed setup-logo.png
@@ -23,10 +25,16 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request, d *api.ArprtDevic
 		reply(w, 404, 404)
 		return
 	}
-	b, err := s.Repository.Read(ctx, digest)
+	err = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+		b, err := s.Repository.Read(ctx, digest)
+		if err != nil {
+			reply(w, 404, 404)
+			return nil
+		}
+		pngResponse(w, b)
+		return nil
+	})
 	if err != nil {
-		reply(w, 404, 404)
-		return
+		reply(w, 503, 503)
 	}
-	pngResponse(w, b)
 }

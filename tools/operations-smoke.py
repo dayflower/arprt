@@ -94,6 +94,7 @@ def main():
             image_route = path + '/images/' + result['image_url'].rsplit('/', 1)[-1]
             screen = resource('arprtscreen', 'photo')
             unit = {'namespace': namespace, 'screenUID': screen['metadata']['uid'], 'target': {'width': 800, 'height': 480, 'palette': 'gray4'}}
+            unit['output'] = {'pngByteLimit': 90000, 'compatibility': 'output-v1'}
             key = hashlib.sha256(json.dumps(unit, separators=(',', ':')).encode()).hexdigest()
             inspect('printf broken > /data/latest/' + key + '.json')
             assert ready_display()['image_url'] == result['image_url']

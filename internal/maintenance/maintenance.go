@@ -9,7 +9,9 @@ import (
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
+	"github.com/dayflower/arprt/internal/render"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -86,6 +88,8 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 				u.DeviceUID = string(d.UID)
 			}
 			units[u] = true
+			u.Output = render.CurrentTarget(u.Target).Output
+			units[u] = true
 		}
 		// A replayed turn may still refer to an older successful revision.
 		// Issuance protection independently keeps its bytes for at least 24h.
@@ -97,5 +101,7 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 	if _, _, err := m.Repository.Usage(ctx); err != nil {
 		return err
 	}
-	return m.Repository.Collect(ctx, func(u artifact.Unit) bool { return units[u] }, uids, now)
+	return imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+		return m.Repository.Collect(ctx, func(u artifact.Unit) bool { return units[u] }, uids, now)
+	})
 }

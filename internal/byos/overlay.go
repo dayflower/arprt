@@ -7,6 +7,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/overlay"
 	"github.com/dayflower/arprt/internal/render"
@@ -46,7 +47,7 @@ func (s *Server) recoverCorner(ctx context.Context, d *api.ArprtDevice) (artifac
 // The base success and render error stay separate from the issued candidate.
 // Only compositing/cache persistence failures fall back, before authorization
 // and Issue. Required delivery-state failures never use this fallback.
-func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
+func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
 	release := func() {}
 	if image.metadata.ImageDigest == "" {
 		return image, release, nil
@@ -55,10 +56,14 @@ func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observa
 	if err != nil {
 		return image, release, err
 	}
-	if err := render.ValidatePNG(base, selected.target); err != nil {
+	if err := render.CurrentTarget(selected.target).ValidateOutput(ctx, base); err != nil {
 		return image, release, err
 	}
 	image.issued = image.metadata
+	// A compatible legacy base retains its bytes and rendering provenance, while
+	// newly derived images use current output constraints and encoder identity.
+	baseMetadata := image.metadata
+	baseMetadata.Unit.Output = render.CurrentTarget(selected.target).Output
 	if selected.replay != nil {
 		return image, release, nil
 	}
@@ -84,7 +89,7 @@ func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observa
 	if d.Status.Device != nil {
 		model = d.Status.Device.Model
 	}
-	drawing, err := overlay.Normalize(selected.target, settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
+	drawing, err := overlay.NormalizeResolved(render.CurrentTarget(selected.target), settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
 	if err != nil {
 		observe.OverlayFallbacks.Inc()
 		return image, release, nil
@@ -92,12 +97,12 @@ func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observa
 	if drawing.Empty() {
 		return image, release, nil
 	}
-	composite, unpin, err := s.Repository.FindDerived(ctx, image.metadata, drawing)
+	composite, unpin, err := s.Repository.FindDerived(ctx, baseMetadata, drawing)
 	if errors.Is(err, artifact.ErrNotFound) {
 		var bytes []byte
-		bytes, err = overlay.Compose(ctx, base, selected.target, drawing)
+		bytes, err = overlay.ComposeResolved(ctx, base, render.CurrentTarget(selected.target), drawing)
 		if err == nil {
-			composite, unpin, err = s.Repository.StoreDerived(ctx, image.metadata, drawing, bytes)
+			composite, unpin, err = s.Repository.StoreDerived(ctx, baseMetadata, drawing, bytes)
 		}
 	}
 	if err != nil {
@@ -107,4 +112,31 @@ func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observa
 	image.issued = composite
 	image.advanceCorner = effective.CycleCorners
 	return image, unpin, nil
+}
+
+func (s *Server) overlayImage(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord) (deliveryImage, func(), error) {
+	release := func() {}
+	err := imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
+		err := imageprocessing.Process(ctx, func(work context.Context) error {
+			var err error
+			image, release, err = s.overlayImageAdmitted(work, d, o, selected, image, corner)
+			return err
+		})
+		// A processing deadline during optional drawing must not discard the
+		// already validated base. Enclosing cancellation still stops delivery.
+		if err != nil && ctx.Err() == nil && image.issued.ImageDigest != "" {
+			release()
+			release = func() {}
+			image.issued = image.metadata
+			image.advanceCorner = false
+			observe.OverlayFallbacks.Inc()
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		release()
+		release = func() {}
+	}
+	return image, release, err
 }

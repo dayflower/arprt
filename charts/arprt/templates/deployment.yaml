@@ -50,6 +50,8 @@ spec:
             - --job-concurrency=$(JOB_CONCURRENCY)
             - --job-deadline-seconds=$(JOB_DEADLINE_SECONDS)
           env:
+            - name: GOMEMLIMIT
+              value: "384MiB"
             {{- $configName := printf "%s-config" (include "arprt.fullname" .) }}
             {{- range $env, $key := dict "PUBLIC_BASE_URL" "publicBaseURL" "PROXY_STRIPS_PREFIX" "proxyStripsPrefix" "ENABLE_SETUP" "setupEnabled" "DEVICE_REFRESH_SECONDS" "deviceRefreshSeconds" "OVERLAY_TIME_ZONE" "overlayTimeZone" "STORAGE_MAX_BYTES" "storageMaxBytes" "STORAGE_MIN_FREE_BYTES" "storageMinFreeBytes" "JOB_CONCURRENCY" "jobConcurrency" "JOB_DEADLINE_SECONDS" "jobDeadlineSeconds" }}
             - name: {{ $env }}

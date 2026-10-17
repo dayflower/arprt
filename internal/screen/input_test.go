@@ -122,3 +122,41 @@ func TestOverlayRevisionAndRepresentation(t *testing.T) {
 		t.Fatal("cycling default incorrectly adds position")
 	}
 }
+
+func TestProcessingRevision(t *testing.T) {
+	spec := api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
+	omitted, err := InputRevision(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []*api.ImageProcessing{{}, {ResizeMode: "contain"}, {Dithering: "atkinson"}, {ResizeMode: "contain", Dithering: "atkinson"}} {
+		spec.ImageProcessing = policy
+		revision, err := InputRevision(spec)
+		if err != nil || revision != omitted {
+			t.Fatal("equivalent policy changed revision", policy, err)
+		}
+	}
+	revisions := map[string]bool{omitted: true}
+	for _, mode := range []string{"contain", "stretch"} {
+		for _, dither := range []string{"atkinson", "floyd-steinberg", "bayer", "none"} {
+			spec.ImageProcessing = &api.ImageProcessing{ResizeMode: mode, Dithering: dither}
+			revision, err := InputRevision(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "contain" && dither == "atkinson" {
+				continue
+			}
+			if revisions[revision] {
+				t.Fatal("different policy reused revision", mode, dither)
+			}
+			revisions[revision] = true
+		}
+	}
+	for _, invalid := range []*api.ImageProcessing{{ResizeMode: "cover"}, {Dithering: "random"}} {
+		spec.ImageProcessing = invalid
+		if _, err := InputRevision(spec); err == nil {
+			t.Fatal("invalid policy accepted")
+		}
+	}
+}

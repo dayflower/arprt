@@ -141,8 +141,11 @@ Preserve non-target query values, including repeated values; replace all lowerca
 `0`, `90`, `180` or `270`. Query and JSON targets must agree. Never
 forward device headers, credentials, cookies or arbitrary inbound headers.
 
-Require HTTP 200 and `image/png`; reject redirects. GET/POST share eight execution
-slots and a 10-second overall rendering deadline. Reuse/timing differs by source
+Require HTTP 200 and `image/png` or `image/apng` (media-type parameters are
+allowed); reject redirects. GET/POST share eight execution slots and a
+10-second overall rendering deadline. A single controller-wide image lease is
+acquired before renderer transport and held through normalization/publication;
+Job collection, overlays and buffered image retrieval share that capacity. Reuse/timing differs by source
 and assignment mode; see [DESIGN](DESIGN.md#rendering-and-assignment).
 
 ## Render Context v1
@@ -184,21 +187,61 @@ fields. Removing fields or changing semantics requires a new context version.
 
 ## PNG contract
 
-Require exactly 800 × 480, noninterlaced 2-bit PNG, compression/filter methods 0,
-and **less than 90,000 compressed bytes**. Accept grayscale (color type 0) or
-indexed (3) with exactly four opaque ascending palette entries: RGB `(0,0,0)`,
-`(85,85,85)`, `(170,170,170)`, `(255,255,255)`. This is intentionally narrower than
-the firmware decoder's possible inputs. Reject alpha/transparency, APNG,
-truecolor, other depths, bad CRCs, truncation, wrong dimensions and oversized data.
-Validate the complete bounded pixel stream, not only IHDR. The controller validates renderer base bytes before limited bitmap compositing
-and validates composites with the same contract. It preserves exact gray4
-samples outside the opaque overlay; it performs no resampling or quantization
-and does not accept otherwise invalid renderer output. Generic PNG encoders often need
-explicit configuration to avoid their RGB/8-bit defaults.
+Renderer input and device output have separate contracts. GET, POST and Job
+accept complete legal PNGs of all standard color/depth combinations, including
+alpha, tRNS, Adam7 and APNG's IDAT default image. Both APNG layouts are supported;
+subsequent frames are structurally checked but never decoded or displayed.
+Input is at most **32 MiB**, **16,777,216 pixels** and **16,384 per axis**. CRCs,
+chunk structure, exact inflated image length and trailing bytes are checked
+before publication. Invalid PNGs remain rendering failures.
 
-Both [grayscale](../testdata/png/target-gray4.png) and
-[indexed](../testdata/png/README.md) fixtures are maintained test inputs.
-Job file/mount/exit requirements are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
+The active target remains OG 800 × 480 gray4 with **encoded bytes < 90,000**.
+Compatible opaque, static, noninterlaced renderer output retains its exact bytes:
+
+| Color type | Passthrough for gray4 |
+| --- | --- |
+| Grayscale (0), depth 1 | Preserve |
+| Grayscale (0), depth 2 | Preserve only when every pixel is black/white |
+| Grayscale (0), depth 4 | Preserve when all samples are 0/5/10/15 |
+| Indexed (3), depth 1 | Normalize |
+| Indexed (3), depth 2 | Preserve only with a compatible palette and black/white pixels |
+| Indexed (3), depth 4 or 8 | Preserve with a compatible palette |
+
+Every declared PLTE entry, including unused entries, must be exactly RGB
+`(0,0,0)`, `(85,85,85)`, `(170,170,170)` or `(255,255,255)`; subsets and arbitrary
+order are allowed. Alpha encodings, tRNS, interlace, animation, other formats,
+wrong dimensions or incompatible colors require normalization. Compatible
+renderer dithering is preserved regardless of Screen policy.
+
+`ArprtScreen.spec.imageProcessing.resizeMode` selects `contain` (default) or
+`stretch`; `.dithering` selects `atkinson` (default), `floyd-steinberg`, `bayer` or
+`none`. Omitted and explicit defaults are equivalent. Normalization interprets
+samples as sRGB without applying embedded gamma/profile/chromaticity metadata,
+composites transparency onto white, resizes with half-pixel four-neighbor
+bilinear interpolation, then matches colors in Lab D65. Contain centers content
+with white padding, placing an odd extra pixel on the right/bottom. `none`
+disables dithering while retaining necessary conversion. Renderers own content
+rotation; the controller does not rotate it again. Numerical rules are in
+[DESIGN](DESIGN.md#numerical-processing-semantics).
+
+Generated gray4 is native grayscale type 0, depth 2 for globally black/white
+pixels and depth 4 otherwise. Legacy 2-bit intermediate grays map exactly from
+0/1/2/3 to 0/5/10/15 without re-dithering. Re-encoding omits source metadata.
+Native 4-bit assumes corrected firmware expansion; the historical OG / 1.8.17
+physical baseline does not validate this new encoding. New physical acceptance
+remains required; this change does not expand verified device support.
+
+Processing has a 10-second bound after reception/collection, further bounded
+by enclosing contexts. The exclusive output limit applies to passthrough,
+normalized bases and final overlays. Oversized/invalid processing preserves an
+exact-target compatible previous success or pending; neither dithering nor
+content changes to fit. Optional overlays run after normalization and may fall
+back to the validated base. Issued URLs continue serving their original bytes
+without normalization, including old images no longer eligible for new delivery.
+
+The [legacy inputs and normalized output](../testdata/png/README.md) exercise
+migration separately from passthrough. Job file/mount/exit requirements are in
+[DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
 ## Controller overlays
 
