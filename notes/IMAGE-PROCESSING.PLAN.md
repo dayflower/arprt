@@ -59,7 +59,8 @@ Relevant implementation locations:
   [corner.go](../internal/artifact/corner.go): fixed size/palette assumptions,
   persisted metadata and pending delivery records.
 - [overlay.go](../internal/overlay/overlay.go) and
-  [overlay/png.go](../internal/overlay/png.go): gray4 pixel handling and encoding.
+  [imageprocessing/encode.go](../internal/imageprocessing/encode.go):
+  palette-aware compositing and shared encoding, including legacy adapters.
 - [screen/input.go](../internal/screen/input.go),
   [assignment/resolver.go](../internal/assignment/resolver.go) and
   [maintenance.go](../internal/maintenance/maintenance.go): revision, replay and
