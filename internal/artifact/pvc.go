@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
+	"github.com/dayflower/arprt/internal/render"
 )
 
 var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -50,13 +52,14 @@ func NewPVC(root string) (*PVC, error) {
 }
 
 func unitKey(u Unit) (string, error) {
-	if u.Namespace == "" || u.ScreenUID == "" {
-		return "", errors.New("artifact unit requires namespace and screen UID")
-	}
-	if err := u.Target.Validate(); err != nil {
+	if err := u.Validate(); err != nil {
 		return "", err
 	}
-	b, err := json.Marshal(u)
+	var value any = u
+	if u.Output.IsZero() {
+		value = u.legacy()
+	}
+	b, err := json.Marshal(value)
 	if err != nil {
 		return "", err
 	}
@@ -75,7 +78,7 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	if err != nil {
 		return Metadata{}, err
 	}
-	if len(png) == 0 || len(png) >= 90000 || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.AttemptID == "" || m.RenderedAt.IsZero() || (m.ContextDigest != "" && (m.Unit.DeviceUID == "" || !digestPattern.MatchString(m.ContextDigest))) {
+	if len(png) == 0 || len(png) >= m.Unit.byteLimit() || len(png) > imageprocessing.MaxInputBytes || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.AttemptID == "" || m.RenderedAt.IsZero() || (m.ContextDigest != "" && (m.Unit.DeviceUID == "" || !digestPattern.MatchString(m.ContextDigest))) {
 		return Metadata{}, errors.New("invalid artifact publication metadata or size")
 	}
 	if err := s.checkCapacity(ctx, int64(len(png))+16384); err != nil {
@@ -91,6 +94,19 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 			return previous, nil
 		}
 		return Metadata{}, ErrObsolete
+	}
+	// New constraints must not reset ordering when their key changes. Validate
+	// sibling records using their original keys before considering sequences.
+	if !m.Unit.Output.IsZero() {
+		previous, err := s.related(ctx, m.Unit)
+		if err != nil {
+			return Metadata{}, err
+		}
+		for _, old := range previous {
+			if old.Sequence >= m.Sequence {
+				return Metadata{}, ErrObsolete
+			}
+		}
 	}
 	m.Size, m.ContentType = len(png), "image/png"
 	m.RenderedAt = m.RenderedAt.UTC()
@@ -114,7 +130,7 @@ func (s *PVC) latest(key string) (Metadata, error) {
 	err := readJSON(p, &m)
 	if err == nil {
 		actual, valid := unitKey(m.Unit)
-		if valid != nil || actual != key || !digestPattern.MatchString(m.ImageDigest) || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.Size <= 0 || m.Size >= 90000 || m.RenderedAt.IsZero() || !filenamePattern.MatchString(m.Filename) {
+		if valid != nil || actual != key || !digestPattern.MatchString(m.ImageDigest) || !digestPattern.MatchString(m.InputRevision) || m.Sequence == 0 || m.Size <= 0 || m.Size >= m.Unit.byteLimit() || m.Size > imageprocessing.MaxInputBytes || m.RenderedAt.IsZero() || !filenamePattern.MatchString(m.Filename) {
 			err = ErrCorrupt
 		}
 	}
@@ -135,10 +151,20 @@ func (s *PVC) Latest(ctx context.Context, u Unit) (Metadata, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.latest(key)
+	if errors.Is(err, ErrNotFound) && !u.Output.IsZero() {
+		legacy := u
+		legacy.Output = render.OutputConstraints{}
+		legacyKey, keyErr := unitKey(legacy)
+		if keyErr != nil {
+			return Metadata{}, keyErr
+		}
+		m, err = s.latest(legacyKey)
+		key = legacyKey
+	}
 	if err != nil {
 		return Metadata{}, err
 	}
-	if m.Unit != u || !digestPattern.MatchString(m.ImageDigest) {
+	if m.Unit.legacy() != u.legacy() || (m.Unit != u && !m.Unit.Output.IsZero()) || !digestPattern.MatchString(m.ImageDigest) {
 		return Metadata{}, s.discardPointer(filepath.Join(s.root, "latest", key+".json"))
 	}
 	b, err := s.Read(ctx, m.ImageDigest)
@@ -151,7 +177,73 @@ func (s *PVC) Latest(ctx context.Context, u Unit) (Metadata, error) {
 	if len(b) != m.Size {
 		return Metadata{}, s.discardPointer(filepath.Join(s.root, "latest", key+".json"))
 	}
+	if !u.Output.IsZero() {
+		if err := u.ResolvedTarget().ValidateOutput(ctx, b); err != nil {
+			if ctx.Err() != nil {
+				return Metadata{}, ctx.Err()
+			}
+			// Incompatible legacy bytes remain retained and immutable, but cannot
+			// become a new delivery or be rewritten by a read.
+			return Metadata{}, ErrNotFound
+		}
+	}
 	return m, nil
+}
+
+// related enumerates every output-key generation of the same owned target.
+// Callers hold mu; GC uses the same latest directory for old and new keys.
+func (s *PVC) related(ctx context.Context, u Unit) ([]Metadata, error) {
+	entries, err := os.ReadDir(filepath.Join(s.root, "latest"))
+	if err != nil {
+		return nil, err
+	}
+	var records []Metadata
+	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		var m Metadata
+		if err := readJSON(filepath.Join(s.root, "latest", e.Name()), &m); err != nil {
+			return nil, err
+		}
+		if m.Unit.legacy() != u.legacy() {
+			continue
+		}
+		m, err := s.latest(e.Name()[:len(e.Name())-5])
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, m)
+	}
+	return records, nil
+}
+
+// Sequence returns the highest validated sequence even if an old image cannot
+// be delivered under current constraints. It does not reinterpret old hashes.
+func (s *PVC) Sequence(ctx context.Context, u Unit) (uint64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if err := u.Validate(); err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records, err := s.related(ctx, u)
+	if err != nil {
+		return 0, err
+	}
+	var sequence uint64
+	for _, m := range records {
+		sequence = max(sequence, m.Sequence)
+	}
+	return sequence, nil
 }
 
 func (s *PVC) Read(ctx context.Context, imageDigest string) ([]byte, error) {
@@ -281,12 +373,26 @@ func readImage(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, 90000))
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
-	if len(b) == 0 || len(b) >= 90000 {
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > imageprocessing.MaxInputBytes {
 		return nil, ErrCorrupt
+	}
+	b := make([]byte, int(info.Size()))
+	if _, err := io.ReadFull(f, b); err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return nil, ErrCorrupt
+		}
+		return nil, err
+	}
+	var extra [1]byte
+	if n, err := f.Read(extra[:]); n != 0 || err != io.EOF {
+		if n != 0 || err == nil {
+			return nil, ErrCorrupt
+		}
+		return nil, err
 	}
 	return b, nil
 }

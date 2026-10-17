@@ -81,6 +81,10 @@ func (s *PVC) collectOverlays(ctx context.Context, retained map[string]bool, uid
 		if r.Pending != nil {
 			pending[r.Pending.Proposed.ImageDigest] = true
 			retained[r.Pending.Proposed.ImageDigest] = true
+			if r.Pending.Previous != nil {
+				pending[r.Pending.Previous.ImageDigest] = true
+				retained[r.Pending.Previous.ImageDigest] = true
+			}
 		}
 	}
 	entries, err = os.ReadDir(filepath.Join(s.root, "derived"))

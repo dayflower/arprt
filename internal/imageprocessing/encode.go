@@ -52,7 +52,11 @@ func Encode(ctx context.Context, indices []byte, t Target) ([]byte, error) {
 		return nil, errOutputSize
 	}
 	compressed := &boundedBuffer{ctx: ctx, limit: t.PNGByteLimit - overhead - 1}
-	z, err := zlib.NewWriterLevel(compressed, zlib.BestCompression)
+	// Fix the compression level independently of content and device budget.
+	// BestCompression's long match search on diffusion patterns can consume
+	// the processing deadline at the controller's 500m CPU limit. Default
+	// compression preserves every sample while bounding that extra search.
+	z, err := zlib.NewWriterLevel(compressed, zlib.DefaultCompression)
 	if err != nil {
 		return nil, err
 	}

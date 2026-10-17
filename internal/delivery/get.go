@@ -87,7 +87,7 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 	if err != nil {
 		return old, err
 	}
-	if old.ImageDigest != "" && old.InputRevision == revision && old.ScreenGeneration == s.Generation && time.Since(old.RenderedAt) < interval {
+	if old.ImageDigest != "" && old.Fresh(u, revision) && old.ScreenGeneration == s.Generation && time.Since(old.RenderedAt) < interval {
 		return old, nil
 	}
 	select {
