@@ -15,6 +15,11 @@ func (d *Decoded) Compatible(ctx context.Context, t Target) (bool, error) {
 	if d == nil || d.pixels == nil || d.width != t.Width || d.height != t.Height || d.size >= t.PNGByteLimit || d.animated || d.interlace != 0 || d.transparency {
 		return false, nil
 	}
+	// The temporary 2-bit mode also converts higher-depth input, rather than
+	// allowing passthrough to reach the affected native 4-bit firmware decoder.
+	if t.Palette == Gray4 && !Gray4Native4 && d.depth > 2 {
+		return false, nil
+	}
 	switch d.kind {
 	case 0:
 		switch t.Palette {
@@ -87,6 +92,11 @@ func (d *Decoded) gray4Usage(ctx context.Context) (blackWhite, exact bool, err e
 }
 
 func gray4Depth(blackWhite bool) byte {
+	if !Gray4Native4 {
+		// Accept the historical counting heuristic until the firmware migration;
+		// retain all four sample values instead of reducing the image to B/W.
+		return 2
+	}
 	// The reviewed firmware's png_draw_count stops at y > 430 and can select
 	// black/white updates even with gray pixels elsewhere. Scan the whole image
 	// and use 4-bit output whenever intermediate gray is present, regardless of

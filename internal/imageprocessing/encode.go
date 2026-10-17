@@ -13,7 +13,8 @@ var errOutputSize = errors.New("PNG exceeds exclusive output byte limit")
 
 // Encode writes canonical palette indices as a static, opaque PNG. It does not
 // resize, quantize, dither or copy source metadata. Gray4 indices 0/1/2/3 map
-// exactly to native samples 0/5/10/15 at depth 4, or 0/3 at depth 2 for black/white.
+// exactly to native samples 0/1/2/3 at depth 2. The gray4_native4 build flag uses
+// depth 4 samples 0/5/10/15 when intermediate gray is present.
 func Encode(ctx context.Context, indices []byte, t Target) ([]byte, error) {
 	return encode(ctx, indices, t, false)
 }

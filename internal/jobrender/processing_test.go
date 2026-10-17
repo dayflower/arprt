@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"hash/crc32"
+	stdpng "image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -62,8 +63,25 @@ func TestJobProcessingInputLimitAndRecovery(t *testing.T) {
 					t.Fatal(err)
 				}
 				out, err := r.Repository.Read(t.Context(), latest.ImageDigest)
-				if err != nil || !bytes.Equal(out, png(t)) || latest.AttemptID != st.Active.ID {
+				if err != nil || latest.AttemptID != st.Active.ID {
 					t.Fatal("Job normalization or recovery changed output", err)
+				}
+				want, err := stdpng.Decode(bytes.NewReader(png(t)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := stdpng.Decode(bytes.NewReader(out))
+				if err != nil || got.Bounds() != want.Bounds() {
+					t.Fatal("wrong normalized Job canvas", err)
+				}
+				for y := range got.Bounds().Dy() {
+					for x := range got.Bounds().Dx() {
+						r, g, b, a := got.At(x, y).RGBA()
+						wr, wg, wb, wa := want.At(x, y).RGBA()
+						if r != wr || g != wg || b != wb || a != wa {
+							t.Fatal("Job normalization changed exact gray pixels", x, y)
+						}
+					}
 				}
 			}
 		})

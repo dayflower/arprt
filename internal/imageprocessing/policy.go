@@ -21,7 +21,6 @@ const (
 	// Bump these when processing, encoding or canonical colors change. These
 	// identities are internal and must not enter renderer context v1.
 	ProcessingVersion = "normalize-v1"
-	EncoderVersion    = "png-v2"
 	PaletteVersion    = "palette-v1"
 )
 

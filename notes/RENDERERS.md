@@ -38,8 +38,10 @@ See [Device profiles and overrides](OPERATIONS.md#display-overrides); all source
 types receive the same effective renderer target. Model/firmware and value
 provenance do not fragment equivalent GET capabilities.
 Compatible PNGs retain their original bytes and renderer-authored dithering.
-Existing examples keep their OG scope; their 2-bit intermediate gray output is
-converted exactly to native 4-bit gray4 before delivery.
+The gray-bands and device-status examples and Picsum's gray4/bw modes keep their
+OG scope. Their two-bit intermediate-gray output passes through by default. The
+[`gray4_native4` build](DEVELOP.md#temporary-gray4-encoding-switch) converts it
+exactly to native four-bit gray4 before delivery.
 
 For a renderer returning an RGB PNG from an image library, configure the Screen:
 
@@ -95,7 +97,8 @@ kubectl -n arprt patch arprtdevice living-room --type=merge \
 
 GET/POST receive the `rotation` query parameter. POST and Job also receive
 `renderTarget.rotation` in Render Context; zero is omitted and should default to
-`0`. Renderers handle layout and rotation and always return an 800 × 480 PNG.
+`0`. Renderers handle layout and rotation using the physical target dimensions.
+The OG-only examples return 800 × 480 PNGs.
 The HTTP examples support all four rotations. The BusyBox Job example copies a
 fixed input PNG and does not rotate it; use a renderer that reads the setting
 when output must follow device rotation. A rotation change requires compatible
@@ -116,6 +119,59 @@ The endpoint is `/render`; the controller supplies the target query. Append
 `?encoding=indexed` to the screen URL to exercise indexed output. Non-target
 query values are preserved. Grayscale and indexed output have synthetic fixtures
 under [PNG fixtures](../testdata/png/README.md).
+
+## RGB and indexed Spectra example
+
+The [palette renderer](../examples/renderers/http/palette/renderer.py) supports
+GET, POST and a file-based CLI using only Python's standard library. Install
+[its Deployment and Screens](../examples/renderers/http/palette/renderer.yaml)
+with the [screen definitions](../examples/renderers/http/palette/screens.yaml):
+
+```sh
+kubectl -n arprt create configmap palette-renderer \
+  --from-file=renderer.py=examples/renderers/http/palette/renderer.py
+kubectl -n arprt apply --validate=strict -f examples/renderers/http/palette/renderer.yaml \
+  -f examples/renderers/http/palette/screens.yaml
+```
+
+`palette-rgb` returns a small RGB gradient with off-palette samples and a different
+aspect ratio. The controller applies the Screen's contain/stretch and dithering
+policy to the effective target. `palette-spectra` returns target-sized indexed
+four-bit bands, including renderer-owned clockwise rotation, with this exact PLTE:
+
+| Index | Color | RGB |
+| --- | --- | --- |
+| 0 | Black | `(0, 0, 0)` |
+| 1 | White | `(255, 255, 255)` |
+| 2 | Yellow | `(255, 243, 56)` |
+| 3 | Red | `(191, 0, 0)` |
+| 4 | Blue | `(100, 64, 255)` |
+| 5 | Green | `(67, 138, 28)` |
+
+Assign the indexed Screen only to a resolved Spectra target. Compatible indexed
+Spectra at depths 1/2/4/8 preserves bytes and renderer-authored dithering regardless
+of the controller's selected dithering. Subsets and arbitrary entry order work;
+every declared entry, including unused entries, must exactly match the table.
+All pixels must reference declared entries. Output must also be opaque, static,
+noninterlaced, match the physical dimensions and fit the exclusive device budget.
+Nearby colors, animation/transparency, incompatible dimensions or an unused
+off-palette entry require normalization. See the complete
+[PNG contract](PROTOCOL.md#png-contract).
+
+For standalone files, including a Job renderer's mounted Context/output paths:
+
+```sh
+python3 examples/renderers/http/palette/renderer.py \
+  --context testdata/render-context/render-context-spectra6.json \
+  --output /tmp/spectra.png --encoding indexed
+python3 examples/renderers/http/palette/renderer.py \
+  --context testdata/render-context/render-context-gray16.json --output /tmp/rgb.png
+```
+
+The CLI honors the target and rotation from Context; RGB deliberately leaves
+resizing/quantization to the controller. For a deployed Job, bake this script
+into a renderer image and pass `--context`/`--output` explicitly using the
+[Job container contract](#job-example-and-container-requirements).
 
 ## HTTP POST example
 
@@ -192,16 +248,18 @@ and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
 ## Picsum photo Job example
 
-The [Picsum renderer](../examples/renderers/job/picsum/renderer.py) downloads a random photo
-from [Lorem Picsum](https://picsum.photos/) every 10 minutes and converts it to
-the accepted gray4 PNG format. It supports all four rotations and uses
-Floyd-Steinberg dithering, falling back to undithered quantization if needed to
-fit the PNG size limit. A failed download or conversion leaves compatible prior
-output available through the controller's usual fallback behavior.
+The [Picsum renderer](../examples/renderers/job/picsum/renderer.py) downloads a
+random photo from [Lorem Picsum](https://picsum.photos/). Both example Screens
+refresh every 10 minutes and support all four rotations. The OG mode converts
+to gray4 with Floyd-Steinberg dithering, falling back to undithered quantization
+if needed to fit the PNG size limit. RGB mode delegates palette conversion to
+the controller for E1002 color photographs. A failed download or conversion
+leaves compatible prior output available through the controller's usual
+fallback behavior.
 
-The renderer's `--palette` argument selects photo shades: `gray4` (the default)
-or `bw` (black and white with dithering). To select black and white in the Screen
-resource, set:
+The renderer's `--palette` argument selects `gray4` (the default), `bw` (black
+and white with dithering), or `rgb` (full-color input for controller
+normalization). To select black and white in the OG Screen resource, set:
 
 ```yaml
 spec:
@@ -218,7 +276,22 @@ black-and-white refresh for two-color images, but actual refresh behavior depend
 on its display state. This option does not guarantee a partial update on every
 delivery.
 
-The [screen](../examples/renderers/job/picsum/screen.yaml) enables timestamp, battery and
+For E1002, use the
+[Spectra 6 Screen](../examples/renderers/job/picsum/screen-spectra6.yaml), which
+selects `args: ["--palette", "rgb"]`. RGB mode accepts an 800 × 480 target with
+semantic palette `gray4` or `spectra6`, preserves photograph colors, and returns
+an opaque eight-bit RGB PNG. It intentionally does not support other profile
+dimensions. The target palette remains `spectra6`; `rgb` is a renderer CLI
+option, not a Device palette. The controller applies the Screen's configured
+dithering (Atkinson by default), converts to the six canonical colors, and adds
+overlays. It enforces the Device's final PNG budget; the RGB source itself can
+exceed that budget within the general input limits. Set the explicit 90000-byte
+override when required by the installed firmware, as described in
+[OPERATIONS](OPERATIONS.md#display-overrides). If a detailed photograph cannot
+fit, the controller preserves compatible previous output rather than changing
+the requested dithering or content to fit.
+
+The [OG Screen](../examples/renderers/job/picsum/screen.yaml) and Spectra 6 Screen enable timestamp, battery and
 Wi-Fi overlays with clockwise corner cycling: top-right, bottom-right,
 bottom-left, top-left. Corners advance on new deliveries, independently of photo
 generation. The timestamp is the photo's generation time; battery/Wi-Fi use
@@ -246,6 +319,15 @@ kubectl -n arprt patch arprtdevice living-room --type=merge \
   -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum"}}}'
 ```
 
+For E1002, set the renderer image in `screen-spectra6.yaml` to the same newly
+built image, then use:
+
+```sh
+kubectl -n arprt apply --validate=strict -f examples/renderers/job/picsum/screen-spectra6.yaml
+kubectl -n arprt patch arprtdevice e1002 --type=merge \
+  -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum-spectra6"}}}'
+```
+
 For standalone rendering, install the pinned
 [Python dependency](../examples/renderers/job/picsum/requirements.txt) in a virtual
 environment, then use the shared Context fixture:
@@ -255,6 +337,9 @@ python3 -m venv /tmp/arprt-picsum-venv
 /tmp/arprt-picsum-venv/bin/pip install -r examples/renderers/job/picsum/requirements.txt
 /tmp/arprt-picsum-venv/bin/python examples/renderers/job/picsum/renderer.py \
   --context testdata/render-context/render-context-v1.json --output /tmp/picsum.png
+/tmp/arprt-picsum-venv/bin/python examples/renderers/job/picsum/renderer.py \
+  --context testdata/render-context/render-context-spectra6.json \
+  --palette rgb --output /tmp/picsum-rgb.png
 ```
 
 Append `--input /path/to/photo.jpg` to render a local image without network

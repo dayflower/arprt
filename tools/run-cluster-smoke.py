@@ -9,7 +9,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 # Start the longest suite first. Every suite finishes its own cleanup on failure.
-SUITES = ['job-smoke.py', 'cluster-smoke.py', 'playlist-smoke.py', 'operations-smoke.py']
+SUITES = ['job-smoke.py', 'cluster-smoke.py', 'playlist-smoke.py', 'operations-smoke.py', 'image-smoke.py']
 
 
 def execute(suite, image, helm, packages):

@@ -1,0 +1,22 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtScreen
+metadata:
+  name: palette-rgb
+  namespace: arprt
+spec:
+  source:
+    http:
+      url: http://palette-renderer:8000/render
+  imageProcessing:
+    resizeMode: contain
+    dithering: atkinson
+---
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtScreen
+metadata:
+  name: palette-spectra
+  namespace: arprt
+spec:
+  source:
+    http:
+      url: http://palette-renderer:8000/render?encoding=indexed

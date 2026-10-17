@@ -230,14 +230,14 @@ Neither model spelling nor firmware version selects a distribution-specific
 budget. The independent 32 MiB complete-file ceiling still applies.
 Compatible opaque, static, noninterlaced renderer output retains its exact bytes:
 
-| Color type | Passthrough for gray4 |
-| --- | --- |
-| Grayscale (0), depth 1 | Preserve |
-| Grayscale (0), depth 2 | Preserve only when every pixel is black/white |
-| Grayscale (0), depth 4 | Preserve when all samples are 0/5/10/15 |
-| Indexed (3), depth 1 | Normalize |
-| Indexed (3), depth 2 | Preserve only with a compatible palette and black/white pixels |
-| Indexed (3), depth 4 or 8 | Preserve with a compatible palette |
+| Color type | Default gray4 passthrough | With `gray4_native4` build tag |
+| --- | --- | --- |
+| Grayscale (0), depth 1 | Preserve | Preserve |
+| Grayscale (0), depth 2 | Preserve all four shades | Preserve only when every pixel is black/white |
+| Grayscale (0), depth 4 | Normalize | Preserve when all samples are 0/5/10/15 |
+| Indexed (3), depth 1 | Normalize | Normalize |
+| Indexed (3), depth 2 | Preserve with a compatible palette | Preserve only with a compatible palette and black/white pixels |
+| Indexed (3), depth 4 or 8 | Normalize | Preserve with a compatible palette |
 
 Every declared PLTE entry, including unused entries, must be exactly RGB
 `(0,0,0)`, `(85,85,85)`, `(170,170,170)` or `(255,255,255)`; subsets and arbitrary
@@ -259,6 +259,9 @@ The Spectra 6 transmission/matching palette is black `(0,0,0)`, white
 green `(67,138,28)`. Pure red `(255,0,0)` requires conversion. These reference
 colors come from the pinned [EPF palette](https://github.com/jwchen119/EPF/blob/65a5f83f21be15ef4525f7ae3069a58b7187e4d2/epf/imaging.py#L21-L30).
 Generated gray16 uses native type 0/depth 4, including black/white-only content.
+An executable indexed example and all six RGB tuples are in the
+[renderer guide](RENDERERS.md#rgb-and-indexed-spectra-example).
+
 Generated Spectra 6 uses type 3/depth 4 with exactly these six PLTE entries in the
 listed order. New profile support is source reviewed and software tested;
 physical acceptance remains separate from the historical OG baseline.
@@ -274,12 +277,17 @@ disables dithering while retaining necessary conversion. Renderers own content
 rotation; the controller does not rotate it again. Numerical rules are in
 [DESIGN](DESIGN.md#numerical-processing-semantics).
 
-Generated gray4 is native grayscale type 0, depth 2 for globally black/white
-pixels and depth 4 otherwise. Legacy 2-bit intermediate grays map exactly from
-0/1/2/3 to 0/5/10/15 without re-dithering. Re-encoding omits source metadata.
+Generated gray4 temporarily defaults to native grayscale type 0, depth 2 for
+all four shades, accepting the historical firmware color-count heuristic. The
+`gray4_native4` build tag retains the intended depth selection: depth 2 for
+globally black/white pixels and depth 4 otherwise. Exact samples map between
+0/1/2/3 and 0/5/10/15 without re-dithering. Re-encoding omits source metadata.
 Native 4-bit assumes corrected firmware expansion; the historical OG / 1.8.17
-physical baseline does not validate this new encoding. New physical acceptance
-remains required; this change does not expand verified device support.
+physical baseline does not validate this encoding. See the
+[temporary build switch](DEVELOP.md#temporary-gray4-encoding-switch). The build
+modes have different encoder identities for freshness, replay and derived
+caches. New physical acceptance remains required; this switch does not expand
+verified device support.
 
 Processing has a 10-second bound after reception/collection, further bounded
 by enclosing contexts. The exclusive output limit applies to passthrough,

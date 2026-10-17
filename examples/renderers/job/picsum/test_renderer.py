@@ -17,10 +17,10 @@ import renderer
 
 
 class RendererTests(unittest.TestCase):
-    def context(self, rotation=0):
+    def context(self, rotation=0, palette="gray4"):
         return {
             "version": "v1",
-            "renderTarget": {"width": 800, "height": 480, "palette": "gray4", "rotation": rotation},
+            "renderTarget": {"width": 800, "height": 480, "palette": palette, "rotation": rotation},
             "device": {"name": "example", "battery": {"voltage": 3.91}},
         }
 
@@ -90,6 +90,47 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assert_png(output.read_bytes(), shades=(0, 255))
             self.assertFalse(output.with_suffix(".tmp").exists())
+
+    def test_rgb_preserves_color_and_clockwise_rotation_for_e1002(self):
+        photo = Image.new("RGB", (800, 480))
+        colors = ((255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0))
+        for color, bounds in zip(colors, ((0, 0, 400, 240), (400, 0, 800, 240),
+                                        (0, 240, 400, 480), (400, 240, 800, 480))):
+            photo.paste(color, bounds)
+        source = io.BytesIO()
+        photo.save(source, format="PNG")
+        order = {0: (0, 1, 2, 3), 90: (2, 0, 3, 1), 180: (3, 2, 1, 0), 270: (1, 3, 0, 2)}
+        for target_palette in ("gray4", "spectra6"):
+            for rotation, indices in order.items():
+                with self.subTest(palette=target_palette, rotation=rotation):
+                    png = renderer.render(self.context(rotation, target_palette), source.getvalue(), palette="rgb")
+                    self.assertEqual(struct.unpack(">IIBBBBB", png[16:29]), (800, 480, 8, 2, 0, 0, 0))
+                    with Image.open(io.BytesIO(png)) as image:
+                        self.assertEqual(tuple(image.getpixel(point) for point in (
+                            (100, 60), (700, 60), (100, 420), (700, 420),
+                        )), tuple(colors[i] for i in indices))
+
+    def test_rgb_cli_and_target_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            context, source, output = (root / name for name in ("context.json", "photo.png", "output.png"))
+            context.write_text(json.dumps(self.context(palette="spectra6")))
+            source.write_bytes(self.photo())
+            result = subprocess.run([
+                sys.executable, renderer.__file__, "--palette", "rgb",
+                "--context", str(context), "--input", str(source), "--output", str(output),
+            ], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_bytes()[24:26], bytes((8, 2)))
+            self.assertFalse(output.with_suffix(".tmp").exists())
+        for key, value in (("width", 480), ("height", 800), ("palette", "rgb"),
+                           ("palette", "gray16"), ("rotation", 45)):
+            with self.subTest(key=key, value=value), patch.object(renderer.urllib.request, "urlopen") as fetch:
+                context = self.context(palette="spectra6")
+                context["renderTarget"][key] = value
+                with self.assertRaises(ValueError):
+                    renderer.render(context, palette="rgb")
+                fetch.assert_not_called()
 
     def test_incompatible_targets_fail_before_download(self):
         for key, value in (("width", 480), ("height", 800), ("palette", "rgb"), ("rotation", 45), ("rotation", False)):

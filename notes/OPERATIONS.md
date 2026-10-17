@@ -8,6 +8,8 @@ defines device responses and image/context contracts.
 
 ## Image processing resources
 
+The [integrated acceptance checks](DEVELOP.md#integrated-image-acceptance) distinguish
+measured peak memory, deadline failures and physical observations.
 The controller chart defaults to a 512 MiB memory limit, 500m CPU limit and
 `GOMEMLIMIT=384MiB`. Renderer Jobs retain their independent 500m/256Mi defaults.
 One shared image lease covers HTTP reception, Job collection, normalization,
@@ -27,6 +29,18 @@ URLs retain their original immutable bytes. Legacy active Jobs become obsolete
 under the new processing revision and are cancelled before replacement; completed
 current attempts remain recoverable across restart. Physical acceptance of new
 profiles and corrected gray4 firmware remains a separate gate.
+
+OG firmware 1.8.17 showed corrupted grayscale with native four-bit output in
+[physical testing](DEVELOP.md#image-processing-physical-observations). Normal
+builds now temporarily generate two-bit gray4, preserving all four shades while
+accepting the historical color-count heuristic. The
+[`gray4_native4` build flag](DEVELOP.md#temporary-gray4-encoding-switch) retains
+four-bit intermediate-gray output for corrected-firmware acceptance. Confirm
+the startup encoder identity before restoring a Screen temporarily changed to
+[`--palette bw`](RENDERERS.md#picsum-photo-job-example) back to `--palette gray4`:
+`png-v3-gray4-2bit` is the default; `png-v3-gray4-native4` requires corrected
+firmware. Software checks do not establish physical four-bit acceptance.
+Issued URLs retain their original bytes across the mode change.
 
 ## Display overrides
 
@@ -64,6 +78,43 @@ rendering. A budget change invalidates fresh reuse/replay and retires incompatib
 Jobs before replacement; a final direct-read gate rejects obsolete delivery.
 Old issued URLs remain immutable and retrievable with current authentication.
 Operator overrides do not establish physical acceptance or expand verified support.
+
+## E1002 onboarding
+
+Register an `ArprtDevice` with its own named auth Secret and an explicit Screen
+before configuring the physical device. Add that Secret to the controller
+chart's `credentials.authSecrets`, using `create: true` for setup-generated keys.
+Omit hardware identity fields to learn the actual MAC during first setup; do not
+test this route with a synthetic setup request before pairing the real device.
+Confirm that the deployed controller and served CRDs include the E1002 profile
+and display overrides. Creating a Device on an older installation does not
+deploy the new image-processing implementation or establish image delivery.
+
+The shipping SenseCraft firmware uses its own provisioning flow. For arprt's
+TRMNL BYOS protocol, first install firmware specifically for reTerminal E1002
+using the [Seeed TRMNL instructions](https://wiki.seeedstudio.com/reterminal_e10xx_trmnl/).
+Record the exact firmware version/distribution; select the E1002 hardware target
+in the flasher. Firmware replacement changes the device's software and setup.
+
+With TRMNL firmware installed:
+
+1. Enter Wi-Fi provisioning. Seeed documents a five-second press of the E1002's
+   green button for Wi-Fi reconfiguration. Join the device's `TRMNL` Wi-Fi;
+   if the portal does not open automatically, visit `http://4.3.2.1`.
+2. Under **Advanced → Custom Server → Yes**, enter the full device base URL,
+   such as `https://byos.example.com/arprt/devices/arprt/e1002`, without a trailing
+   slash or `/api/setup`. Return to Wi-Fi, select a 2.4 GHz SSID and connect.
+   Firmware appends the API paths and receives its generated key from setup.
+   The [official BYOS connection guide](https://help.trmnl.com/en/articles/12263392-connect-your-device-to-terminus-byos)
+   describes these portal controls.
+
+Check `IdentityReady`, the actual reported model/firmware, effective target and
+authenticated image delivery after pairing. For the reviewed Seeed common
+distribution, apply the explicit 90000-byte override described above once the
+deployed API supports it. The Seeed guide describes monochrome TRMNL content;
+the software decoder probes and a six-color server image do not prove visible
+color acceptance for the firmware installed on the panel. Follow the
+[E1002 physical sessions](DEVELOP.md#e1002-acceptance-sessions) separately.
 
 ## Hardware identity
 

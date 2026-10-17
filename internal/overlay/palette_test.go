@@ -38,8 +38,8 @@ func paletteBase(t *testing.T, rt render.ResolvedTarget, reordered bool) []byte 
 		}
 		return b
 	}
-	// Gray4 intermediate shades require indexed depth 4 or 8. Repeated exact
-	// entries force Go's encoder to depth 4 without introducing new colors.
+	// Repeated exact entries force Go's encoder to depth 4 without introducing
+	// new colors. Normalize just as delivery does before overlay composition.
 	palette := make(color.Palette, max(16, len(colors)))
 	for i := range palette {
 		palette[i] = colors[0]
@@ -55,7 +55,11 @@ func paletteBase(t *testing.T, rt render.ResolvedTarget, reordered bool) []byte 
 	if err := png.Encode(&b, img); err != nil {
 		t.Fatal(err)
 	}
-	return b.Bytes()
+	normalized, err := imageprocessing.Normalize(t.Context(), b.Bytes(), it, imageprocessing.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return normalized
 }
 
 func checkPaletteComposite(t *testing.T, rt render.ResolvedTarget, base []byte, d Drawing) {
@@ -110,7 +114,11 @@ func checkPaletteComposite(t *testing.T, rt render.ResolvedTarget, base []byte, 
 	if black == 0 || white == 0 {
 		t.Fatal("missing ink/background")
 	}
-	if out[24] != 4 {
+	wantDepth := byte(4)
+	if rt.ImageTarget().Palette == imageprocessing.Gray4 && !imageprocessing.Gray4Native4 {
+		wantDepth = 2
+	}
+	if out[24] != wantDepth {
 		t.Fatal("wrong generated depth", out[24])
 	}
 	wantKind := byte(0)
@@ -183,7 +191,11 @@ func TestFinalGray4Depth(t *testing.T) {
 				t.Fatal(err)
 			}
 			out, err := ComposeResolved(t.Context(), base, rt, d)
-			if err != nil || out[24] != tt.want {
+			wantDepth := tt.want
+			if !imageprocessing.Gray4Native4 {
+				wantDepth = 2
+			}
+			if err != nil || out[24] != wantDepth {
 				t.Fatal("final depth", err)
 			}
 		})

@@ -58,7 +58,8 @@ class RepositoryTest(unittest.TestCase):
         return revision
 
     def message(self, revision):
-        return f'Physical-device-acceptance: {revision}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n'
+        return (f'Physical-device-acceptance: {revision}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n'
+                'Physical-device-og-firmware: synthetic fixed v9.0.0\nPhysical-device-e1002-firmware: synthetic v9.0.0\n')
 
     def full_tag(self, tag, revision):
         self.git('tag', '-a', tag, '-m', self.message(revision))
@@ -123,6 +124,24 @@ class PhysicalReuseTests(RepositoryTest):
         self.assertEqual(release.physical_scope('v1.0.0', head)['mode'], 'reuse')
         self.reuse_tag('v1.0.1', head)
         with redirect_stdout(io.StringIO()):
+            release.guard('v1.0.1')
+
+    def test_legacy_baseline_remains_readable_but_requires_new_full_acceptance(self):
+        message = self.message(self.base).replace(release.SCOPE, release.LEGACY_SCOPE)
+        message = '\n'.join(line for line in message.splitlines() if not line.startswith(release.FIRMWARE_FIELDS))
+        self.git('tag', '-a', 'v0.9.0', '-m', message)
+        scope = release.physical_scope('v0.9.0', self.base)
+        self.assertEqual(scope['mode'], 'full')
+        self.assertTrue(scope['scopeChanged'])
+        self.reuse_tag('v1.0.1', self.base, baseline='v0.9.0')
+        with self.assertRaisesRegex(ValueError, 'legacy scope'):
+            release.guard('v1.0.1')
+
+    def test_changed_firmware_tuple_rejects_baseline_reuse(self):
+        message = self.message(self.base).replace('synthetic fixed v9.0.0', 'synthetic fixed v9.0.1')
+        message += 'Physical-device-mode: reuse\nPhysical-device-baseline: v1.0.0\nPhysical-device-installation: passed\n'
+        self.git('tag', '-a', 'v1.0.1', '-m', message)
+        with self.assertRaisesRegex(ValueError, 'firmware/distribution'):
             release.guard('v1.0.1')
 
     def test_runtime_change_rejects_reuse(self):
@@ -202,7 +221,8 @@ class SmokeRunnerTests(unittest.TestCase):
             with lock:
                 active += 1
                 peak = max(peak, active)
-            barrier.wait(timeout=5)
+            if name in runner.SUITES[:2]:
+                barrier.wait(timeout=5)
             with lock:
                 active -= 1
                 completed.append(name)

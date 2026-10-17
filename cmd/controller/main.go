@@ -13,6 +13,7 @@ import (
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/jobrender"
 	"github.com/dayflower/arprt/internal/maintenance"
 	batchv1 "k8s.io/api/batch/v1"
@@ -164,6 +165,6 @@ func run() error {
 	}); err != nil {
 		return err
 	}
-	ctrl.Log.Info("Starting BYOS controller", "namespace", namespace, "setupEnabled", enableSetup, "jobScheduling", jobConfig.PVC != "")
+	ctrl.Log.Info("Starting BYOS controller", "namespace", namespace, "setupEnabled", enableSetup, "jobScheduling", jobConfig.PVC != "", "imageEncoder", imageprocessing.EncoderVersion)
 	return mgr.Start(ctrl.SetupSignalHandler())
 }

@@ -120,7 +120,7 @@ func TestLegacyKeysAndStaleFallback(t *testing.T) {
 	}
 }
 
-func TestIncompatibleLegacyBytesRemainIssuedAndRetained(t *testing.T) {
+func TestLegacyBytesRemainIssuedAndRetained(t *testing.T) {
 	u := modernUnit(imageprocessing.Gray4, 800, 480, 90000)
 	legacy := u
 	legacy.Output = render.OutputConstraints{}
@@ -140,8 +140,8 @@ func TestIncompatibleLegacyBytesRemainIssuedAndRetained(t *testing.T) {
 	if err := repo.Issue(t.Context(), "device", old.ImageDigest, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Latest(t.Context(), u); !errors.Is(err, ErrNotFound) {
-		t.Fatal("legacy intermediate grays acquired current compatibility", err)
+	if _, err := repo.Latest(t.Context(), u); imageprocessing.Gray4Native4 && !errors.Is(err, ErrNotFound) || !imageprocessing.Gray4Native4 && err != nil {
+		t.Fatal("legacy intermediate gray compatibility disagrees with build mode", err)
 	}
 	if seq, err := repo.Sequence(t.Context(), u); err != nil || seq != 11 {
 		t.Fatal("incompatible old success lost ordering", seq, err)

@@ -41,6 +41,9 @@ func TestPassthroughDepthTable(t *testing.T) {
 					} else {
 						want = palette == Spectra6 || depth != 1
 					}
+					if palette == Gray4 && !Gray4Native4 && depth > 2 {
+						want = false
+					}
 					got, err := d.Compatible(context.Background(), Target{3, 2, palette, 90000})
 					if err != nil || got != want {
 						t.Fatalf("compatible=%v, %v; want %v", got, err, want)
@@ -67,7 +70,7 @@ func TestWholeImageGray4(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ok, err := d.Compatible(context.Background(), Target{2, 1, Gray4, 90000}); err != nil || ok {
+		if ok, err := d.Compatible(context.Background(), Target{2, 1, Gray4, 90000}); err != nil || ok == Gray4Native4 {
 			t.Fatalf("two intermediate grays: %v, %v", ok, err)
 		}
 	}
@@ -95,7 +98,8 @@ func TestWholeImageGray4(t *testing.T) {
 							t.Fatal(err)
 						}
 						ok, err := d.Compatible(context.Background(), Target{800, 480, Gray4, 90000})
-						if err != nil || ok != (depth == 4) {
+						want := depth == 2 && !Gray4Native4 || depth == 4 && Gray4Native4
+						if err != nil || ok != want {
 							t.Fatalf("compatible=%v, %v", ok, err)
 						}
 					})
@@ -135,7 +139,8 @@ func TestIndexedPaletteMembership(t *testing.T) {
 					t.Fatal(err)
 				}
 				ok, err := d.Compatible(context.Background(), Target{3, 2, p, 90000})
-				if err != nil || ok != (name != "unused-off-palette") {
+				want := name != "unused-off-palette" && (p != Gray4 || Gray4Native4)
+				if err != nil || ok != want {
 					t.Fatalf("compatible=%v, %v", ok, err)
 				}
 			})
@@ -214,7 +219,7 @@ func TestIgnoredColorMetadata(t *testing.T) {
 				}
 			}
 			ok, err := d.Compatible(context.Background(), Target{3, 2, Gray4, 90000})
-			if err != nil || ok == animated {
+			if err != nil || ok != (!animated && Gray4Native4) {
 				t.Fatalf("%s metadata compatibility: %v, %v", metadata.kind, ok, err)
 			}
 		}
@@ -231,8 +236,8 @@ func TestLegacyGray4Fixtures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ok, err := d.Compatible(context.Background(), Target{800, 480, Gray4, 90000}); err != nil || ok {
-			t.Fatalf("legacy intermediate gray requires conversion: %v, %v", ok, err)
+		if ok, err := d.Compatible(context.Background(), Target{800, 480, Gray4, 90000}); err != nil || ok == Gray4Native4 {
+			t.Fatalf("legacy intermediate gray compatibility: %v, %v", ok, err)
 		}
 	}
 }

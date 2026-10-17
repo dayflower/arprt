@@ -172,7 +172,11 @@ assembling dependencies after schema changes.
 build outputs. Package generation, output locations and distribution checks are
 documented in [DEVELOP](../../notes/DEVELOP.md#helm-chart-checks).
 `make chart-check` checks both charts and package contents;
-`make helm-smoke` checks the full cluster lifecycle and all four software smoke
+`make helm-smoke` checks the full cluster lifecycle and all five software smoke
 suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
 for client selection and the validation boundary. OCI publication and anonymous
 acceptance from published charts remain a separate distribution milestone.
+
+Image-processing resource acceptance uses the actual default controller limits;
+see [integrated image acceptance](../../notes/DEVELOP.md#integrated-image-acceptance)
+for native benchmark records, kernel peak/OOM checks and physical-support gates.

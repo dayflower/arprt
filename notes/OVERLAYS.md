@@ -284,14 +284,15 @@ Validate the normalized base and the final composite against the same resolved
 target before publication/issuance. Preserve base pixels outside the overlay,
 physical dimensions, rotation compatibility and semantic palette. Active OG
 delivery uses the [PNG contract](PROTOCOL.md#png-contract), including generated
-2/4-bit gray4 depth selection. Legacy appearance/encoding records stay readable.
+the temporary gray4 encoding switch. Legacy appearance/encoding records stay readable.
 
 The internal resolved-target compositing path supports gray4, gray16 and
 Spectra 6 within the shared output dimension/allocation bounds. It maps exact
 palette colors, including reordered/subset indexed palettes, without resampling,
-quantization or dithering. The shared encoder chooses gray4 depth from the whole
-final image: 2-bit for black/white only, otherwise 4-bit. Drawing over the last
-intermediate gray may therefore change the depth. Gray16 uses 4-bit grayscale;
+quantization or dithering. The shared encoder defaults to 2-bit gray4. With the
+`gray4_native4` build tag, it chooses depth from the whole final image: 2-bit for
+black/white only, otherwise 4-bit. Drawing over the last intermediate gray may
+then change the depth. Gray16 uses 4-bit grayscale;
 Spectra 6 uses 4-bit indexed output with the six canonical transmission colors.
 All untouched pixel colors remain exact; source PNG metadata is not copied.
 

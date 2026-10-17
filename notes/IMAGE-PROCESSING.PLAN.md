@@ -11,9 +11,20 @@ The initial planning review was static. The Phase 0 investigation now has
 [durable design decisions](DESIGN.md#image-processing-design-before-integration)
 and [reproducible probes](../tools/image-investigation/README.md) covering pinned
 firmware callbacks, the Go decoder, numerical processing, cancellation and
-resource feasibility. Runtime integration is active through Phase 5; deployment
-resource evidence and physical acceptance remain Phase 6 gates. The existing
-verified support baseline is unchanged.
+resource feasibility. Runtime integration is active through Phase 5. Phase 6
+software acceptance uses
+the expanded [five-suite matrix](DEVELOP.md#integrated-image-acceptance) and
+deployment-sized benchmarks; native architecture results and physical acceptance
+remain explicit completion gates. The existing verified support baseline is
+unchanged.
+
+Temporary acceptance decision: keep both gray4 encoding paths behind the
+[`gray4_native4` build switch](DEVELOP.md#temporary-gray4-encoding-switch), with
+two-bit output as the default until corrected OG firmware is accepted. The
+four-bit requirements below describe the opt-in path during this transition;
+the default explicitly accepts the historical two-bit counting heuristic.
+Runtime normalization, compatibility, overlays and cache identities follow the
+selected build. This exception does not complete physical acceptance.
 
 arprt is independent and unofficial; it is not affiliated with or endorsed by
 TRMNL. Keep source-reviewed compatibility separate from physical acceptance.
@@ -313,7 +324,17 @@ remove `IMAGE-PROCESSING.md`. Remove this plan when completed rather than retain
 it as a task log; Git history preserves the implementation sequence.
 
 Renderer integration, Screen processing settings, the Device display API and
-reviewed model profiles are active. Remaining work belongs to Phase 6 acceptance
-and documentation integration.
+reviewed model profiles are active. Phase 6 acceptance tooling, executable
+RGB/indexed Spectra examples and owning
+documentation are integrated. Completion still requires candidate-specific native
+resource results and OG/E1002 physical observations.
+Initial E1002 six-color delivery, repeated polling and restart observations are
+[recorded in DEVELOP](DEVELOP.md#image-processing-physical-observations). OG /
+1.8.17 failed the new native four-bit grayscale test and was recovered using
+explicit black/white renderer output; this does not satisfy gray4 acceptance.
+The subsequent temporary two-bit candidate restored four-shade photographs and
+readable overlays on OG / 1.8.17, confirmed by the observer and actual issued
+two-bit PNG. Native four-bit acceptance remains deferred to corrected firmware;
+the recovery does not complete the remaining physical sessions.
 Retain cancellation, admission, migration and corrected-firmware assumptions;
 full native-architecture/resource and physical acceptance remain Phase 6 gates.
