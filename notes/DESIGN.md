@@ -420,13 +420,42 @@ The host harness compares full-resolution output, not just decoder return codes:
 
 Generated gray4 must inspect every final pixel, use native type 0 / 2-bit only
 for black/white, and use type 0 / 4-bit otherwise, without re-dithering exact
-gray4 samples. The English rationale beside that future encoding decision must
-link to the pinned callback above. Row 430 is firmware evidence, never a
+gray4 samples. The English rationale beside the shared encoding decision
+links to the pinned callback above. Row 430 is firmware evidence, never a
 controller scan limit. Native 4-bit assumes corrected expansion: v1.8.17's
 existing physical baseline cannot validate it. New OG acceptance must record
 the actual corrected firmware revision and user visual observations; do not
 introduce a runtime firmware gate or an indexed workaround. E1002 also needs
 physical acceptance. E1001/E1003/E1004 remain source reviewed only.
+
+### Shared PNG foundations
+
+[`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
+transport-independent image primitives. These foundations are not yet wired
+into HTTP/Job delivery, artifact validation or overlays; the active
+[PNG contract](PROTOCOL.md#png-contract) and public API remain unchanged.
+
+`Decode` validates the complete bounded file, independently checks IDAT's exact
+inflated scanline length and compressed-stream end, and then decodes its default
+image once. IDAT is streamed directly from the validated consecutive chunk
+region, avoiding both a compressed copy and a per-chunk span allocation. The
+length check inflates into bounded scratch space, not a retained pixel canvas.
+The resulting `Decoded` holds read-only pixels and encoding metadata, without
+retaining the source buffer. `Compatible` determines whether callers may retain
+the original bytes; conversion-required inputs remain valid. It implements the
+agreed depth table, checks every declared PLTE entry, and reuses decoded pixels
+for whole-image gray4 checks. Alpha encodings and tRNS declarations require
+normalization, as do APNG and Adam7.
+
+`Palette.Colors` supplies private copies of the canonical gray4, gray16 and
+Spectra 6 colors. `Encode` accepts indices in this order and emits deterministic
+packed rows with exact samples, no source metadata, and an exclusive output-byte
+budget. Gray4 selects depth after inspecting all final indices; gray16 and
+Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
+4096 per axis and 4194304 pixels independently of input limits, and contains
+only effective dimensions, palette and byte budget. Model resolution, rotation,
+normalization policy, admission and persistence identity remain with their
+owning integration phases.
 
 ### Complete-file validation and cancellation
 
