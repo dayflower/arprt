@@ -24,6 +24,21 @@ spec.loader.exec_module(smoke)
 kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
 
 
+def job_output_ready(namespace):
+    """Wait for publication, which can lag the Kubernetes Job completion."""
+    jobs = json.loads(kubectl('-n', namespace, 'get', 'jobs', '-o', 'json').stdout)['items']
+    complete = any(any(c['type'] == 'Complete' and c['status'] == 'True'
+                       for c in job.get('status', {}).get('conditions', [])) for job in jobs)
+    if not complete:
+        return False
+    screen = json.loads(kubectl('-n', namespace, 'get', 'arprtscreen', 'c-job', '-o', 'json').stdout)
+    # ImageReady is reported only after PNG validation, durable publication and
+    # scheduler bookkeeping. Restarting on Job Complete alone races collection.
+    return any(c['type'] == 'Ready' and c['status'] == 'True' and c.get('reason') == 'ImageReady'
+               and c.get('observedGeneration') == screen['metadata']['generation']
+               for c in screen.get('status', {}).get('conditions', []))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
@@ -109,10 +124,11 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
             def turn(base, name):
                 nonlocal last_turn, corner_index
                 response = display(base)
-                if response['status'] != 0 or device()['status']['screenCycle']['screenUID'] != uids[name]:
-                    raise RuntimeError('wrong screen-cycle turn: ' + name)
+                committed = device().get('status', {}).get('screenCycle', {})
+                if response['status'] != 0 or committed.get('screenUID') != uids[name]:
+                    actual = next((name for name, uid in uids.items() if uid == committed.get('screenUID')), 'none')
+                    raise RuntimeError(f"wrong screen-cycle turn: expected {name}, status {response['status']}, committed {actual}")
                 image_path = response['image_url'].removeprefix('https://byos.example.test')
-                committed = device()['status']['screenCycle']
                 if committed != last_turn:
                     corner = overlay_checks.CORNERS[corner_index % 4]
                     overlay_checks.assert_overlay(base64.b64decode(image), fetch(base,image_path), corner, margin_horizontal=12, margin_vertical=4)
@@ -131,11 +147,10 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
             with forwarded(namespace,8080,directory) as base:
                 token = json.loads(fetch(base,path+'/api/setup'))['api_key']
                 first = turn(base,'b-post')
-                # Job preparation must happen before c-job is ever selected.
-                def job_ready():
-                    jobs = json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']
-                    return bool(jobs) and any(any(c['type']=='Complete' and c['status']=='True' for c in j.get('status',{}).get('conditions',[])) for j in jobs)
-                wait(job_ready,120)
+                # Pre-rendering must publish before c-job is ever selected or
+                # restart interrupts collection. Do not poll display to wait:
+                # successful polls would advance the shared corner/cycle state.
+                wait(lambda: job_output_ready(namespace), 120)
             kubectl('-n',namespace,'rollout','restart','deployment/arprt-arprt')
             kubectl('-n',namespace,'rollout','status','deployment/arprt-arprt','--timeout=180s')
             with forwarded(namespace,8080,directory) as base:

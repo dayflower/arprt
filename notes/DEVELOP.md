@@ -357,7 +357,10 @@ Job checks add actual containers, token absence, same-node mounts, paths,
 immutable snapshots, rotation changes, interval refresh, recovery, failures and
 obsolete work, plus current overlay telemetry versus immutable Job snapshots.
 Playlist checks add mixed-source order, preparation before selection, retry/restart
-and membership edits, shared corner cycling and unchanged replay bytes. Operations checks add corruption, capacity pressure,
+and membership edits, shared corner cycling and unchanged replay bytes. Before
+restart, pre-render checks wait for the current Screen's published `ImageReady`
+condition as well as Job completion; Job completion alone can precede output
+collection and durable publication. Operations checks add corruption, capacity pressure,
 redaction, composite/base separation, old composite URL retention, HTTP-only GC and installation of the supplied examples.
 These scripts do not configure public ingress or a physical device.
 
