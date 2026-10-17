@@ -32,12 +32,17 @@ var (
 type selectedDelivery struct {
 	screen        *api.ArprtScreen
 	target        render.Target
+	output        render.OutputConstraints
 	revision      string
 	fingerprint   string
 	cycling       bool
 	replay        *api.ScreenCycleStatus
 	reporting     renderReporting
 	compatibility string
+}
+
+func (s selectedDelivery) resolvedTarget() render.ResolvedTarget {
+	return render.ResolvedTarget{Target: s.target, Output: s.output}
 }
 
 type deliveryImage struct {
@@ -70,7 +75,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		return
 	}
 	if observed.targetErr != nil {
-		s.outcome(ctx, d, observed.seen, deliveryOutcome{assignment: assignmentUnexamined, reason: "UnknownCapabilities", message: "No verified render target"})
+		s.outcome(ctx, d, observed.seen, deliveryOutcome{assignment: assignmentUnexamined, reason: "UnknownCapabilities", message: "No resolved render target"})
 		reply(w, 200, 202)
 		return
 	}
@@ -105,7 +110,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 	defer release()
 	var proposed *api.ScreenCycleStatus
 	if image.metadata.ImageDigest != "" && selected.cycling && selected.replay == nil {
-		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.DisplayStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.CycleTargetStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 		if image.advanceCorner {
 			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
 			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
@@ -163,7 +168,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
 }
 
-func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, target render.Target) (selectedDelivery, error) {
+func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolved render.ResolvedTarget) (selectedDelivery, error) {
 	eligible, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, d)
 	if err != nil {
 		return selectedDelivery{}, err
@@ -177,7 +182,7 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, target 
 	if err != nil {
 		return selectedDelivery{}, err
 	}
-	compatibility, err := render.CurrentTarget(target).Fingerprint(policy)
+	compatibility, err := resolved.Fingerprint(policy)
 	if err != nil {
 		return selectedDelivery{}, err
 	}
@@ -190,7 +195,7 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, target 
 	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
 		return selectedDelivery{}, errUnsupportedScreen
 	}
-	selected := selectedDelivery{compatibility: compatibility, screen: assigned, target: target, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
+	selected := selectedDelivery{compatibility: compatibility, screen: assigned, target: resolved.Target, output: resolved.Output, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
 	if assigned.Spec.Source.Job != nil {
 		selected.reporting = reportJob
 	}
@@ -218,7 +223,7 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 		// Polling only reads completed output. Scheduling belongs to reconciliation.
 		renderErr = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 			var err error
-			m, err = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target, Output: render.CurrentTarget(target).Output})
+			m, err = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target, Output: selected.output})
 			return err
 		})
 		if errors.Is(renderErr, artifact.ErrNotFound) {
@@ -242,7 +247,7 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 			m, renderErr = s.POST.Image(ctx, assigned, d, snapshot)
 		}
 	} else {
-		m, renderErr = s.GET.Image(ctx, assigned, target)
+		m, renderErr = s.GET.Image(ctx, assigned, selected.resolvedTarget())
 	}
 	return deliveryImage{metadata: m, renderErr: renderErr}, nil
 }
@@ -250,12 +255,12 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 // validateIssuance is the final authorization barrier for fresh, stale and
 // replayed output. Publication gates in delivery do not replace these reads.
 func (s *Server) validateIssuance(ctx context.Context, d *api.ArprtDevice, selected selectedDelivery, token string) error {
-	assigned, target := selected.screen, selected.target
+	assigned := selected.screen
 	// Recheck identity, assignment, definition and target after the asynchronous
 	// network call. Never issue an image selected for a superseded assignment.
 	var current api.ArprtDevice
 	var currentScreen api.ArprtScreen
-	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || current.Status.Display == nil || devicestate.Target(&current) != target {
+	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || devicestate.Resolved(&current) != selected.resolvedTarget() {
 		return errDisplayPending
 	}
 	if s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen) != nil || currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {

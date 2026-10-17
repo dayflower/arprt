@@ -364,6 +364,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 		return reason(job.Status.Conditions, controller.ConditionReady) == "JobSchedulingDisabled"
 	})
+	verifyDisplayAPI(t, c)
 	verifyOverlayAPI(t, c)
 	verifyOverlayDelivery(t, c)
 	verifyPlaylistAPI(t, c)

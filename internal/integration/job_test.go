@@ -106,6 +106,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 	if err = c.List(ctx, &jobs, client.InNamespace(d.Namespace)); err != nil || len(jobs.Items) != 0 {
 		t.Fatal("rendered without target", err)
 	}
+	d.Status.Device = &api.DeviceInfoStatus{Model: "og"}
 	d.Status.Display = &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}
 	if err = c.Status().Update(ctx, d); err != nil {
 		t.Fatal(err)

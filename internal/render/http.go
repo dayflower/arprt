@@ -73,7 +73,7 @@ func (h HTTPPOST) Execute(ctx context.Context, input Request) (Output, error) {
 func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, method string, input Request, body []byte) (output Output, resultErr error) {
 	started := time.Now()
 	defer func() { observe.Render(method, started, resultErr) }()
-	if err := CurrentTarget(input.Target).Validate(); err != nil {
+	if err := input.ResolvedTarget().Validate(); err != nil {
 		return Output{}, err
 	}
 	raw, err := TargetURL(rawURL, input.Target)
@@ -115,7 +115,7 @@ func executeHTTP(ctx context.Context, rawURL string, supplied *http.Client, meth
 		return Output{}, errors.New("renderer image read failed")
 	}
 	renderedAt := time.Now().UTC()
-	normalized, err := ProcessPNG(ctx, b, CurrentTarget(input.Target), input.Policy)
+	normalized, err := ProcessPNG(ctx, b, input.ResolvedTarget(), input.Policy)
 	if err != nil {
 		return Output{}, err
 	}

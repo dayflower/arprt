@@ -89,8 +89,9 @@ func (t ResolvedTarget) Fingerprint(policy imageprocessing.Policy) (string, erro
 	return hex.EncodeToString(h[:]), nil
 }
 
-// CurrentTarget enables the normalization contract for the existing OG target.
-// Model profiles and Device overrides are introduced at their own API boundary.
+// CurrentTarget constructs the historical OG output contract for fixtures and
+// callers with an explicitly selected 90000-byte budget. Device resolution lives
+// in devicestate; production delivery always carries its resolved constraints.
 func CurrentTarget(t Target) ResolvedTarget {
 	return ResolvedTarget{Target: t, Output: OutputConstraints{PNGByteLimit: 90000, Compatibility: OutputCompatibilityVersion}}
 }

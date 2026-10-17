@@ -158,7 +158,7 @@ func TestCornerPersistenceAndFailClosedGC(t *testing.T) {
 	if err != nil || r.Current != overlay.TopRight {
 		t.Fatal(r, err)
 	}
-	proposal := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: base.Unit.ScreenUID, InputRevision: base.InputRevision, Target: api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: image.ImageDigest, Filename: image.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+	proposal := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: base.Unit.ScreenUID, InputRevision: base.InputRevision, Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: image.ImageDigest, Filename: image.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 	pending := CornerPending{Next: r.Current.Next(), Proposed: proposal}
 	if err := repo.PrepareCorner(ctx, r, pending); err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestDerivedEncodingMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proposed := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: u.ScreenUID, InputRevision: base.InputRevision, Target: api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: current.ImageDigest, Filename: current.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+	proposed := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: u.ScreenUID, InputRevision: base.InputRevision, Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: current.ImageDigest, Filename: current.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 	if err := repo.PrepareCorner(ctx, corner, CornerPending{Next: corner.Current.Next(), Proposed: proposed}); err != nil {
 		t.Fatal(err)
 	}

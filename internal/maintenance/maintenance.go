@@ -11,7 +11,6 @@ import (
 	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
-	"github.com/dayflower/arprt/internal/render"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,7 +74,8 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 				counts["recent"]++
 			}
 		}
-		if d.Status.Display == nil {
+		resolved := devicestate.Resolved(&d)
+		if resolved.Validate() != nil {
 			continue
 		}
 		eligible, err := (assignment.Explicit{Reader: m.Reader}).Eligible(ctx, &d)
@@ -83,12 +83,12 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 			return err
 		}
 		for _, s := range eligible.Screens {
-			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: devicestate.Target(&d)}
+			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: resolved.Target}
 			if s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST") {
 				u.DeviceUID = string(d.UID)
 			}
 			units[u] = true
-			u.Output = render.CurrentTarget(u.Target).Output
+			u.Output = resolved.Output
 			units[u] = true
 		}
 		// A replayed turn may still refer to an older successful revision.

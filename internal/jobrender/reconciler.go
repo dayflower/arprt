@@ -18,7 +18,6 @@ import (
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/maintenance"
 	"github.com/dayflower/arprt/internal/observe"
-	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -64,7 +63,7 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 		}
 		return nil, nil, nil, err
 	}
-	if !d.DeletionTimestamp.IsZero() || d.Status.Display == nil {
+	if !d.DeletionTimestamp.IsZero() {
 		return &d, nil, nil, nil
 	}
 	eligible, err := (assignment.Explicit{Reader: r.Reader}).Eligible(ctx, &d)
@@ -90,15 +89,15 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 	if s.Spec.Source.Job == nil || !s.DeletionTimestamp.IsZero() {
 		return &d, s, nil, nil
 	}
-	t := devicestate.Target(&d)
-	if t.Validate() != nil || t.Palette != "gray4" || t.Width != 800 || t.Height != 480 {
+	resolved := devicestate.Resolved(&d)
+	if resolved.Validate() != nil {
 		return &d, s, nil, nil
 	}
 	revision, err := screen.InputRevision(s.Spec)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return &d, s, &state{Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: t, Output: render.CurrentTarget(t).Output}, Revision: revision}, nil
+	return &d, s, &state{Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: resolved.Target, Output: resolved.Output}, Revision: revision}, nil
 }
 
 func same(a, b *state) bool {

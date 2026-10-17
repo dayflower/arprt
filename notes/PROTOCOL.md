@@ -28,7 +28,9 @@ BYOS examples:
 
 Source inspection, [synthetic fixtures](../testdata/protocol/README.md) and
 [physical acceptance](DEVELOP.md#recorded-acceptance-baseline) are distinct evidence.
-Other model/firmware tuples require explicit compatibility review.
+Additional pinned OG/reTerminal source reviews and their limits are recorded in
+[DESIGN](DESIGN.md#firmware-evidence-and-profiles); they do not establish new
+physical acceptance.
 
 ## Routes and authentication
 
@@ -83,13 +85,34 @@ or Render Context fields. OG / 1.8.17 sends neither flag.
 Unknown headers are ignored; invalid optional telemetry is omitted
 and reported by field name only. Never infer percentage from OG voltage.
 
-Only reviewed `og` / `1.8.17` resolves to `800 × 480 / gray4`. Firmware does not
-send a semantic palette. Missing observations may use known valid state for that
-identity; contradictory/invalid dimensions invalidate the target. A changed or
-partial changed model/firmware tuple cannot borrow the old tuple's missing half.
-An unresolved target invokes no renderer. Capabilities and telemetry are status,
-not desired device configuration. Other semantic palettes recognized by context
-types do not imply device support.
+The reviewed model profiles are active independently of firmware version; known
+models resolve with missing or unknown firmware. Literal model aliases, default
+dimensions, palettes and exclusive PNG limits are listed in
+[DESIGN](DESIGN.md#firmware-evidence-and-profiles). Model and firmware remain
+independent raw observations; omitting either retains its last observed value.
+Firmware sends no semantic palette.
+
+`ArprtDevice.spec.display` optionally overrides `width`/`height` as a pair,
+`palette` (`gray4`, `gray16`, `spectra6`) and positive `pngByteLimit`. Dimensions
+resolve from explicit pair, then a valid reported pair, then model defaults;
+palette and byte limit resolve from explicit value, then model defaults. Output
+allocation is bounded to 4096 per axis and 4,194,304 pixels. An invalid reported
+pair cannot supply dimensions but permits profile fallback. An unknown model
+needs explicit palette and byte limit, plus a valid explicit or reported pair;
+otherwise display is pending and invokes no renderer. Overrides are operator
+compatibility information, not physical verification.
+
+`status.device.reportedDisplay` retains each parsed positive int32 dimension,
+including incomplete or oversized pairs. Any dimension header replaces the
+whole pair from that request, including invalid/omitted values; absent dimension
+headers retain the last pair. Dimensions from separate requests are never mixed.
+`status.display` contains effective width, height, palette, `pngByteLimit` and
+`sources` (`dimensions`, `palette`, `pngByteLimit`), whose values are `explicit`,
+`reported` (dimensions only) or `profile`. Unresolved targets clear effective
+status but retain observations. Spec edits recompute from observations, including
+removal of overrides; legacy effective status never becomes reported evidence.
+Legacy context/status values `bw` and `bwry` remain readable without being
+relabelled as `spectra6` or becoming supported override values.
 
 ## Responses and polling
 
@@ -155,6 +178,10 @@ The [complete fixture](../testdata/render-context/render-context-v1.json) and
 [no-telemetry fixture](../testdata/render-context/render-context-no-telemetry.json) are
 serialization examples used by tests; the [fractional-percentage fixture](../testdata/render-context/render-context-fractional-percent.json)
 adds an explicitly measured decimal value while preserving the old fixtures.
+The [Spectra 6](../testdata/render-context/render-context-spectra6.json) and
+[gray16](../testdata/render-context/render-context-gray16.json) fixtures show
+reviewed targets without a firmware observation; output constraints and value
+provenance are excluded from context v1.
 
 | Field | Contract |
 | --- | --- |
@@ -175,9 +202,9 @@ are excluded. Target is separate from device context so rendering identity does
 not depend on telemetry or model when capabilities are equivalent. Rotation comes from
 `ArprtDevice.spec.rotation`, rather than observations. Zero rotation is omitted
 from JSON to preserve compatibility with existing contexts and artifact keys.
-Renderers apply clockwise content rotation themselves: for `90`/`270`, lay out
-content on a logical 480 × 800 canvas, then rotate into the required physical
-800 × 480 PNG. Width/height always describe the final PNG.
+Renderers apply clockwise content rotation themselves. For example, an
+800 × 480 target with `90`/`270` uses a logical 480 × 800 canvas, rotated into
+the required physical 800 × 480 PNG. Width/height always describe the final PNG.
 
 POST overlays current authenticated observations on valid known state without
 waiting for informer propagation. Job snapshots are copied at scheduling and
@@ -195,7 +222,12 @@ Input is at most **32 MiB**, **16,777,216 pixels** and **16,384 per axis**. CRCs
 chunk structure, exact inflated image length and trailing bytes are checked
 before publication. Invalid PNGs remain rendering failures.
 
-The active target remains OG 800 × 480 gray4 with **encoded bytes < 90,000**.
+The resolved target selects dimensions, palette and an exclusive output budget:
+OG defaults to **encoded bytes < 90,000**; E1001–E1004 default to
+**encoded bytes < 750,000**. Explicit `spec.display.pngByteLimit` overrides the
+budget; reviewed Seeed common E1001/E1002/E1003 firmware needs `90000`.
+Neither model spelling nor firmware version selects a distribution-specific
+budget. The independent 32 MiB complete-file ceiling still applies.
 Compatible opaque, static, noninterlaced renderer output retains its exact bytes:
 
 | Color type | Passthrough for gray4 |
@@ -212,6 +244,24 @@ Every declared PLTE entry, including unused entries, must be exactly RGB
 order are allowed. Alpha encodings, tRNS, interlace, animation, other formats,
 wrong dimensions or incompatible colors require normalization. Compatible
 renderer dithering is preserved regardless of Screen policy.
+
+For gray16, native grayscale depths 1, 2 and 4 pass through; indexed depth 1
+requires normalization, while depths 2, 4 and 8 pass through with an exact
+compatible palette. Gray16 palette entries are `(n,n,n)` for n = 0,17,…,255.
+For Spectra 6, indexed depths 1, 2, 4 and 8 pass through with an exact compatible
+palette; native grayscale and RGB require normalization. Every declared entry,
+including unused ones, must be in the target palette; subsets and arbitrary
+order are allowed for every indexed fast path. All fast paths require the exact
+resolved dimensions, opacity, static noninterlaced encoding and byte budget.
+
+The Spectra 6 transmission/matching palette is black `(0,0,0)`, white
+`(255,255,255)`, yellow `(255,243,56)`, red `(191,0,0)`, blue `(100,64,255)` and
+green `(67,138,28)`. Pure red `(255,0,0)` requires conversion. These reference
+colors come from the pinned [EPF palette](https://github.com/jwchen119/EPF/blob/65a5f83f21be15ef4525f7ae3069a58b7187e4d2/epf/imaging.py#L21-L30).
+Generated gray16 uses native type 0/depth 4, including black/white-only content.
+Generated Spectra 6 uses type 3/depth 4 with exactly these six PLTE entries in the
+listed order. New profile support is source reviewed and software tested;
+physical acceptance remains separate from the historical OG baseline.
 
 `ArprtScreen.spec.imageProcessing.resizeMode` selects `contain` (default) or
 `stretch`; `.dithering` selects `atkinson` (default), `floyd-steinberg`, `bayer` or

@@ -16,15 +16,54 @@ full PNG buffers. Slow sources/clients can therefore delay other image work.
 The transport and processing deadlines are defined in
 [PROTOCOL](PROTOCOL.md#png-contract): input up to 32 MiB, 16,777,216 pixels and
 16,384 per axis; processing up to 10 seconds bounded by enclosing contexts.
-The active OG output budget remains strictly below 90,000 bytes.
+Output uses the resolved Device budget (strictly below 90,000 bytes for OG,
+750,000 for E1001–E1004 defaults), independently of input limits. See
+[display overrides](#display-overrides) for distribution-specific settings.
 
 An invalid or oversized conversion preserves compatible prior output or pending.
 Policy changes invalidate fresh reuse and cycle replay, while an exact-target
 compatible prior-policy image may remain a stale fallback. Previously issued
 URLs retain their original immutable bytes. Legacy active Jobs become obsolete
 under the new processing revision and are cancelled before replacement; completed
-current attempts remain recoverable across restart. Device profiles/overrides
-and new physical acceptance are separate implementation boundaries.
+current attempts remain recoverable across restart. Physical acceptance of new
+profiles and corrected gray4 firmware remains a separate gate.
+
+## Display overrides
+
+Omitting `ArprtDevice.spec.display` selects the reviewed model defaults in
+[DESIGN](DESIGN.md#firmware-evidence-and-profiles), without a firmware-version
+allowlist. Set only the fields that differ for your installed hardware/firmware:
+
+```yaml
+spec:
+  display:
+    pngByteLimit: 90000
+```
+
+This exclusive limit is required for reviewed Seeed common E1001/E1002/E1003
+firmware; model spelling and firmware version do not identify that distribution.
+Palette-only, budget-only and resolution-only overrides are valid. Dimensions
+must be a complete positive pair within 4096 per axis and 4,194,304 pixels;
+palette is `gray4`, `gray16` or `spectra6`. For example, an unknown model with
+valid reported dimensions can use:
+
+```yaml
+spec:
+  display:
+    palette: spectra6
+    pngByteLimit: 750000
+```
+
+Without reported dimensions, also specify `width` and `height`. Unknown models
+never borrow an OG palette or byte budget. Inspect raw model, firmware and
+`status.device.reportedDisplay` alongside effective `status.display` and its
+`sources`. Removing an override recomputes from raw observations/profile defaults.
+Incomplete/unsafe reported dimensions remain visible but cannot supply a target.
+An unresolved target reports `TargetKnown=False` and stays pending without
+rendering. A budget change invalidates fresh reuse/replay and retires incompatible
+Jobs before replacement; a final direct-read gate rejects obsolete delivery.
+Old issued URLs remain immutable and retrievable with current authentication.
+Operator overrides do not establish physical acceptance or expand verified support.
 
 ## Hardware identity
 

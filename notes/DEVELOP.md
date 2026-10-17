@@ -48,6 +48,15 @@ The generated-file check compares against the Git index, so it also reports
 intended unstaged generated changes. Review those changes and check that another
 generation produces identical bytes; do not bypass unrelated failures.
 
+Device target resolution is owned by `internal/devicestate`; its tests cover
+reviewed aliases, firmware independence, override combinations, raw/effective
+separation and legacy status. HTTP/Job tests exercise every profile and budget
+change gates; envtest checks display admission and reconciliation after override
+removal or raw observation changes. Disposable-cluster smoke retains the OG
+regression scope; expanded profile/resource and physical acceptance belongs to
+the remaining acceptance work. Context v1 profile fixtures are under
+[testdata/render-context](../testdata/render-context/README.md).
+
 ## CRD chart generation and checks
 
 The [CRD chart](../charts/arprt-crds/README.md) is an application chart containing
@@ -348,7 +357,10 @@ Job checks add actual containers, token absence, same-node mounts, paths,
 immutable snapshots, rotation changes, interval refresh, recovery, failures and
 obsolete work, plus current overlay telemetry versus immutable Job snapshots.
 Playlist checks add mixed-source order, preparation before selection, retry/restart
-and membership edits, shared corner cycling and unchanged replay bytes. Operations checks add corruption, capacity pressure,
+and membership edits, shared corner cycling and unchanged replay bytes. Before
+restart, pre-render checks wait for the current Screen's published `ImageReady`
+condition as well as Job completion; Job completion alone can precede output
+collection and durable publication. Operations checks add corruption, capacity pressure,
 redaction, composite/base separation, old composite URL retention, HTTP-only GC and installation of the supplied examples.
 These scripts do not configure public ingress or a physical device.
 

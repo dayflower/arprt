@@ -335,10 +335,10 @@ checks are described in [DEVELOP](DEVELOP.md#helm-chart-checks).
 
 ## Image-processing design before integration
 
-This section records decisions for the proposed image-processing work, not
-current runtime behavior. The existing PNG, target and persistence contracts
-above remain active until their integration changes land. The requirements
-proposal is [IMAGE-PROCESSING](IMAGE-PROCESSING.md); reproducible experiments
+This section preserves the initial investigation decisions and their integrated
+implementation. PNG normalization, persistence, overlays, Screen processing
+settings and Device profiles/overrides are active; deployment resource and
+physical acceptance remain separate gates. The requirements baseline is [IMAGE-PROCESSING](IMAGE-PROCESSING.md); reproducible experiments
 live beside [image-investigation](../tools/image-investigation/README.md).
 arprt remains independent and unofficial, without affiliation or endorsement
 by TRMNL. Source review and host execution do not establish physical acceptance.
@@ -437,9 +437,9 @@ physical acceptance. E1001/E1003/E1004 remain source reviewed only.
 
 [`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
 transport-independent image primitives. HTTP GET/POST and Job collection now
-normalize inputs for the existing OG target. New artifact Units carry explicit
+normalize inputs for resolved Device targets. New artifact Units carry explicit
 output constraints; BYOS uses resolved palette-aware overlays. Device profiles
-and overrides remain a later boundary. Active input/output contracts belong to
+and overrides share one resolution contract in `internal/devicestate`. Active input/output contracts belong to
 [PROTOCOL](PROTOCOL.md#png-contract).
 
 `Decode` validates the complete bounded file, independently checks IDAT's exact
@@ -461,7 +461,7 @@ budget. Gray4 selects depth after inspecting all final indices; gray16 and
 Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
 4096 per axis and 4194304 pixels independently of input limits, and contains
 only effective dimensions, palette and byte budget. Device profile resolution
-remains with its owning integration phase.
+is owned by `internal/devicestate`, separate from renderer-facing context v1.
 
 ### Palette-aware overlay primitives
 
@@ -753,7 +753,14 @@ integrated memory test must include both before claiming the controller budget.
 
 ### API, internal targets and migration
 
-Keep `status.device.model` and `firmwareVersion` as observations. Add
+`internal/devicestate.Resolve` recomputes from spec and raw observations for
+BYOS, Device reconciliation, Job desired-state/publication, final issuance,
+assignment replay selection and maintenance. No gate trusts effective status as
+capability evidence. Device watches include raw capability changes; telemetry and
+effective-status updates alone do not enqueue all devices. GET flight/cache keys
+include the complete resolved output constraints and exclude value provenance.
+
+Keep `status.device.model` and `firmwareVersion` as observations. Use
 `status.device.reportedDisplay` with optional int32 `width` and `height`,
 containing parsed observations before overrides or allocation validation.
 Keep the current rejection of nonnumeric, nonpositive or overflowing header
@@ -762,7 +769,7 @@ output allocation limits for diagnosis. When either dimension header is sent,
 replace the whole observed pair from that request, never combine dimensions
 from separate polls. When both are absent, retain the last observed pair.
 Preserve existing `status.display.width/height/palette`
-as effective values for API readability, and add effective `pngByteLimit` and
+as effective values for API readability, with effective `pngByteLimit` and
 `sources` with `dimensions`, `palette` and `pngByteLimit`, each `explicit`,
 `reported` or `profile` as applicable. Dimensions always have one source for
 the complete pair. An unresolved device has no effective display and gets the
@@ -770,8 +777,8 @@ existing unresolved/pending condition; it retains observations. Spec edits
 must recompute effective values from observations, never from a previously
 overridden effective display.
 
-Add optional `spec.display` fields already agreed in the proposal and optional
-Screen processing settings only when behavior is connected. Normalize omitted
+Optional `spec.display` overrides and Screen processing settings are connected
+to every renderer path. Normalize omitted
 processing to contain/Atkinson before hashing. Read legacy `bw` and `bwry` in
 old contexts/status as legacy semantic values without relabeling them as
 spectra6 or claiming delivery support. New display overrides accept only the

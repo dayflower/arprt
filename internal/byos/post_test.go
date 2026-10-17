@@ -22,6 +22,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -175,6 +176,7 @@ func postPair(t *testing.T) (*Server, client.Client, *api.ArprtScreen, *api.Arpr
 	screen := postScreen(t, c)
 	d := loadDevice(t, c)
 	target := render.Target{Width: 800, Height: 480, Palette: "gray4"}
+	d.Status.Device = &api.DeviceInfoStatus{Model: "og"}
 	d.Status.Display = &api.DisplayStatus{Width: target.Width, Height: target.Height, Palette: target.Palette}
 	if err := c.Status().Update(context.Background(), d); err != nil {
 		t.Fatal(err)
@@ -261,7 +263,7 @@ func TestPOSTChangedInputsCannotPublish(t *testing.T) {
 			sc := screen.DeepCopy()
 			switch change {
 			case "target":
-				device.Status.Display.Width = 799
+				device.Status.Device.ReportedDisplay = &api.ReportedDisplayStatus{Width: ptr.To(int32(799)), Height: ptr.To(int32(480))}
 				if err := c.Status().Update(context.Background(), device); err != nil {
 					t.Fatal(err)
 				}

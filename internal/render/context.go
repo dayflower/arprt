@@ -131,9 +131,15 @@ func validPercent(p *float64) *float64 {
 
 // Request is normalized by the Kubernetes-facing adapter. GET has no Context.
 type Request struct {
+	Output  OutputConstraints
 	Policy  imageprocessing.Policy
 	Target  Target
 	Context *Context
+}
+
+// ResolvedTarget includes internal constraints without extending context v1.
+func (r Request) ResolvedTarget() ResolvedTarget {
+	return ResolvedTarget{Target: r.Target, Output: r.Output}
 }
 
 // Output contains validated PNG bytes; executors must validate before returning.

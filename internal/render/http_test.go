@@ -85,7 +85,7 @@ func TestHTTPGETContract(t *testing.T) {
 	defer server.Close()
 	target := og
 	target.Rotation = 270
-	out, err := (HTTPGET{URL: server.URL + "?key=a&key=b&width=1&width=2&palette=bw&rotation=90&rotation=180"}).Execute(context.Background(), Request{Target: target})
+	out, err := (HTTPGET{URL: server.URL + "?key=a&key=b&width=1&width=2&palette=bw&rotation=90&rotation=180"}).Execute(context.Background(), Request{Output: CurrentTarget(target).Output, Target: target})
 	expected, normErr := imageprocessing.Normalize(t.Context(), b, CurrentTarget(target).ImageTarget(), imageprocessing.Policy{})
 	if err != nil || normErr != nil || !bytes.Equal(out.PNG, expected) || bytes.Equal(out.PNG, b) {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestHTTPFailures(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 				defer cancel()
 				var executor Executor = HTTPGET{URL: s.URL + "?secret=operator-value"}
-				input := Request{Target: og}
+				input := Request{Output: CurrentTarget(og).Output, Target: og}
 				if method == "POST" {
 					executor = HTTPPOST{URL: s.URL + "?secret=operator-value"}
 					input.Context = &Context{Version: "v1", RenderTarget: og, Device: Device{Name: "test"}}
@@ -169,7 +169,7 @@ func TestHTTPPOSTContextContract(t *testing.T) {
 	}))
 	defer s.Close()
 	executor := HTTPPOST{URL: s.URL + "?width=1&width=2&height=3&palette=bw&rotation=180&rotation=270&key=a&key=b"}
-	if _, err := executor.Execute(context.Background(), Request{Target: snapshot.RenderTarget, Context: &snapshot}); err != nil {
+	if _, err := executor.Execute(context.Background(), Request{Output: CurrentTarget(snapshot.RenderTarget).Output, Target: snapshot.RenderTarget, Context: &snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []Request{{Target: og}, {Target: Target{Width: 799, Height: 480, Palette: "gray4"}, Context: &snapshot}, {Target: og, Context: &Context{Version: "v2", RenderTarget: og, Device: Device{Name: "device"}}}} {

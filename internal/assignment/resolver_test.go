@@ -25,14 +25,14 @@ func TestOrderingScopeEditsAndRetryWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}, Status: api.ArprtDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a"}, Status: api.ArprtDeviceStatus{Device: &api.DeviceInfoStatus{Model: "og"}, Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}}}
 	r := Explicit{Reader: c}
 	set, err := r.Eligible(ctx, d)
 	if err != nil || len(set.Screens) != 2 || set.Screens[0].Name != "b" {
 		t.Fatal(set, err)
 	}
 	now := time.Now()
-	d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: set.Fingerprint, ScreenUID: "ab", Target: *d.Status.Display, ServedAt: metav1.NewMicroTime(now)}
+	d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: set.Fingerprint, ScreenUID: "ab", Target: api.CycleTargetStatus{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette}, ServedAt: metav1.NewMicroTime(now)}
 	if s, replay := set.Select(d, now.Add(time.Second), 5*time.Second); s.Name != "b" || !replay {
 		t.Fatal("retry advanced")
 	}

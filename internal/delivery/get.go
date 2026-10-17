@@ -39,8 +39,11 @@ func NewGET(repo artifact.Repository, reader client.Reader) *GET {
 
 // Image returns eligible old output with a nonnil render error after a failed
 // refresh. Joining callers wait independently; one disconnect cannot cancel all.
-func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Target) (artifact.Metadata, error) {
-	unit := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), Target: target, Output: render.CurrentTarget(target).Output}
+func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.ResolvedTarget) (artifact.Metadata, error) {
+	if err := target.Validate(); err != nil {
+		return artifact.Metadata{}, err
+	}
+	unit := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), Target: target.Target, Output: target.Output}
 	g.mu.Lock()
 	f, joined := g.flights[unit]
 	if !joined {
@@ -109,7 +112,7 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 	if err != nil {
 		return old, err
 	}
-	out, err := g.NewExecutor(s.Spec.Source.HTTP.URL).Execute(ctx, render.Request{Target: u.Target, Policy: policy})
+	out, err := g.NewExecutor(s.Spec.Source.HTTP.URL).Execute(ctx, render.Request{Target: u.Target, Output: u.Output, Policy: policy})
 	if err != nil {
 		return old, err
 	}

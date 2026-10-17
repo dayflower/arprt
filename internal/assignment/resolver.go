@@ -12,6 +12,7 @@ import (
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/devicestate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -107,7 +108,8 @@ func (r Explicit) Eligible(ctx context.Context, d *api.ArprtDevice) (Set, error)
 // Select holds the last successful turn during the retry window, then advances.
 func (set Set) Select(d *api.ArprtDevice, now time.Time, interval time.Duration) (*api.ArprtScreen, bool) {
 	last := d.Status.ScreenCycle
-	if set.Cycling && last != nil && last.Assignment == set.Fingerprint && d.Status.Display != nil && last.Target == *d.Status.Display {
+	target := devicestate.Target(d)
+	if set.Cycling && last != nil && last.Assignment == set.Fingerprint && target.Validate() == nil && last.Target == (api.CycleTargetStatus{Width: target.Width, Height: target.Height, Palette: target.Palette}) {
 		for i, s := range set.Screens {
 			if string(s.UID) == last.ScreenUID {
 				if now.Before(last.ServedAt.Add(interval)) {

@@ -265,7 +265,7 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 12; i++ {
 		wg.Go(func() {
-			m, err := s.GET.Image(context.Background(), &sc, target)
+			m, err := s.GET.Image(context.Background(), &sc, render.CurrentTarget(target))
 			if err != nil || m.ImageDigest == "" {
 				t.Errorf("image: %v", err)
 			}
@@ -277,7 +277,7 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("renders not coalesced: %d", calls.Load())
 	}
-	_, _ = s.GET.Image(context.Background(), &sc, render.Target{Width: 799, Height: 480, Palette: "gray4"})
+	_, _ = s.GET.Image(context.Background(), &sc, render.CurrentTarget(render.Target{Width: 799, Height: 480, Palette: "gray4"}))
 	if calls.Load() != 2 {
 		t.Fatal("unequal targets reused")
 	}
@@ -297,7 +297,10 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 	_ = c.Update(context.Background(), &sc)
 	oldScreen := sc.DeepCopy()
 	done := make(chan error, 1)
-	go func() { _, err := s.GET.Image(context.Background(), oldScreen, target); done <- err }()
+	go func() {
+		_, err := s.GET.Image(context.Background(), oldScreen, render.CurrentTarget(target))
+		done <- err
+	}()
 	<-entered
 	sc.Generation++
 	sc.Spec.Source.HTTP.URL = "http://newer.invalid"
@@ -322,17 +325,9 @@ func TestConcurrentReuseAndObsoletePublication(t *testing.T) {
 	}
 }
 func TestObservationPolicy(t *testing.T) {
-	for _, headers := range []map[string]string{{"model": "other", "fw-version": "1.8.17"}, {"width": "799"}, {"width": "invalid"}, {"model": "other"}, {"fw-version": "new"}} {
-		if _, _, _, err := Observe(headers).Target("og", "1.8.17"); err == nil {
-			t.Fatal("contradiction accepted", headers)
-		}
-	}
 	o := Observe(map[string]string{"battery-voltage": "NaN", "rssi": "bad", "width": "800"})
 	if o.Voltage != nil || o.RSSI != nil || len(o.Invalid) != 2 {
 		t.Fatal("invalid telemetry manufactured values")
-	}
-	if _, _, _, err := (Observation{}).Target("og", "1.8.17"); err != nil {
-		t.Fatal("valid known tuple unavailable")
 	}
 	for _, raw := range []string{"/relative", "https://user:pass@host/x", "https://host/x?query=1", "https://host/x#f", "https://host/a//b", "https://host/a/../b", "https://host/a%2fb"} {
 		if _, err := (Config{PublicBaseURL: raw}).Base(); err == nil {

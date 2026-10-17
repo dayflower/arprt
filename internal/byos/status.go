@@ -9,6 +9,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	corev1 "k8s.io/api/core/v1"
@@ -22,7 +23,7 @@ import (
 // observedDisplay retains the persisted observation timestamp used to guard
 // later best-effort reports. Observation persistence itself is mandatory.
 type observedDisplay struct {
-	target    render.Target
+	target    render.ResolvedTarget
 	targetErr error
 	seen      metav1.Time
 }
@@ -31,19 +32,9 @@ type observedDisplay struct {
 // TargetKnown and TelemetryValid. mutate retries with direct current status.
 func (s *Server) observeDisplay(ctx context.Context, d *api.ArprtDevice, o Observation) (observedDisplay, error) {
 	now := metav1.NewTime(time.Now().UTC().Truncate(time.Second))
-	var target render.Target
+	var target render.ResolvedTarget
 	var targetErr error
 	if err := s.mutate(ctx, d, func(current *api.ArprtDevice) {
-		model, fw := "", ""
-		if current.Status.Device != nil {
-			model = current.Status.Device.Model
-			fw = current.Status.Device.FirmwareVersion
-		}
-		target, model, fw, targetErr = o.Target(model, fw)
-		if targetErr == nil {
-			target.Rotation = current.Spec.Rotation
-			targetErr = target.Validate()
-		}
 		// A slower earlier request cannot overwrite later observations.
 		if current.Status.LastSeenAt != nil && current.Status.LastSeenAt.After(now.Time) {
 			targetErr = artifact.ErrObsolete
@@ -53,11 +44,22 @@ func (s *Server) observeDisplay(ctx context.Context, d *api.ArprtDevice, o Obser
 		if current.Status.LastSeenAt == nil || now.Sub(current.Status.LastSeenAt.Time) >= 30*time.Second {
 			current.Status.LastSeenAt = &now
 		}
-		current.Status.Device = &api.DeviceInfoStatus{Model: model, FirmwareVersion: fw}
-		current.Status.Display = nil
-		if targetErr == nil {
-			current.Status.Display = &api.DisplayStatus{Width: target.Width, Height: target.Height, Palette: target.Palette}
+		if current.Status.Device == nil {
+			current.Status.Device = &api.DeviceInfoStatus{}
 		}
+		info := current.Status.Device
+		// Omitted fields retain their own last observation. In particular, a
+		// firmware change never changes model selection or capability eligibility.
+		if o.Model != "" {
+			info.Model = o.Model
+		}
+		if o.Firmware != "" {
+			info.FirmwareVersion = o.Firmware
+		}
+		if o.DimensionsPresent || o.Width != nil || o.Height != nil {
+			info.ReportedDisplay = &api.ReportedDisplayStatus{Width: o.Width, Height: o.Height}
+		}
+		target, current.Status.Display, targetErr = devicestate.Resolve(current)
 		if o.Voltage != nil {
 			if current.Status.Battery == nil {
 				current.Status.Battery = &api.BatteryStatus{}
@@ -73,9 +75,9 @@ func (s *Server) observeDisplay(ctx context.Context, d *api.ArprtDevice, o Obser
 		if o.RSSI != nil {
 			current.Status.Network = &api.NetworkStatus{RSSI: o.RSSI}
 		}
-		condition(current, "TargetKnown", targetErr == nil, "CapabilitiesVerified", "Verified OG / 1.8.17 target")
+		condition(current, "TargetKnown", targetErr == nil, "CapabilitiesResolved", "Display capabilities resolved from configuration and observations")
 		if targetErr != nil {
-			condition(current, "TargetKnown", false, "UnknownCapabilities", "Supply a reviewed model/firmware tuple and matching dimensions")
+			condition(current, "TargetKnown", false, "UnknownCapabilities", "Provide a reviewed model or explicit palette, PNG byte limit and valid dimensions")
 		}
 		condition(current, "TelemetryValid", len(o.Invalid) == 0, "TelemetryAccepted", "Optional telemetry parsed")
 		if len(o.Invalid) > 0 {

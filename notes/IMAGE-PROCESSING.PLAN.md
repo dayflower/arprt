@@ -11,8 +11,9 @@ The initial planning review was static. The Phase 0 investigation now has
 [durable design decisions](DESIGN.md#image-processing-design-before-integration)
 and [reproducible probes](../tools/image-investigation/README.md) covering pinned
 firmware callbacks, the Go decoder, numerical processing, cancellation and
-resource feasibility. Runtime integration and physical acceptance remain later
-phases. The existing verified support baseline is unchanged.
+resource feasibility. Runtime integration is active through Phase 5; deployment
+resource evidence and physical acceptance remain Phase 6 gates. The existing
+verified support baseline is unchanged.
 
 arprt is independent and unofficial; it is not affiliated with or endorsed by
 TRMNL. Keep source-reviewed compatibility separate from physical acceptance.
@@ -311,7 +312,8 @@ is complete and requirements/rationale have been integrated into their owners,
 remove `IMAGE-PROCESSING.md`. Remove this plan when completed rather than retain
 it as a task log; Git history preserves the implementation sequence.
 
-Renderer integration and Screen processing settings are active for the existing
-OG target. The next boundary is Phase 5's Device API and reviewed profiles.
+Renderer integration, Screen processing settings, the Device display API and
+reviewed model profiles are active. Remaining work belongs to Phase 6 acceptance
+and documentation integration.
 Retain cancellation, admission, migration and corrected-firmware assumptions;
 full native-architecture/resource and physical acceptance remain Phase 6 gates.

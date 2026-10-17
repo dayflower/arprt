@@ -34,7 +34,7 @@ func fixture(t *testing.T) (*Reconciler, *api.ArprtDevice, *api.ArprtScreen, *ti
 	_ = api.AddToScheme(scheme)
 	_ = batchv1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
-	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "arprt", UID: "device-uid", Generation: 1}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.ArprtDeviceStatus{Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, Battery: &api.BatteryStatus{Voltage: ptr.To(3.91)}}}
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "arprt", UID: "device-uid", Generation: 1}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}}, Status: api.ArprtDeviceStatus{Device: &api.DeviceInfoStatus{Model: "og"}, Display: &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, Battery: &api.BatteryStatus{Voltage: ptr.To(3.91)}}}
 	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "arprt", UID: "screen-uid", Generation: 1}, Spec: api.ArprtScreenSpec{RefreshInterval: "10s", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&api.ArprtDevice{}, &api.ArprtScreen{}, &batchv1.Job{}, &corev1.Pod{}).WithObjects(d, s).Build()
 	root := t.TempDir()
@@ -298,6 +298,7 @@ func TestFailuresBackoffAndObsoleteCompletion(t *testing.T) {
 func TestUnknownTargetConcurrencyAndHang(t *testing.T) {
 	r, d, _, now := fixture(t)
 	d.Status.Display = nil
+	d.Status.Device = nil
 	if err := r.Client.Status().Update(context.Background(), d); err != nil {
 		t.Fatal(err)
 	}
@@ -306,6 +307,7 @@ func TestUnknownTargetConcurrencyAndHang(t *testing.T) {
 		t.Fatal("invented target")
 	}
 	d.Status.Display = &api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}
+	d.Status.Device = &api.DeviceInfoStatus{Model: "og"}
 	_ = r.Client.Status().Update(context.Background(), d)
 	r.Config.MaxActive = 1
 	step(t, r, d)
@@ -405,6 +407,7 @@ func TestReplacementAssignmentAndTargetRejectOldJobs(t *testing.T) {
 				}
 			case "target":
 				d.Status.Display = nil
+				d.Status.Device = nil
 				if err := r.Client.Status().Update(ctx, d); err != nil {
 					t.Fatal(err)
 				}
