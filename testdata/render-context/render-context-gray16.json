@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "renderTarget": {
+    "width": 1872,
+    "height": 1404,
+    "palette": "gray16"
+  },
+  "device": {
+    "name": "studio-display",
+    "model": "reterminal_e1003"
+  }
+}

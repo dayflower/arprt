@@ -55,6 +55,40 @@ spec:
                 required:
                 - name
                 type: object
+              display:
+                description: |-
+                  DisplayOverride supplies optional operator-provided output capabilities.
+                  Dimensions are a complete pair and bounded before any image allocation.
+                properties:
+                  height:
+                    format: int32
+                    maximum: 4096
+                    minimum: 1
+                    type: integer
+                  palette:
+                    enum:
+                    - gray4
+                    - gray16
+                    - spectra6
+                    type: string
+                  pngByteLimit:
+                    description: 'PNGByteLimit is exclusive: the complete encoded
+                      PNG must be smaller.'
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  width:
+                    format: int32
+                    maximum: 4096
+                    minimum: 1
+                    type: integer
+                type: object
+                x-kubernetes-validations:
+                - message: width and height must be specified together
+                  rule: has(self.width) == has(self.height)
+                - message: display exceeds the output pixel limit
+                  rule: '!has(self.width) || !has(self.height) || self.width * self.height
+                    <= 4194304'
               hardwareID:
                 description: HardwareID optionally restricts registration to this
                   canonical uppercase MAC.
@@ -211,6 +245,20 @@ spec:
                     type: string
                   model:
                     type: string
+                  reportedDisplay:
+                    description: |-
+                      ReportedDisplayStatus stores individually valid parsed observations, even
+                      when the pair is incomplete or exceeds safe output allocation bounds.
+                    properties:
+                      height:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      width:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    type: object
                 type: object
               display:
                 properties:
@@ -224,7 +272,37 @@ spec:
                     - gray4
                     - gray16
                     - bwry
+                    - spectra6
                     type: string
+                  pngByteLimit:
+                    description: Missing fields are readable legacy status, not capability
+                      observations.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  sources:
+                    properties:
+                      dimensions:
+                        enum:
+                        - explicit
+                        - reported
+                        - profile
+                        type: string
+                      palette:
+                        enum:
+                        - explicit
+                        - profile
+                        type: string
+                      pngByteLimit:
+                        enum:
+                        - explicit
+                        - profile
+                        type: string
+                    required:
+                    - dimensions
+                    - palette
+                    - pngByteLimit
+                    type: object
                   width:
                     format: int32
                     minimum: 1
@@ -277,6 +355,9 @@ spec:
                     format: date-time
                     type: string
                   target:
+                    description: |-
+                      CycleTargetStatus preserves the compact persisted turn shape, independently
+                      of effective display provenance and output compatibility fingerprints.
                     properties:
                       height:
                         format: int32
@@ -288,6 +369,7 @@ spec:
                         - gray4
                         - gray16
                         - bwry
+                        - spectra6
                         type: string
                       width:
                         format: int32

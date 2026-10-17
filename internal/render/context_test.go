@@ -148,3 +148,20 @@ func TestFractionalContextFixture(t *testing.T) {
 		t.Fatal("fractional fixture incompatible", got, want)
 	}
 }
+
+func TestProfileContextFixtures(t *testing.T) {
+	for _, name := range []string{"spectra6", "gray16"} {
+		b, err := os.ReadFile("../../testdata/render-context/render-context-" + name + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want Context
+		if err := json.Unmarshal(b, &want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Build(want.Device.Name, want.RenderTarget, Observation{Model: want.Device.Model}, Observation{})
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatal("profile changed context v1", name, got, err)
+		}
+	}
+}

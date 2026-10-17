@@ -10,7 +10,6 @@ import (
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/overlay"
-	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,14 +55,14 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 	if err != nil {
 		return image, release, err
 	}
-	if err := render.CurrentTarget(selected.target).ValidateOutput(ctx, base); err != nil {
+	if err := selected.resolvedTarget().ValidateOutput(ctx, base); err != nil {
 		return image, release, err
 	}
 	image.issued = image.metadata
 	// A compatible legacy base retains its bytes and rendering provenance, while
 	// newly derived images use current output constraints and encoder identity.
 	baseMetadata := image.metadata
-	baseMetadata.Unit.Output = render.CurrentTarget(selected.target).Output
+	baseMetadata.Unit.Output = selected.resolvedTarget().Output
 	if selected.replay != nil {
 		return image, release, nil
 	}
@@ -89,7 +88,7 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 	if d.Status.Device != nil {
 		model = d.Status.Device.Model
 	}
-	drawing, err := overlay.NormalizeResolved(render.CurrentTarget(selected.target), settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
+	drawing, err := overlay.NormalizeResolved(selected.resolvedTarget(), settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
 	if err != nil {
 		observe.OverlayFallbacks.Inc()
 		return image, release, nil
@@ -100,7 +99,7 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 	composite, unpin, err := s.Repository.FindDerived(ctx, baseMetadata, drawing)
 	if errors.Is(err, artifact.ErrNotFound) {
 		var bytes []byte
-		bytes, err = overlay.ComposeResolved(ctx, base, render.CurrentTarget(selected.target), drawing)
+		bytes, err = overlay.ComposeResolved(ctx, base, selected.resolvedTarget(), drawing)
 		if err == nil {
 			composite, unpin, err = s.Repository.StoreDerived(ctx, baseMetadata, drawing, bytes)
 		}

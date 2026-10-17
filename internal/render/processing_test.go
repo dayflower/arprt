@@ -66,7 +66,7 @@ func TestHTTPProcessingInputs(t *testing.T) {
 					_, _ = w.Write(b)
 				}))
 				defer server.Close()
-				input := Request{Target: og, Policy: imageprocessing.Policy{Fit: imageprocessing.Stretch, Dither: imageprocessing.None}}
+				input := Request{Output: CurrentTarget(og).Output, Target: og, Policy: imageprocessing.Policy{Fit: imageprocessing.Stretch, Dither: imageprocessing.None}}
 				var executor Executor = HTTPGET{URL: server.URL}
 				if method == "POST" {
 					input.Context = &Context{Version: "v1", RenderTarget: og, Device: Device{Name: "synthetic"}}
@@ -113,7 +113,7 @@ func TestHTTPInputByteLimit(t *testing.T) {
 				_, _ = w.Write([]byte{0})
 			}))
 			defer server.Close()
-			if _, err := (HTTPGET{URL: server.URL}).Execute(context.Background(), Request{Target: og}); err == nil {
+			if _, err := (HTTPGET{URL: server.URL}).Execute(context.Background(), Request{Output: CurrentTarget(og).Output, Target: og}); err == nil {
 				t.Fatal("over-limit input accepted")
 			}
 		})

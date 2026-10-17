@@ -48,6 +48,15 @@ The generated-file check compares against the Git index, so it also reports
 intended unstaged generated changes. Review those changes and check that another
 generation produces identical bytes; do not bypass unrelated failures.
 
+Device target resolution is owned by `internal/devicestate`; its tests cover
+reviewed aliases, firmware independence, override combinations, raw/effective
+separation and legacy status. HTTP/Job tests exercise every profile and budget
+change gates; envtest checks display admission and reconciliation after override
+removal or raw observation changes. Disposable-cluster smoke retains the OG
+regression scope; expanded profile/resource and physical acceptance belongs to
+the remaining acceptance work. Context v1 profile fixtures are under
+[testdata/render-context](../testdata/render-context/README.md).
+
 ## CRD chart generation and checks
 
 The [CRD chart](../charts/arprt-crds/README.md) is an application chart containing

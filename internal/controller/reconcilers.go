@@ -11,6 +11,7 @@ import (
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/credentials"
 	"github.com/dayflower/arprt/internal/deviceidentity"
+	"github.com/dayflower/arprt/internal/devicestate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -154,8 +155,10 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		default:
 			return err
 		}
-		if meta.FindStatusCondition(device.Status.Conditions, ConditionTargetKnown) == nil {
-			set(&device.Status.Conditions, device.Generation, ConditionTargetKnown, metav1.ConditionUnknown, ReasonTargetUnobserved, "Waiting for authenticated capability observations")
+		if err := devicestate.RefreshDisplay(&device); err != nil {
+			set(&device.Status.Conditions, device.Generation, ConditionTargetKnown, metav1.ConditionFalse, "UnknownCapabilities", "Provide a reviewed model or explicit palette, PNG byte limit and valid dimensions")
+		} else {
+			set(&device.Status.Conditions, device.Generation, ConditionTargetKnown, metav1.ConditionTrue, "CapabilitiesResolved", "Display capabilities resolved from configuration and observations")
 		}
 		if r.AuthReader != nil {
 			_, authErr := credentials.Read(ctx, r.AuthReader, &device)
@@ -170,7 +173,7 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			set(&device.Status.Conditions, device.Generation, "AuthenticationReady", authState, authReason, authMessage)
 		}
 		failure := ""
-		for _, kind := range []string{"IdentityReady", ConditionIdentityUnique, ConditionAssignmentReady, "AuthenticationReady"} {
+		for _, kind := range []string{"IdentityReady", ConditionIdentityUnique, ConditionAssignmentReady, "AuthenticationReady", ConditionTargetKnown} {
 			c := meta.FindStatusCondition(device.Status.Conditions, kind)
 			if c != nil && c.Status == metav1.ConditionFalse {
 				failure = c.Reason
@@ -223,7 +226,7 @@ func (r *DeviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldDevice, oldOK := e.ObjectOld.(*api.ArprtDevice)
 				newDevice, newOK := e.ObjectNew.(*api.ArprtDevice)
-				return oldOK && newOK && (oldDevice.Generation != newDevice.Generation || oldDevice.Status.HardwareID != newDevice.Status.HardwareID)
+				return oldOK && newOK && (oldDevice.Generation != newDevice.Generation || oldDevice.Status.HardwareID != newDevice.Status.HardwareID || !reflect.DeepEqual(oldDevice.Status.Device, newDevice.Status.Device))
 			},
 		})).
 		Watches(&api.ArprtScreen{}, enqueue, builder.WithPredicates(predicate.GenerationChangedPredicate{})).

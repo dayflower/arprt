@@ -102,7 +102,7 @@ func TestRuntimeAdmissionSharedByHTTPAndJob(t *testing.T) {
 	go func() { _, err := post.Image(ctx, hs, d, snapshot); done <- err }()
 	hsGet := hs.DeepCopy()
 	hsGet.Spec.Source.HTTP.Method = "GET"
-	go func() { _, err := get.Image(ctx, hsGet, st.Unit.Target); done <- err }()
+	go func() { _, err := get.Image(ctx, hsGet, st.Unit.ResolvedTarget()); done <- err }()
 	go func() {
 		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)})
 		done <- err

@@ -8,6 +8,10 @@ dependency. It creates no Namespace, Device, Screen, Playlist, renderer or Gatew
 Kubernetes support is 1.36.0+ within minor 1.36. The
 [project support boundary](../../README.md#security-and-support-boundary) applies;
 release-specific naming does not support multiple controllers in one namespace.
+Device profiles and `spec.display` overrides are described in
+[operations](../../notes/OPERATIONS.md#display-overrides); these are Device CR
+settings rather than controller chart values. New model profiles remain source
+reviewed/software tested pending physical acceptance.
 
 ## Local installation
 

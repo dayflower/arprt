@@ -62,7 +62,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
 			return err
 		}
-		d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: "assignment", ScreenUID: string(listed.UID), InputRevision: "revision", Target: api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: "fixture", Filename: "fixture.png", ServedAt: metav1.NewMicroTime(time.Now().UTC())}
+		d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: "assignment", ScreenUID: string(listed.UID), InputRevision: "revision", Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: "fixture", Filename: "fixture.png", ServedAt: metav1.NewMicroTime(time.Now().UTC())}
 		return c.Status().Update(ctx, d)
 	}); err != nil {
 		t.Fatal(err)

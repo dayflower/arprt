@@ -33,7 +33,10 @@ reuse, replay, ordering and fallback rules.
 
 Renderers may return general RGB/RGBA, grayscale or indexed PNG inputs within
 the [input limits](PROTOCOL.md#png-contract). The controller normalizes them to
-the current OG 800 × 480 gray4 target, then draws optional bitmap overlays.
+the resolved Device dimensions/palette/budget, then draws optional bitmap overlays.
+See [Device profiles and overrides](OPERATIONS.md#display-overrides); all source
+types receive the same effective renderer target. Model/firmware and value
+provenance do not fragment equivalent GET capabilities.
 Compatible PNGs retain their original bytes and renderer-authored dithering.
 Existing examples keep their OG scope; their 2-bit intermediate gray output is
 converted exactly to native 4-bit gray4 before delivery.

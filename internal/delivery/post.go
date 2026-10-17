@@ -52,7 +52,11 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 	if s.Spec.Source.HTTP == nil || s.Spec.Source.HTTP.Method != "POST" || d.UID == "" || d.Namespace != s.Namespace || input.Version != "v1" || input.Device.Name != d.Name {
 		return artifact.Metadata{}, errors.New("POST requires a screen/device pair and Render Context v1")
 	}
-	if err := input.RenderTarget.Validate(); err != nil {
+	resolved := devicestate.Resolved(d)
+	if resolved.Target != input.RenderTarget {
+		return artifact.Metadata{}, artifact.ErrObsolete
+	}
+	if err := resolved.Validate(); err != nil {
 		return artifact.Metadata{}, err
 	}
 	body, err := json.Marshal(input)
@@ -70,7 +74,7 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 	if err != nil {
 		return artifact.Metadata{}, err
 	}
-	u := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: input.RenderTarget, Output: render.CurrentTarget(input.RenderTarget).Output}
+	u := artifact.Unit{Namespace: s.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: input.RenderTarget, Output: resolved.Output}
 	key := pair{u.Namespace, u.ScreenUID, u.DeviceUID}
 	p.mu.Lock()
 	entry := p.attempts[key]
@@ -124,7 +128,7 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}
-		out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Context: &input, Policy: policy})
+		out, renderErr := p.NewExecutor(s.Spec.Source.HTTP.URL).Execute(work, render.Request{Target: u.Target, Output: u.Output, Context: &input, Policy: policy})
 		renderedAt := out.RenderedAt
 		if renderedAt.IsZero() {
 			renderedAt = time.Now().UTC()
@@ -153,7 +157,7 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}
-		if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || currentDevice.Status.Display == nil || devicestate.Target(&currentDevice) != u.Target {
+		if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || devicestate.Resolved(&currentDevice) != u.ResolvedTarget() {
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}

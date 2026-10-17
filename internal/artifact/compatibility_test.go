@@ -232,7 +232,7 @@ func TestLegacyPendingCornerSurvivesNewStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	previous := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: base.Unit.ScreenUID, InputRevision: base.InputRevision, Target: api.DisplayStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: base.ImageDigest, Filename: base.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+	previous := &api.ScreenCycleStatus{Assignment: digest([]byte("assignment")), ScreenUID: base.Unit.ScreenUID, InputRevision: base.InputRevision, Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: base.ImageDigest, Filename: base.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 	proposed := previous.DeepCopy()
 	proposed.ImageDigest = derived.ImageDigest
 	proposed.Filename = derived.Filename

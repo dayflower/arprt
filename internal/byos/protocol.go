@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/dayflower/arprt/internal/render"
 )
 
 type Config struct {
@@ -82,18 +80,22 @@ func HardwareID(value string) (string, error) {
 }
 
 type Observation struct {
-	Model, Firmware string
-	Width, Height   *int32
-	Voltage         *float64
-	Percent         *float64
-	Charging        *bool
-	USBConnected    *bool
-	RSSI            *int32
-	Invalid         []string
+	Model, Firmware   string
+	Width, Height     *int32
+	DimensionsPresent bool
+	Voltage           *float64
+	Percent           *float64
+	Charging          *bool
+	USBConnected      *bool
+	RSSI              *int32
+	Invalid           []string
 }
 
 func Observe(h map[string]string) Observation {
 	o := Observation{Model: h["model"], Firmware: h["fw-version"]}
+	_, widthPresent := h["width"]
+	_, heightPresent := h["height"]
+	o.DimensionsPresent = widthPresent || heightPresent
 	if len(o.Model) > 64 || strings.ContainsAny(o.Model, "\x00\r\n") {
 		o.Model = ""
 		o.Invalid = append(o.Invalid, "Model")
@@ -158,34 +160,6 @@ func Observe(h map[string]string) Observation {
 		}
 	}
 	return o
-}
-
-// Target supports only the reviewed tuple. Missing observations can use known
-// state, but a partial changed tuple cannot borrow the other half of the old one.
-func (o Observation) Target(knownModel, knownFirmware string) (render.Target, string, string, error) {
-	model, fw := o.Model, o.Firmware
-	changed := (model != "" && model != knownModel) || (fw != "" && fw != knownFirmware)
-	if !changed {
-		if model == "" {
-			model = knownModel
-		}
-		if fw == "" {
-			fw = knownFirmware
-		}
-	}
-	for _, f := range o.Invalid {
-		if f == "width" || f == "height" || f == "Model" || f == "FW-Version" {
-			return render.Target{}, model, fw, errors.New("invalid capability observation")
-		}
-	}
-	if model != "og" || fw != "1.8.17" {
-		return render.Target{}, model, fw, errors.New("unverified model/firmware tuple")
-	}
-	t := render.Target{Width: 800, Height: 480, Palette: "gray4"}
-	if (o.Width != nil && *o.Width != t.Width) || (o.Height != nil && *o.Height != t.Height) {
-		return render.Target{}, model, fw, errors.New("dimensions contradict verified capabilities")
-	}
-	return t, model, fw, nil
 }
 
 type DisplayResponse struct {

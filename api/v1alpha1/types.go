@@ -188,14 +188,14 @@ type ScreenCycleStatus struct {
 	// CompatibilityFingerprint binds replay to output constraints, rotation and
 	// processing semantics. Omission denotes a legacy turn, never current replay.
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
-	CompatibilityFingerprint string           `json:"compatibilityFingerprint,omitempty"`
-	Assignment               string           `json:"assignment"`
-	ScreenUID                string           `json:"screenUID"`
-	InputRevision            string           `json:"inputRevision"`
-	Target                   DisplayStatus    `json:"target"`
-	ImageDigest              string           `json:"imageDigest"`
-	Filename                 string           `json:"filename"`
-	ServedAt                 metav1.MicroTime `json:"servedAt"`
+	CompatibilityFingerprint string            `json:"compatibilityFingerprint,omitempty"`
+	Assignment               string            `json:"assignment"`
+	ScreenUID                string            `json:"screenUID"`
+	InputRevision            string            `json:"inputRevision"`
+	Target                   CycleTargetStatus `json:"target"`
+	ImageDigest              string            `json:"imageDigest"`
+	Filename                 string            `json:"filename"`
+	ServedAt                 metav1.MicroTime  `json:"servedAt"`
 }
 
 // HardwareIDSecretReference selects a required key in a same-namespace Secret.
@@ -210,11 +210,30 @@ type HardwareIDSecretReference struct {
 	Key string `json:"key"`
 }
 
+// DisplayOverride supplies optional operator-provided output capabilities.
+// Dimensions are a complete pair and bounded before any image allocation.
+// +kubebuilder:validation:XValidation:rule="has(self.width) == has(self.height)",message="width and height must be specified together"
+// +kubebuilder:validation:XValidation:rule="!has(self.width) || !has(self.height) || self.width * self.height <= 4194304",message="display exceeds the output pixel limit"
+type DisplayOverride struct {
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=4096
+	Width *int32 `json:"width,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=4096
+	Height *int32 `json:"height,omitempty"`
+	// +kubebuilder:validation:Enum=gray4;gray16;spectra6
+	Palette string `json:"palette,omitempty"`
+	// PNGByteLimit is exclusive: the complete encoded PNG must be smaller.
+	// +kubebuilder:validation:Minimum=1
+	PNGByteLimit *int32 `json:"pngByteLimit,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!(has(self.screenRef) && has(self.playlistRef))",message="at most one of screenRef and playlistRef is permitted"
 // +kubebuilder:validation:XValidation:rule="!(has(self.hardwareID) && has(self.hardwareIDSecretRef))",message="at most one hardware identity source is permitted"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID) || self.hardwareID == oldSelf.hardwareID)",message="hardwareID source is immutable; replace the device to change identity"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef) && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef == oldSelf.hardwareIDSecretRef)",message="hardwareIDSecretRef source is immutable; replace the device to change identity"
 type ArprtDeviceSpec struct {
+	Display *DisplayOverride `json:"display,omitempty"`
 	// Rotation requests clockwise content rotation in degrees. Renderers apply it
 	// while preserving the physical display dimensions of the output PNG.
 	// +kubebuilder:default=0
@@ -232,18 +251,52 @@ type ArprtDeviceSpec struct {
 	PlaylistRef *LocalReference `json:"playlistRef,omitempty"`
 }
 
+// CycleTargetStatus preserves the compact persisted turn shape, independently
+// of effective display provenance and output compatibility fingerprints.
+type CycleTargetStatus struct {
+	// +kubebuilder:validation:Minimum=1
+	Width int32 `json:"width"`
+	// +kubebuilder:validation:Minimum=1
+	Height int32 `json:"height"`
+	// +kubebuilder:validation:Enum=bw;gray4;gray16;bwry;spectra6
+	Palette string `json:"palette"`
+}
+
+type DisplaySources struct {
+	// +kubebuilder:validation:Enum=explicit;reported;profile
+	Dimensions string `json:"dimensions"`
+	// +kubebuilder:validation:Enum=explicit;profile
+	Palette string `json:"palette"`
+	// +kubebuilder:validation:Enum=explicit;profile
+	PNGByteLimit string `json:"pngByteLimit"`
+}
+
 type DisplayStatus struct {
 	// +kubebuilder:validation:Minimum=1
 	Width int32 `json:"width"`
 	// +kubebuilder:validation:Minimum=1
 	Height int32 `json:"height"`
-	// +kubebuilder:validation:Enum=bw;gray4;gray16;bwry
+	// +kubebuilder:validation:Enum=bw;gray4;gray16;bwry;spectra6
 	Palette string `json:"palette"`
+	// Missing fields are readable legacy status, not capability observations.
+	// +kubebuilder:validation:Minimum=1
+	PNGByteLimit int32           `json:"pngByteLimit,omitempty"`
+	Sources      *DisplaySources `json:"sources,omitempty"`
+}
+
+// ReportedDisplayStatus stores individually valid parsed observations, even
+// when the pair is incomplete or exceeds safe output allocation bounds.
+type ReportedDisplayStatus struct {
+	// +kubebuilder:validation:Minimum=1
+	Width *int32 `json:"width,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	Height *int32 `json:"height,omitempty"`
 }
 
 type DeviceInfoStatus struct {
-	Model           string `json:"model,omitempty"`
-	FirmwareVersion string `json:"firmwareVersion,omitempty"`
+	ReportedDisplay *ReportedDisplayStatus `json:"reportedDisplay,omitempty"`
+	Model           string                 `json:"model,omitempty"`
+	FirmwareVersion string                 `json:"firmwareVersion,omitempty"`
 }
 
 type BatteryStatus struct {

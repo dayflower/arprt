@@ -21,11 +21,7 @@ func Observation(status api.ArprtDeviceStatus) render.Observation {
 	return o
 }
 
-// Target combines observed physical capabilities with desired rendering intent.
-// Display status remains hardware observations; rotation comes only from spec.
+// Target returns the renderer-facing portion of freshly resolved capabilities.
 func Target(d *api.ArprtDevice) render.Target {
-	if d.Status.Display == nil {
-		return render.Target{}
-	}
-	return render.Target{Width: d.Status.Display.Width, Height: d.Status.Display.Height, Palette: d.Status.Display.Palette, Rotation: d.Spec.Rotation}
+	return Resolved(d).Target
 }

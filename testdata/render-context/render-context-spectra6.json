@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "renderTarget": {
+    "width": 800,
+    "height": 480,
+    "palette": "spectra6"
+  },
+  "device": {
+    "name": "studio-display",
+    "model": "reterminal_e1002"
+  }
+}

@@ -16,6 +16,12 @@ Recreate rollout and namespace-scoped RBAC. Job mode rejects RWOP, RWX, block
 volumes and subtree mounts. Other devices/firmware, Kubernetes minors, storage
 backends, multiple active replicas and multi-node failover are unverified.
 
+Runtime model profiles include OG and reTerminal E1001–E1004 with gray4, gray16
+and Spectra 6 outputs. These profiles are source reviewed and software tested;
+new physical acceptance remains pending. See [profile defaults](notes/DESIGN.md#firmware-evidence-and-profiles)
+and [Device display overrides](notes/OPERATIONS.md#display-overrides). Firmware
+versions do not gate target resolution; overrides do not expand verified support.
+
 Use TLS outside a trusted LAN, preserve device authentication headers, and grant
 screen write access only to trusted operators: screen authors can select HTTP
 endpoints, run containers and reference renderer Secrets. Network isolation is
@@ -184,7 +190,7 @@ see [GitOps and rotation](notes/OPERATIONS.md#setup-and-credentials).
 | Job | Immutable Context file plus image output path; suitable for an existing container CLI |
 
 Renderers can return general PNG inputs, including RGB, alpha and APNG default
-images. The controller normalizes to OG 800 × 480 gray4 using Screen
+images. The controller normalizes to the resolved Device display using Screen
 `imageProcessing.resizeMode` (`contain`/`stretch`) and `imageProcessing.dithering`
 (`atkinson`/`floyd-steinberg`/`bayer`/`none`); defaults are contain/Atkinson.
 Compatible renderer bytes and dithering are preserved. Optional bitmap overlays

@@ -2,8 +2,8 @@
 
 ## Status and scope
 
-This document specifies proposed behavior, not an implemented feature or an
-expanded support claim. The current verified baseline remains TRMNL OG /
+This document is the requirements baseline for the phased implementation, not
+an expanded support claim. The current verified baseline remains TRMNL OG /
 firmware 1.8.17 / 800 x 480 gray4, as recorded in [README](../README.md).
 arprt is independent and unofficial; it is not affiliated with or endorsed by
 TRMNL.
@@ -20,13 +20,12 @@ sources even without physical access. Record source-reviewed support and
 physical acceptance separately; lack of hardware must not exclude a model from
 the review. A shared product family or palette alone is not compatibility evidence.
 
-Until implemented, the stricter current contracts in [PROTOCOL](PROTOCOL.md),
-[DESIGN](DESIGN.md) and [RENDERERS](RENDERERS.md) remain authoritative. In
-particular, the current controller rejects general RGB PNGs, does not resize or
-quantize images, and accepts only its reviewed gray4 target. Implementation must
-update those owning documents, API schemas, context fixtures and examples
-together. This document records the intended changes without changing runtime
-behavior.
+Active contracts are maintained in [PROTOCOL](PROTOCOL.md), [DESIGN](DESIGN.md)
+and [RENDERERS](RENDERERS.md). General PNG normalization, Screen processing
+settings, Device overrides and reviewed model profiles are connected across
+GET, POST and Job. The remaining acceptance and documentation work is tracked
+in [the implementation plan](IMAGE-PROCESSING.PLAN.md). Retain this requirements
+baseline until that acceptance is complete.
 
 ### Document lifecycle
 
@@ -81,7 +80,7 @@ operator configuration:
 
 The agreed optional Device fields are `spec.display.width`,
 `spec.display.height`, `spec.display.palette` and `spec.display.pngByteLimit`;
-they do not exist in the current CRD. Omitting `display` selects automatic
+they are connected in the current CRD. Omitting `display` selects automatic
 resolution. Palette-only and PNG byte-limit-only overrides are valid. Width and
 height must be specified together as positive integers; a resolution-only
 override is also valid.
@@ -635,7 +634,7 @@ describe the output target; Screen settings describe how to prepare content for
 that target. A separate Device-level dithering override is not required.
 
 The agreed API direction is `spec.imageProcessing`, with the following settings;
-these fields are now connected to GET, POST and Job normalization for OG:
+these fields are connected to GET, POST and Job normalization for resolved targets:
 
 | Setting | Values | Default |
 | --- | --- | --- |
