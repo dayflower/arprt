@@ -92,7 +92,7 @@ func EffectiveOverlay(in *api.ScreenOverlay) *api.ScreenOverlay {
 		}
 	}
 	out.Items = &items
-	if out.Margin != nil && out.Margin.Horizontal == 0 && out.Margin.Vertical == 0 {
+	if out.Margin != nil && *out.Margin == (api.OverlayMargin{}) {
 		out.Margin = nil
 	}
 	if out.CycleCorners {

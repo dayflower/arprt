@@ -223,14 +223,14 @@ def main():
             original = latest()
             original_context = read('runs/' + original['attemptID'] + '/context.json')
             kubectl('-n', namespace, 'patch', 'arprtscreen', 'screen', '--type=merge', '-p',
-                    json.dumps({'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}}))
+                    json.dumps({'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'top': 4, 'bottom': 4, 'left': 12, 'right': 12}}}}))
             headers['Percent-Charged'], headers['RSSI'] = '0', '-99'
             with forwarded(namespace, 8080, directory) as base:
                 composite = display(base)
                 if composite['status'] != 0:
                     raise RuntimeError('Job base overlay not delivered')
                 composite_path = urllib.parse.urlsplit(composite['image_url']).path
-                overlay_checks.assert_overlay(base64.b64decode(image), fetch(base, composite_path), width=40, height=18, rotation=90, margin_horizontal=12, margin_vertical=4)
+                overlay_checks.assert_overlay(base64.b64decode(image), fetch(base, composite_path), width=40, height=18, rotation=90, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
             if latest() != original or read('runs/' + original['attemptID'] + '/context.json') != original_context:
                 raise RuntimeError('compositing changed Job success or immutable context')
             account = 'system:serviceaccount:' + namespace + ':arprt-arprt'

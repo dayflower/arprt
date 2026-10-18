@@ -67,7 +67,14 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							t.Parallel()
 							rt := target
 							rt.Rotation = rotation
-							d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4}, {Vertical: 8}}[(selection+scale)%4]}
+							d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Top: 4, Bottom: 8, Left: 12, Right: 16}, {Left: 4, Right: 2}, {Top: 8, Bottom: 12}}[(selection+scale)%4]}
+							mx, my := d.Margin.Left, d.Margin.Top
+							if strings.HasSuffix(string(corner), "right") {
+								mx = d.Margin.Right
+							}
+							if strings.HasPrefix(string(corner), "bottom") {
+								my = d.Margin.Bottom
+							}
 							if selection&1 != 0 {
 								d.Timestamp = "2026-10-09 12:34"
 							}
@@ -83,10 +90,10 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							}
 							out, err := Compose(context.Background(), base, rt, d)
 							// At scale 2 a quarter-turn canvas is 240 cells wide.
-							// Timestamp plus both icons spans 258; with one icon
-							// it spans 236, leaving at most four cells for inset.
+							// Including padding, timestamp plus both icons spans 262;
+							// with one icon it spans 240, leaving no room for inset.
 							if scale == 2 && (rotation == 90 || rotation == 270) &&
-								(selection == 7 || ((selection == 3 || selection == 5) && d.Margin.Horizontal > 4)) {
+								(selection == 7 || ((selection == 3 || selection == 5) && mx > 0)) {
 								if err == nil {
 									t.Fatal("oversized rotated overlay accepted")
 								}
@@ -126,20 +133,20 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							}
 							cw += (items - 1) * 4
 							cw, ch = cw*scale, ch*scale
-							mx, my := d.Margin.Horizontal*scale, d.Margin.Vertical*scale
-							w, h := cw+mx, ch+my
+							mx, my = mx*scale, my*scale
+							w, h := cw+mx+4*scale, ch+my+4*scale
 							lw, lh := 800, 480
 							if rotation == 90 || rotation == 270 {
 								lw, lh = lh, lw
 							}
-							x, y, fx, fy := 0, 0, mx, my
+							x, y, fx, fy := 0, 0, mx+2*scale, my+2*scale
 							if strings.HasSuffix(string(corner), "right") {
 								x = lw - w
-								fx = x
+								fx = x + 2*scale
 							}
 							if strings.HasPrefix(string(corner), "bottom") {
 								y = lh - h
-								fy = y
+								fy = y + 2*scale
 							}
 							gx, gy, gw, gh, err := d.Bounds(rt)
 							if err != nil || gx != x || gy != y || gw != w || gh != h {
@@ -222,12 +229,23 @@ func TestThresholdsAndMissingInputs(t *testing.T) {
 		v    float64
 		want int
 	}{{0, 0}, {3.599, 0}, {3.6, 1}, {3.601, 1}, {3.799, 1}, {3.8, 2}, {3.801, 2}} {
-		got := BatteryLevel(Telemetry{Model: "og", Voltage: &tt.v, Percent: pointer(math.NaN())})
+		got := BatteryLevel(Telemetry{Voltage: &tt.v, Percent: pointer(math.NaN())})
 		if got == nil || *got != tt.want {
 			t.Fatal(tt, got)
 		}
 	}
-	if BatteryLevel(Telemetry{Model: "other", Voltage: pointer(4.0)}) != nil || BatteryLevel(Telemetry{}) != nil || WiFiLevel(nil) != nil {
+	for _, percent := range []*float64{nil, pointer(-1.0), pointer(101.0), pointer(math.NaN()), pointer(math.Inf(1)), pointer(math.Inf(-1))} {
+		got := BatteryLevel(Telemetry{Percent: percent, Voltage: pointer(4.0)})
+		if got == nil || *got != 2 {
+			t.Fatal("valid voltage fallback missing", percent, got)
+		}
+	}
+	for _, voltage := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if BatteryLevel(Telemetry{Voltage: &voltage}) != nil {
+			t.Fatal("invalid voltage fabricated a level", voltage)
+		}
+	}
+	if BatteryLevel(Telemetry{}) != nil || WiFiLevel(nil) != nil {
 		t.Fatal("missing telemetry fabricated")
 	}
 	for _, tt := range []struct {
@@ -267,12 +285,12 @@ func TestTimeZonesLayoutAndLimits(t *testing.T) {
 	}
 	d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(0), WiFi: pointer(0), Corner: TopRight, Scale: 1}
 	_, _, w, h, err := d.Bounds(target)
-	if err != nil || w != 258 || h != 18 {
+	if err != nil || w != 262 || h != 22 {
 		t.Fatal(w, h, err)
 	}
 	d.Battery = nil
 	_, _, w, _, _ = d.Bounds(target)
-	if w != 236 {
+	if w != 240 {
 		t.Fatal("hidden gap retained", w)
 	}
 	d.Scale = math.MaxInt32
@@ -314,7 +332,7 @@ func TestChargingObservationAndVisibility(t *testing.T) {
 	for _, charging := range []*bool{nil, pointer(false), pointer(true)} {
 		want := charging != nil && *charging
 		for _, voltage := range []*float64{nil, pointer(3.7)} {
-			tele := Telemetry{Model: "og", Charging: charging, Voltage: voltage}
+			tele := Telemetry{Charging: charging, Voltage: voltage}
 			d, err := Normalize(target, Settings{Items: []string{"battery"}}, time.Now(), time.UTC, tele, TopRight)
 			if err != nil || d.Charging != want || (d.Battery != nil) != (voltage != nil && !want) || d.Empty() != (voltage == nil && !want) {
 				t.Fatal("charging observation/level visibility", d, err)
@@ -373,7 +391,7 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 	}
 	base := patternedPNG(t, false)
 	for _, scale := range []int{1, 2} {
-		d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale, Margin: Margins{Horizontal: 12, Vertical: 4}}
+		d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale, Margin: Margins{Left: 12, Right: 12, Top: 4, Bottom: 4}}
 		out, err := Compose(context.Background(), base, target, d)
 		if err != nil {
 			t.Fatal(err)
@@ -382,8 +400,8 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// The arrow starts at 800-(258+12)*scale; text follows 22 cells later.
-		ox, oy := 800-270*scale, 4*scale
+		// Include the right margin and two-pixel padding; text follows the arrow.
+		ox, oy := 800-272*scale, 6*scale
 		for cell, ch := range d.Timestamp {
 			for y, row := range glyphs[ch] {
 				for x := 0; x < 12; x++ {
@@ -421,12 +439,12 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 }
 
 func TestMarginLimitsAndEmptyLayout(t *testing.T) {
-	d := Drawing{Version: LegacyAppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1, Margin: Margins{Horizontal: 782, Vertical: 462}}
-	// Independent margins plus an 18-pixel icon exactly fill the 800x480 canvas.
+	d := Drawing{Version: LegacyAppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1, Margin: Margins{Left: 778, Right: 778, Top: 458, Bottom: 458}}
+	// Margins plus the padded 22-pixel icon exactly fill the 800x480 canvas.
 	if _, _, w, h, err := d.Bounds(target); err != nil || w != 800 || h != 480 {
 		t.Fatal("exact fit rejected", w, h, err)
 	}
-	for _, mutation := range []func(*Drawing){func(d *Drawing) { d.Margin.Horizontal++ }, func(d *Drawing) { d.Margin.Vertical++ }, func(d *Drawing) { d.Margin.Horizontal = -1 }, func(d *Drawing) { d.Margin.Vertical = -1 }, func(d *Drawing) { d.Margin.Horizontal = math.MaxInt32 }, func(d *Drawing) { d.Margin.Vertical = math.MaxInt32 }, func(d *Drawing) { d.Scale = math.MaxInt32 }, func(d *Drawing) { d.Battery = pointer(1) }} {
+	for _, mutation := range []func(*Drawing){func(d *Drawing) { d.Margin.Left++ }, func(d *Drawing) { d.Margin.Bottom++ }, func(d *Drawing) { d.Margin.Top = -1 }, func(d *Drawing) { d.Margin.Bottom = -1 }, func(d *Drawing) { d.Margin.Left = -1 }, func(d *Drawing) { d.Margin.Right = -1 }, func(d *Drawing) { d.Margin.Left = math.MaxInt32 }, func(d *Drawing) { d.Margin.Bottom = math.MaxInt32 }, func(d *Drawing) { d.Scale = math.MaxInt32 }, func(d *Drawing) { d.Battery = pointer(1) }} {
 		bad := d
 		mutation(&bad)
 		if _, _, _, _, err := bad.Bounds(target); err == nil {
@@ -437,9 +455,35 @@ func TestMarginLimitsAndEmptyLayout(t *testing.T) {
 	if x, y, w, h, err := d.Bounds(target); err != nil || x != 0 || y != 0 || w != 0 || h != 0 {
 		t.Fatal("empty margin draws background", x, y, w, h, err)
 	}
-	for _, margin := range []Margins{{Horizontal: -1}, {Vertical: -1}} {
+	for _, margin := range []Margins{{Top: -1}, {Bottom: -1}, {Left: -1}, {Right: -1}} {
 		if _, err := Normalize(target, Settings{Margin: margin}, time.Now(), time.UTC, Telemetry{}, TopRight); err == nil {
 			t.Fatal("negative setting accepted", margin)
+		}
+	}
+}
+
+func TestCornerMarginsNormalized(t *testing.T) {
+	for _, tt := range []struct {
+		corner Corner
+		want   Margins
+	}{
+		{TopRight, Margins{Top: 4, Right: 16}},
+		{BottomRight, Margins{Bottom: 8, Right: 16}},
+		{BottomLeft, Margins{Bottom: 8, Left: 12}},
+		{TopLeft, Margins{Top: 4, Left: 12}},
+	} {
+		settings := Settings{Items: []string{"battery"}, Margin: Margins{Top: 4, Bottom: 8, Left: 12, Right: 16}}
+		now := time.Now()
+		d, err := Normalize(target, settings, now, time.UTC, Telemetry{Percent: pointer(50.0)}, tt.corner)
+		if err != nil || d.Margin != tt.want {
+			t.Fatal("wrong visible corner margins", tt.corner, d.Margin, err)
+		}
+		// Opposite edges neither affect layout nor enter the derived cache key.
+		settings.Margin = tt.want
+		same, err := Normalize(target, settings, now, time.UTC, Telemetry{Percent: pointer(50.0)}, tt.corner)
+		same.Battery = d.Battery
+		if err != nil || same != d {
+			t.Fatal("unused edges changed drawing identity", tt.corner, same, d, err)
 		}
 	}
 }
@@ -448,7 +492,7 @@ func TestAllMarginBounds(t *testing.T) {
 	for _, rotation := range []int32{0, 90, 180, 270} {
 		for _, corner := range []Corner{TopRight, BottomRight, BottomLeft, TopLeft} {
 			for _, scale := range []int{1, 2} {
-				for _, margin := range []Margins{{}, {Horizontal: 4}, {Vertical: 4}, {Horizontal: 12, Vertical: 4}, {Horizontal: 4, Vertical: 8}} {
+				for _, margin := range []Margins{{}, {Top: 4}, {Bottom: 8}, {Left: 12}, {Right: 16}, {Top: 4, Bottom: 8, Left: 12, Right: 16}} {
 					rt := target
 					rt.Rotation = rotation
 					d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(2), WiFi: pointer(4), Corner: corner, Scale: scale, Margin: margin}
@@ -467,26 +511,29 @@ func TestAllMarginBounds(t *testing.T) {
 						lw, lh = lh, lw
 					}
 					wx, wy := 0, 0
+					mx, my := margin.Left, margin.Top
 					if strings.HasSuffix(string(corner), "right") {
-						wx = lw - (258+margin.Horizontal)*scale
+						mx = margin.Right
+						wx = lw - (262+mx)*scale
 					}
 					if strings.HasPrefix(string(corner), "bottom") {
-						wy = lh - (18+margin.Vertical)*scale
+						my = margin.Bottom
+						wy = lh - (22+my)*scale
 					}
-					if x != wx || y != wy || w != (258+margin.Horizontal)*scale || h != (18+margin.Vertical)*scale {
+					if x != wx || y != wy || w != (262+mx)*scale || h != (22+my)*scale {
 						t.Fatal("wrong margin bounds", d, x, y, w, h)
 					}
 				}
 			}
 		}
 	}
-	d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", WiFi: pointer(4), Corner: TopRight, Scale: 2, Margin: Margins{Horizontal: 4}}
+	d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", WiFi: pointer(4), Corner: TopRight, Scale: 2}
 	rt := target
 	rt.Rotation = 90
 	if _, _, w, _, err := d.Bounds(rt); err != nil || w != 480 {
 		t.Fatal("exact rotated fit rejected", w, err)
 	}
-	d.Margin.Horizontal++
+	d.Margin.Right++
 	if _, _, _, _, err := d.Bounds(rt); err == nil {
 		t.Fatal("one-pixel overflow margin accepted")
 	}

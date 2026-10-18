@@ -108,7 +108,7 @@ class OutputChecks(unittest.TestCase):
             x, y = overlay_checks.physical(0, 0, rotation, 1200, 1600)
             self.assertTrue(0 <= x < 1200 and 0 <= y < 1600)
         self.assertEqual(overlay_checks.origin('bottom-right', 40, 90, image_width=1200,
-                                              image_height=1600), (1560, 1182))
+                                              image_height=1600), (1558, 1180))
 
     def test_profile_fixtures_and_examples_agree(self):
         spectra = (ROOT / 'testdata/png/target-spectra6.png').read_bytes()

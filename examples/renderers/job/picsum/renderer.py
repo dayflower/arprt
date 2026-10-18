@@ -64,6 +64,9 @@ def render(context, source=None, palette="gray4"):
                 if attempt == 2:
                     raise
                 time.sleep(2)
+    photo_ref = photo_id
+    if photo_id not in ("local", "unknown"):
+        photo_ref += f" (https://picsum.photos/id/{photo_id}/{size[0]}/{size[1]})"
     with Image.open(io.BytesIO(source)) as photo:
         fitted = ImageOps.fit(ImageOps.exif_transpose(photo).convert("RGB" if palette == "rgb" else "L"),
                               size, method=Image.Resampling.LANCZOS)
@@ -75,7 +78,7 @@ def render(context, source=None, palette="gray4"):
         png = output.getvalue()
         # This is renderer input, not device-ready output. The controller owns
         # palette conversion, dithering, overlays and the final device budget.
-        print(f"Rendered Picsum photo {photo_id}: 800x480 rgb input, {len(png)} bytes", flush=True)
+        print(f"Rendered Picsum photo {photo_ref}: 800x480 rgb input, {len(png)} bytes", flush=True)
         return png
     gray = fitted
     gray = ImageOps.autocontrast(gray, cutoff=0.5)
@@ -96,7 +99,7 @@ def render(context, source=None, palette="gray4"):
         png = encode(quantized)
     if len(png) >= 90_000:
         raise ValueError("PNG exceeds device size limit")
-    print(f"Rendered Picsum photo {photo_id}: 800x480 {palette}, {len(png)} bytes", flush=True)
+    print(f"Rendered Picsum photo {photo_ref}: 800x480 {palette}, {len(png)} bytes", flush=True)
     return png
 
 

@@ -224,17 +224,20 @@ spec:
     items: [timestamp, battery, wifi]  # omitted means all; [] means none
     cycleCorners: true               # omit position when cycling
     margin:                          # white extends to the corner edges
-      horizontal: 12                 # left/right inset in bitmap pixels
-      vertical: 4                    # top/bottom inset in bitmap pixels
+      top: 4                         # logical edge insets in bitmap pixels
+      bottom: 8
+      left: 12
+      right: 16
 ```
 
 A complete Screen example is in [screen-overlay.yaml](examples/custom-resources/screen-overlay.yaml).
 Fixed mode defaults to top-right; `position` also accepts bottom-right,
 bottom-left and top-left. Optional positive `scale` overrides automatic integer
-scaling. Nonnegative `margin.horizontal` and `margin.vertical` (each default 0)
-independently inset text/icons from the left/right and top/bottom edges in the
-logical viewing orientation. Both scale with the bitmaps; white extends to the
-corner edges. Timestamp displays `↻ YYYY-MM-DD HH:mm` for the image generation
+scaling. Nonnegative `margin.top`, `.bottom`, `.left` and `.right` (each default 0)
+independently inset the padded content row from each logical viewing edge. Only the two
+edges adjoining the selected corner apply, scaling with the bitmaps; white
+extends to those edges. The content row has a fixed 2px white padding on all
+four sides, scaled with the bitmaps. Timestamp displays `↻ YYYY-MM-DD HH:mm` for the image generation
 time, using the 12×18 Home Video bitmap font; icons use matching 18×18 cells.
 Wi-Fi strength appears as four rising vertical bars, with more bars filled for
 stronger reception. Set `display.overlayTimeZone` in Helm values to an IANA name

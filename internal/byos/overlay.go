@@ -76,7 +76,7 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 	}
 	settings := overlay.Settings{}
 	if effective.Margin != nil {
-		settings.Margin = overlay.Margins{Horizontal: int(effective.Margin.Horizontal), Vertical: int(effective.Margin.Vertical)}
+		settings.Margin = overlay.Margins{Top: int(effective.Margin.Top), Bottom: int(effective.Margin.Bottom), Left: int(effective.Margin.Left), Right: int(effective.Margin.Right)}
 	}
 	if effective.Scale != nil {
 		settings.Scale = *effective.Scale
@@ -84,11 +84,7 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 	for _, item := range *effective.Items {
 		settings.Items = append(settings.Items, string(item))
 	}
-	model := ""
-	if d.Status.Device != nil {
-		model = d.Status.Device.Model
-	}
-	drawing, err := overlay.NormalizeResolved(selected.resolvedTarget(), settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Model: model, Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
+	drawing, err := overlay.NormalizeResolved(selected.resolvedTarget(), settings, image.metadata.RenderedAt, s.location, overlay.Telemetry{Percent: o.Percent, Voltage: o.Voltage, RSSI: o.RSSI, Charging: o.Charging}, actual)
 	if err != nil {
 		observe.OverlayFallbacks.Inc()
 		return image, release, nil

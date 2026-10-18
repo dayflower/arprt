@@ -383,7 +383,7 @@ All five scripts accept tagged images and multi-platform index digest references
 The HTTP check covers setup/key reuse, MAC modes, authentication, both proxy
 prefix modes, telemetry, rotation, GET reuse, restart, stale output and initial
 pending. Overlay checks include fractional telemetry, fallback, pixel preservation
-independent horizontal/vertical margins and white edge bleed, explicit charging without USB inference and original timestamps
+independent top/bottom/left/right margins and white edge bleed, explicit charging without USB inference and original timestamps
 using embedded Tokyo zoneinfo in the scratch container.
 Job checks add actual containers, token absence, same-node mounts, paths,
 immutable snapshots, rotation changes, interval refresh, recovery, failures and

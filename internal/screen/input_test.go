@@ -57,7 +57,7 @@ func TestDefaultsAndRevision(t *testing.T) {
 func TestOverlayRevisionAndRepresentation(t *testing.T) {
 	spec := api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}
 	old, _ := InputRevision(spec)
-	spec.Overlay = &api.ScreenOverlay{Position: "bottom-left", CycleCorners: true, Items: &[]api.OverlayItem{"wifi"}, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 8}}
+	spec.Overlay = &api.ScreenOverlay{Position: "bottom-left", CycleCorners: true, Items: &[]api.OverlayItem{"wifi"}, Margin: &api.OverlayMargin{Left: 8, Right: 8, Top: 8, Bottom: 8}}
 	disabled, _ := InputRevision(spec)
 	if disabled != old {
 		t.Fatal("disabled settings changed existing revision")
@@ -74,7 +74,7 @@ func TestOverlayRevisionAndRepresentation(t *testing.T) {
 		t.Fatal("equivalent settings differ")
 	}
 	revisions := map[string]bool{defaults: true}
-	for _, margin := range []*api.OverlayMargin{{Horizontal: 8}, {Vertical: 4}, {Horizontal: 8, Vertical: 4}} {
+	for _, margin := range []*api.OverlayMargin{{Top: 8}, {Bottom: 8}, {Left: 8}, {Right: 8}, {Top: 4, Bottom: 8, Left: 12, Right: 16}} {
 		spec.Overlay.Margin = margin
 		inset, err := InputRevision(spec)
 		if err != nil || revisions[inset] {
@@ -82,13 +82,15 @@ func TestOverlayRevisionAndRepresentation(t *testing.T) {
 		}
 		revisions[inset] = true
 		copied := EffectiveOverlay(spec.Overlay)
-		copied.Margin.Horizontal++
-		copied.Margin.Vertical++
+		copied.Margin.Top++
+		copied.Margin.Bottom++
+		copied.Margin.Left++
+		copied.Margin.Right++
 		if *copied.Margin == *spec.Overlay.Margin {
 			t.Fatal("effective margin aliases input")
 		}
 	}
-	for _, margin := range []*api.OverlayMargin{nil, {}, {Horizontal: 0}, {Vertical: 0}} {
+	for _, margin := range []*api.OverlayMargin{nil, {}, {Top: 0}, {Bottom: 0}, {Left: 0}, {Right: 0}} {
 		spec.Overlay.Margin = margin
 		zeroMargin, err := InputRevision(spec)
 		if err != nil || zeroMargin != defaults {

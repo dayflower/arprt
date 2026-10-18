@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calibration-renderer
+  namespace: arprt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calibration-renderer
+  template:
+    metadata:
+      labels:
+        app: calibration-renderer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: renderer
+          image: python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a
+          command: [python3, /app/renderer.py]
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: calibration-renderer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: calibration-renderer
+  namespace: arprt
+spec:
+  selector:
+    app: calibration-renderer
+  ports:
+    - port: 8000
+      targetPort: 8000

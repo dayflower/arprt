@@ -24,7 +24,7 @@ introduced. Configuration uses `ArprtScreen.spec.overlay` and the controller opt
 | Position | `ArprtScreen` | Select top-right, bottom-right, bottom-left or top-left; default to fixed top-right. |
 | Corner cycling | `ArprtScreen` | Select a fixed corner or cycling through all four corners; fixed is the default. |
 | Scale | `ArprtScreen` | Select automatic scaling or an explicit positive integer; default to automatic. |
-| Margin | `ArprtScreen` | Nonnegative `margin.horizontal` and `margin.vertical` in unscaled bitmap pixels independently inset text/icons from the left/right and top/bottom edges in the logical viewing orientation; each defaults to 0. The white background extends to those edges. |
+| Margin | `ArprtScreen` | Nonnegative `margin.top`, `.bottom`, `.left` and `.right` in unscaled bitmap pixels independently inset the padded content row from each logical viewing edge; each defaults to 0. Only the two edges adjoining the selected corner apply, and the white background extends to those edges. |
 | Timestamp format | Fixed | `↻ YYYY-MM-DD HH:mm`, showing image generation time with a 24-hour clock and no seconds. |
 | Display time zone | Controller | An explicit IANA time-zone name, such as `Asia/Tokyo`; default to `UTC`. |
 
@@ -51,7 +51,7 @@ For a new, authenticated `/api/display` delivery:
 
 Identical base image and overlay inputs may reuse a composite. Inputs include
 the displayed timestamp, battery/RSSI levels, selected items, position, scale,
-both margin components, charging-mark selection and appearance. Bytes determine
+the two active edge margins, charging-mark selection and appearance. Margins on the opposite edges do not enter the composite identity. Bytes determine
 image digests and firmware filenames under the existing protocol contract. Even when devices reuse identical bytes, each
 receiving device UID still needs its own issuance authorization.
 
@@ -110,25 +110,25 @@ Show three battery levels: low, medium and high, or a charging mark in place
 of the level icon. Do not display a numeric percentage.
 
 Prefer valid `Percent-Charged`. If it is missing or invalid, use valid
-`Battery-Voltage` only when there is a voltage-to-icon profile for the device's
-model. The voltage profile is for OG. Hide the battery icon if neither
-input can be used; do not apply the OG profile to an unknown model.
+`Battery-Voltage` with the same presentation thresholds for every device model.
+Hide the battery icon if neither input can be used.
 
-| State | Measured percentage | OG voltage profile |
+| State | Measured percentage | Common voltage fallback |
 | --- | --- | --- |
 | Low | `0 <= p < 20` | `0 <= v < 3.6 V` |
 | Medium | `20 <= p < 60` | `3.6 V <= v < 3.8 V` |
 | High | `60 <= p <= 100` | `v >= 3.8 V` |
 
 These are display thresholds. The voltage thresholds are provisional
-heuristics, not official or physically calibrated OG state-of-charge boundaries.
+heuristics shared across models, not official or physically calibrated
+state-of-charge boundaries.
 The two columns are not a claim that each voltage range equals the corresponding
 percentage range. Voltage depends on load, temperature and battery aging; see
 [TI's discussion of voltage-based battery estimation](https://www.ti.com/document-viewer/lit/html/SSZT786/GUID-5DD8C3D9-BCBE-467B-90E5-FAA672AAC15D).
-Adjust the OG thresholds if physical-device observations warrant it.
+Adjust the thresholds if physical-device observations warrant it.
 
 Voltage maps directly to an icon state for presentation. Never derive a numeric
-percentage from OG voltage or store/export such an estimate in device status or
+percentage from voltage or store/export such an estimate in device status or
 Render Context. This preserves the existing measured-percentage-only contract.
 
 ### Charging indication
@@ -183,8 +183,8 @@ Use bitmap assets for both icons and text. At scale 1:
 | Layout | One horizontal row; all visible elements use 18-pixel-high cells, with matching 14-pixel ink height |
 | Space between visible items | 4 pixels |
 | Foreground/background | Black on opaque white |
-| Padding | No additional padding; preserve font cell whitespace |
-| Foreground margin to screen edges | `spec.overlay.margin.horizontal` and `.vertical`, each default 0; white background bleeds through it to both adjoining edges |
+| Padding | Fixed 2 pixels on all four sides of the content row, scaled with the bitmaps; preserve font cell whitespace |
+| Margin outside the padded content row | `spec.overlay.margin.top`, `.bottom`, `.left` and `.right`, each default 0; the two adjoining edge margins apply and contain white background |
 
 Use the 13 timestamp glyphs from
 [home-video-font-bitmap](https://github.com/dayflower/home-video-font-bitmap)
@@ -202,21 +202,25 @@ wide with 2-pixel gaps; the level 0–4 counts filled bars. Inactive bars retain
 one-pixel outline, including all four at level 0. Only current Wi-Fi RSSI controls
 this icon; its shape does not indicate a cellular connection.
 
-The white rectangle includes visible content and the margin on the two edges
-adjoining the selected corner. Foreground moves inward horizontally and
-vertically; white continues to the display edges. Add no margin on the two
-content-facing sides. With all three items at scale 1, content is 258×18 pixels;
-`margin: {horizontal: 12, vertical: 4}` produces a 270×22 white rectangle.
-The timestamp alone, including its arrow, is 214×18 pixels.
-Icons-only battery/Wi-Fi content is 40×18 pixels. If no items are visible, no
-white rectangle is drawn.
+The content row has two white pixels of padding on every side, including after
+the rightmost Wi-Fi bar. Padding applies to every item selection and corner,
+independently of the Screen margin. Margin insets the padded row from the two
+edges adjoining the selected corner; white continues through that margin to the
+display edges. The other two margins do not affect layout or its fit check.
+
+At scale 1, all three items have 258×18 pixels of content in a 262×22 padded row.
+`margin: {top: 4, bottom: 8, left: 12, right: 16}` produces a 278×26 white
+rectangle at top-right and a 274×30 rectangle at bottom-left. The timestamp
+alone, including its arrow, has 214×18 content in a 218×22 padded row. Battery
+and Wi-Fi together have 40×18 content in a 44×22 padded row. If no items are
+visible, neither padding nor a white rectangle is drawn.
 
 Omit hidden items and their gaps. Covering the screen's underlying content is
 allowed; no renderer-reserved area or collision avoidance is required. Negative
 margins are rejected by the API; a layout exceeding the logical canvas uses
 the existing validated-base fallback rather than clipping or shrinking.
 
-Scale text, icons, both margin components and inter-item spacing by the same
+Scale text, icons, padding, the active edge margins and inter-item spacing by the same
 positive integer. Replicate bitmap pixels without interpolation or antialiasing.
 For automatic scaling, use physical output dimensions and the following rule:
 

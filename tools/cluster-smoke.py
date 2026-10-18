@@ -236,12 +236,12 @@ def main():
                     raise RuntimeError('PVC restart lost the registered MAC')
                 # Draw from stale renderer bytes, using embedded zoneinfo in scratch.
                 kubectl('-n', namespace, 'patch', 'arprtscreen', 'photo', '--type=merge', '-p',
-                        json.dumps({'spec': {'overlay': {'enabled': True, 'margin': {'horizontal': 12, 'vertical': 4}}}}))
+                        json.dumps({'spec': {'overlay': {'enabled': True, 'margin': {'top': 4, 'bottom': 4, 'left': 12, 'right': 12}}}}))
                 composite = display(base, stripped)
                 composite_path = composite['image_url'].removeprefix('https://byos.example.test/arprt')
                 composite_bytes = fetch(base, composite_path)[2]
-                overlay_checks.assert_overlay(image, composite_bytes, margin_horizontal=12, margin_vertical=4)
-                shown = datetime.datetime.strptime(overlay_checks.timestamp(composite_bytes, margin_horizontal=12, margin_vertical=4), '%Y-%m-%d %H:%M')
+                overlay_checks.assert_overlay(image, composite_bytes, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
+                shown = datetime.datetime.strptime(overlay_checks.timestamp(composite_bytes, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12), '%Y-%m-%d %H:%M')
                 shown = shown.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9))).astimezone(datetime.timezone.utc)
                 if not render_start.replace(second=0, microsecond=0) <= shown <= render_end.replace(second=0, microsecond=0):
                     raise RuntimeError('overlay lost original timestamp or scratch IANA timezone')
@@ -262,7 +262,7 @@ def main():
                 headers['Battery-Charging'] = '1'
                 charging = display(base, stripped)
                 charging_bytes = fetch(base, charging['image_url'].removeprefix('https://byos.example.test/arprt'))[2]
-                overlay_checks.assert_overlay(image, charging_bytes, margin_horizontal=12, margin_vertical=4)
+                overlay_checks.assert_overlay(image, charging_bytes, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
                 if charging['filename'] == fractional['filename']:
                     raise RuntimeError('known charging mark did not replace the level')
                 headers['USB-Connected'] = 'false'

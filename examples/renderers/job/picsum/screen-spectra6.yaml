@@ -8,9 +8,12 @@ spec:
     enabled: true
     items: [timestamp, battery, wifi]
     cycleCorners: true
+    # Adjust for your enclosure using the edge calibration Screen.
     margin:
-      horizontal: 12
-      vertical: 4
+      top: 0
+      bottom: 0
+      left: 0
+      right: 0
   source:
     job:
       renderer:

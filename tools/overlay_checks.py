@@ -19,29 +19,33 @@ def physical(x, y, rotation, image_width=800, image_height=480):
     return x, y
 
 
-def origin(corner, width, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1, image_width=800, image_height=480):
+def origin(corner, width, rotation=0, height=18, margin_top=0, margin_bottom=0, margin_left=0, margin_right=0, scale=1, image_width=800, image_height=480):
     logical_width, logical_height = (image_height, image_width) if rotation in (90, 270) else (image_width, image_height)
-    return (logical_width - (width + margin_horizontal) * scale if corner.endswith('right') else margin_horizontal * scale,
-            logical_height - (height + margin_vertical) * scale if corner.startswith('bottom') else margin_vertical * scale)
+    margin_horizontal = margin_right if corner.endswith('right') else margin_left
+    margin_vertical = margin_bottom if corner.startswith('bottom') else margin_top
+    return (logical_width - (width + margin_horizontal + 2) * scale if corner.endswith('right') else (margin_horizontal + 2) * scale,
+            logical_height - (height + margin_vertical + 2) * scale if corner.startswith('bottom') else (margin_vertical + 2) * scale)
 
 
-def assert_overlay(base, composite, corner='top-right', width=258, rotation=0, height=18, margin_horizontal=0, margin_vertical=0, scale=1, image_width=800, image_height=480, palette='gray4', png_byte_limit=90000):
+def assert_overlay(base, composite, corner='top-right', width=258, rotation=0, height=18, margin_top=0, margin_bottom=0, margin_left=0, margin_right=0, scale=1, image_width=800, image_height=480, palette='gray4', png_byte_limit=90000):
     original = samples(base, image_width, image_height, palette, png_byte_limit, legacy=True)
     drawn = samples(composite, image_width, image_height, palette, png_byte_limit, legacy=False)
     white = PALETTES[palette].index((255, 255, 255))
-    fx, fy = origin(corner, width, rotation, height, margin_horizontal, margin_vertical, scale, image_width, image_height)
-    x = fx if corner.endswith('right') else 0
-    y = fy if corner.startswith('bottom') else 0
-    region = {py * image_width + px for ly in range(y, y + (height + margin_vertical) * scale)
-              for lx in range(x, x + (width + margin_horizontal) * scale)
+    fx, fy = origin(corner, width, rotation, height, margin_top, margin_bottom, margin_left, margin_right, scale, image_width, image_height)
+    margin_horizontal = margin_right if corner.endswith('right') else margin_left
+    margin_vertical = margin_bottom if corner.startswith('bottom') else margin_top
+    x = fx - 2 * scale if corner.endswith('right') else 0
+    y = fy - 2 * scale if corner.startswith('bottom') else 0
+    region = {py * image_width + px for ly in range(y, y + (height + margin_vertical + 4) * scale)
+              for lx in range(x, x + (width + margin_horizontal + 4) * scale)
               for px, py in [physical(lx, ly, rotation, image_width, image_height)]}
     for i, (old, new) in enumerate(zip(original, drawn)):
         assert new in (0, white) if i in region else new == old, 'overlay changed unexpected pixels'
-    for ly in range(y, y + (height + margin_vertical) * scale):
-        for lx in range(x, x + (width + margin_horizontal) * scale):
+    for ly in range(y, y + (height + margin_vertical + 4) * scale):
+        for lx in range(x, x + (width + margin_horizontal + 4) * scale):
             if lx < fx or lx >= fx + width * scale or ly < fy or ly >= fy + height * scale:
                 px, py = physical(lx, ly, rotation, image_width, image_height)
-                assert drawn[py * image_width + px] == white, 'foreground entered the edge margin'
+                assert drawn[py * image_width + px] == white, 'foreground entered padding or the edge margin'
     assert any(original[i] != drawn[i] for i in region), 'overlay was not drawn'
     return drawn
 
@@ -58,10 +62,10 @@ def font_glyphs():
     return result
 
 
-def timestamp(png, corner='top-right', width=258, rotation=0, margin_horizontal=0, margin_vertical=0, scale=1):
+def timestamp(png, corner='top-right', width=258, rotation=0, margin_top=0, margin_bottom=0, margin_left=0, margin_right=0, scale=1):
     glyphs = font_glyphs()
     pixels = samples(png)
-    x, y = origin(corner, width, rotation, 18, margin_horizontal, margin_vertical, scale)
+    x, y = origin(corner, width, rotation, 18, margin_top, margin_bottom, margin_left, margin_right, scale)
     # The render-time marker occupies the first 18 pixels, followed by a
     # four-pixel white gap. Decode only the unchanged sixteen numeric glyphs.
     assert any(pixels[py * 800 + px] == 0
