@@ -9,6 +9,7 @@ repository root; the guides use namespace `arprt` unless stated otherwise.
 | --- | --- | --- |
 | Configure Device identity, assignment, playlists or overlays | [Custom resources](custom-resources/README.md) | CRDs, controller, named credentials and the renderers referenced by the selected manifest |
 | Run a minimal HTTP GET renderer | [HTTP gray bands](renderers/http/gray-bands/) | Python 3 or the supplied Deployment; [GET guide](../notes/RENDERERS.md#http-get-example) |
+| Measure visible edges and overlay margins | [HTTP edge calibration](renderers/http/calibration/) | Python 3 or the supplied Deployment; [calibration guide](../notes/RENDERERS.md#edge-calibration-screen) |
 | Normalize general RGB or preserve indexed Spectra output | [HTTP palette](renderers/http/palette/) | Python 3 or the supplied Deployment; [palette guide](../notes/RENDERERS.md#rgb-and-indexed-spectra-example) |
 | Render current device observations through HTTP POST | [HTTP device status](renderers/http/device-status/) | Python 3 or the supplied Deployment; [POST guide](../notes/RENDERERS.md#http-post-example) |
 | Render with an existing container image | [Job gray bands](renderers/job/gray-bands/) | Job scheduling and the controller's RWO PVC; [Job guide](../notes/RENDERERS.md#job-example-and-container-requirements) |

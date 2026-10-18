@@ -31,7 +31,7 @@ func verifyOverlayAPI(t *testing.T, c client.Client) {
 		return &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: fmt.Sprintf("overlay-%d", i)}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer/render"}}}}
 	}
 	scale := int32(2)
-	cases := []*api.ScreenOverlay{nil, {}, {Enabled: true}, {Enabled: true, Margin: &api.OverlayMargin{}}, {Enabled: true, Margin: &api.OverlayMargin{Horizontal: 8}}, {Enabled: true, Margin: &api.OverlayMargin{Vertical: 4}}, {Enabled: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 4}}, {Enabled: true, Items: &[]api.OverlayItem{}}, {Enabled: true, Items: &[]api.OverlayItem{"wifi", "timestamp"}}, {Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 8}}, {Enabled: true, Position: "bottom-left", Scale: &scale}}
+	cases := []*api.ScreenOverlay{nil, {}, {Enabled: true}, {Enabled: true, Margin: &api.OverlayMargin{}}, {Enabled: true, Margin: &api.OverlayMargin{Top: 4}}, {Enabled: true, Margin: &api.OverlayMargin{Bottom: 8}}, {Enabled: true, Margin: &api.OverlayMargin{Left: 12}}, {Enabled: true, Margin: &api.OverlayMargin{Right: 16}}, {Enabled: true, Margin: &api.OverlayMargin{Top: 4, Bottom: 8, Left: 12, Right: 16}}, {Enabled: true, Items: &[]api.OverlayItem{}}, {Enabled: true, Items: &[]api.OverlayItem{"wifi", "timestamp"}}, {Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Left: 8, Right: 8, Top: 8, Bottom: 8}}, {Enabled: true, Position: "bottom-left", Scale: &scale}}
 	for i, setting := range cases {
 		s := makeScreen(i)
 		s.Spec.Overlay = setting
@@ -69,7 +69,7 @@ func verifyOverlayAPI(t *testing.T, c client.Client) {
 		}
 	}
 	zero, negative := int32(0), int32(-1)
-	for i, setting := range []*api.ScreenOverlay{{Enabled: true, Items: &[]api.OverlayItem{"wifi", "wifi"}}, {Enabled: true, Items: &[]api.OverlayItem{"unknown"}}, {Enabled: true, Position: "center"}, {Enabled: true, CycleCorners: true, Position: "top-right"}, {Scale: &zero}, {Scale: &negative}, {Margin: &api.OverlayMargin{Horizontal: -1}}, {Margin: &api.OverlayMargin{Vertical: -1}}} {
+	for i, setting := range []*api.ScreenOverlay{{Enabled: true, Items: &[]api.OverlayItem{"wifi", "wifi"}}, {Enabled: true, Items: &[]api.OverlayItem{"unknown"}}, {Enabled: true, Position: "center"}, {Enabled: true, CycleCorners: true, Position: "top-right"}, {Scale: &zero}, {Scale: &negative}, {Margin: &api.OverlayMargin{Top: -1}}, {Margin: &api.OverlayMargin{Bottom: -1}}, {Margin: &api.OverlayMargin{Left: -1}}, {Margin: &api.OverlayMargin{Right: -1}}} {
 		s := makeScreen(i + 100)
 		s.Spec.Overlay = setting
 		if err := c.Create(ctx, s); !apierrors.IsInvalid(err) {
@@ -83,6 +83,16 @@ func verifyOverlayAPI(t *testing.T, c client.Client) {
 	}
 	if err := c.Create(ctx, &obj, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
 		t.Fatal("unknown overlay field accepted")
+	}
+	for _, field := range []string{"horizontal", "vertical"} {
+		obj.SetName("overlay-removed-" + field)
+		if err := unstructured.SetNestedField(obj.Object, map[string]any{field: int64(4)}, "spec", "overlay", "margin"); err != nil {
+			t.Fatal(err)
+		}
+		unstructured.RemoveNestedField(obj.Object, "spec", "overlay", "unknown")
+		if err := c.Create(ctx, &obj, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
+			t.Fatal("removed margin field accepted", field)
+		}
 	}
 	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "overlay-percent"}, Spec: api.ArprtDeviceSpec{AuthSecretRef: api.LocalReference{Name: "overlay-key"}}}
 	if err := c.Create(ctx, d); err != nil {
@@ -122,7 +132,7 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 		w.Write(png)
 	}))
 	defer renderer.Close()
-	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery"}, Spec: api.ArprtScreenSpec{Overlay: &api.ScreenOverlay{Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Horizontal: 8, Vertical: 4}}, Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL}}}}
+	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery"}, Spec: api.ArprtScreenSpec{Overlay: &api.ScreenOverlay{Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Left: 8, Right: 8, Top: 4, Bottom: 4}}, Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL}}}}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-key"}, Data: map[string][]byte{"apiKey": []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}}
 	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: screen.Name}}}}
 	device := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-device"}, Spec: api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:10", AuthSecretRef: api.LocalReference{Name: secret.Name}, PlaylistRef: &api.LocalReference{Name: playlist.Name}}}

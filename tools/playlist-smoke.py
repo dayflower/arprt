@@ -94,7 +94,7 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     'envFrom':[{'configMapRef':{'name':'input'}}]}}}}
             uids = {}
             for name, source in sources.items():
-                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'horizontal':12,'vertical':4}}}})
+                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'top':4,'bottom':4,'left':12,'right':12}}}})
                 uids[name] = json.loads(kubectl('-n',namespace,'get','arprtscreen',name,'-o','json').stdout)['metadata']['uid']
             refs = [{'name':'b-post'},{'name':'missing'},{'name':'c-job'},{'name':'a-get'}]
             apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtPlaylist','metadata':{'name':'cycle'},'spec':{'screens':refs}})
@@ -131,7 +131,7 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 image_path = response['image_url'].removeprefix('https://byos.example.test')
                 if committed != last_turn:
                     corner = overlay_checks.CORNERS[corner_index % 4]
-                    overlay_checks.assert_overlay(base64.b64decode(image), fetch(base,image_path), corner, margin_horizontal=12, margin_vertical=4)
+                    overlay_checks.assert_overlay(base64.b64decode(image), fetch(base,image_path), corner, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
                     corner_index += 1
                     last_turn = committed
                 replay_bytes = fetch(base,image_path)

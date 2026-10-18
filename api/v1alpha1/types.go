@@ -97,15 +97,21 @@ type ImageProcessing struct {
 // +kubebuilder:validation:Enum=timestamp;battery;wifi
 type OverlayItem string
 
-// OverlayMargin independently insets foreground along the logical viewing axes.
+// OverlayMargin independently insets the padded content row from each logical viewing edge.
 // Values are unscaled bitmap pixels; omitted components mean zero.
 type OverlayMargin struct {
-	// Horizontal is the inset from the selected left or right edge.
+	// Top is the inset when a top corner is selected.
 	// +kubebuilder:validation:Minimum=0
-	Horizontal int32 `json:"horizontal,omitempty"`
-	// Vertical is the inset from the selected top or bottom edge.
+	Top int32 `json:"top,omitempty"`
+	// Bottom is the inset when a bottom corner is selected.
 	// +kubebuilder:validation:Minimum=0
-	Vertical int32 `json:"vertical,omitempty"`
+	Bottom int32 `json:"bottom,omitempty"`
+	// Left is the inset when a left corner is selected.
+	// +kubebuilder:validation:Minimum=0
+	Left int32 `json:"left,omitempty"`
+	// Right is the inset when a right corner is selected.
+	// +kubebuilder:validation:Minimum=0
+	Right int32 `json:"right,omitempty"`
 }
 
 // ScreenOverlay describes display intent, independently of renderer execution.
@@ -126,7 +132,7 @@ type ScreenOverlay struct {
 	// Scale omitted selects automatic scaling using physical dimensions.
 	// +kubebuilder:validation:Minimum=1
 	Scale *int32 `json:"scale,omitempty"`
-	// Margin insets foreground independently from the horizontal and vertical edges.
+	// Margin insets the padded content row from the two edges adjoining the selected corner.
 	// The opaque background extends through each inset to the display edges.
 	Margin *OverlayMargin `json:"margin,omitempty"`
 }

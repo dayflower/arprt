@@ -63,6 +63,46 @@ func fixtureGET(s *Server, b []byte, calls *int) {
 		})
 	}
 }
+
+func TestE1002VoltageBatteryOverlay(t *testing.T) {
+	s, c, _ := newTestServer(t, "http://unused.invalid")
+	enableOverlay(t, c, false, api.OverlayItem("battery"))
+	b, err := os.ReadFile("../../testdata/png/target-spectra6.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	fixtureGET(s, b, &calls)
+	headers := auth()
+	headers["Model"] = "reterminal_e1002"
+	headers["Battery-Voltage"] = "4.07"
+	response := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", headers, nil))
+	if response.Status != 0 {
+		t.Fatal(response)
+	}
+	d := loadDevice(t, c)
+	target := devicestate.Resolved(d)
+	level := 2
+	drawing := overlay.Drawing{Version: overlay.AppearanceVersion, Battery: &level, Corner: overlay.TopRight, Scale: 1}
+	expected, err := overlay.ComposeResolved(t.Context(), b, target, drawing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(imageBytes(t, s, response), expected) {
+		t.Fatal("E1002 voltage did not select the high battery icon")
+	}
+	if d.Status.Battery == nil || d.Status.Battery.Percent != nil {
+		t.Fatal("voltage fabricated a measured percentage")
+	}
+	// A previous voltage remains known state but cannot fill missing current
+	// observations when deciding whether the overlay item is visible.
+	delete(headers, "Battery-Voltage")
+	missing := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", headers, nil))
+	if missing.Status != 0 || !bytes.Equal(imageBytes(t, s, missing), b) || calls != 1 {
+		t.Fatal("stored voltage entered the overlay or refreshed the base", missing, calls)
+	}
+}
+
 func TestOverlayCurrentMeasurementsBaseSeparationAndSharedGET(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	enableOverlay(t, c, false)
@@ -76,7 +116,7 @@ func TestOverlayCurrentMeasurementsBaseSeparationAndSharedGET(t *testing.T) {
 		t.Fatal(first)
 	}
 	base := baseImage(t, s, c, false)
-	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"timestamp", "battery", "wifi"}}, base.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: loadDevice(t, c).Status.Battery.Percent, RSSI: loadDevice(t, c).Status.Network.RSSI}, overlay.TopRight)
+	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"timestamp", "battery", "wifi"}}, base.RenderedAt, time.UTC, overlay.Telemetry{Percent: loadDevice(t, c).Status.Battery.Percent, RSSI: loadDevice(t, c).Status.Network.RSSI}, overlay.TopRight)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +491,7 @@ func TestOverlayJobUsesCurrentDisplayTelemetryAndOriginalTimestamp(t *testing.T)
 		t.Fatal(got)
 	}
 	percent, rssi := 0.0, int32(-99)
-	drawing, _ := overlay.NormalizeResolved(m.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery", "wifi"}}, m.RenderedAt, time.UTC, overlay.Telemetry{Model: "og", Percent: &percent, RSSI: &rssi}, overlay.TopRight)
+	drawing, _ := overlay.NormalizeResolved(m.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery", "wifi"}}, m.RenderedAt, time.UTC, overlay.Telemetry{Percent: &percent, RSSI: &rssi}, overlay.TopRight)
 	expected, err := overlay.ComposeResolved(context.Background(), b, m.Unit.ResolvedTarget(), drawing)
 	if err != nil || !bytes.Equal(imageBytes(t, s, got), expected) {
 		t.Fatal("Job snapshot telemetry used for display", err)

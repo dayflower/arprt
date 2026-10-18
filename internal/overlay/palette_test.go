@@ -144,7 +144,7 @@ func TestPalettePixelsRotationsCorners(t *testing.T) {
 					t.Run(fmt.Sprintf("%s/reordered=%t/%d/%s", p, reordered, rotation, corner), func(t *testing.T) {
 						rt := rt
 						rt.Target.Rotation = rotation
-						d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Scale: 1, Corner: corner, Margin: Margins{Horizontal: 12, Vertical: 4}}
+						d := Drawing{Version: AppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Scale: 1, Corner: corner, Margin: Margins{Left: 12, Right: 12, Top: 4, Bottom: 4}}
 						checkPaletteComposite(t, rt, base, d)
 					})
 				}
@@ -162,7 +162,7 @@ func TestPaletteProfileDimensions(t *testing.T) {
 		resolvedTarget(imageprocessing.Gray16, 4096, 1024),
 	} {
 		t.Run(fmt.Sprintf("%s/%dx%d", rt.Target.Palette, rt.Target.Width, rt.Target.Height), func(t *testing.T) {
-			d, err := NormalizeResolved(rt, Settings{Items: []string{"timestamp", "battery", "wifi"}, Margin: Margins{Horizontal: 12, Vertical: 4}}, time.Date(2026, 10, 9, 12, 34, 0, 0, time.UTC), time.UTC, Telemetry{Percent: pointer(50.0), RSSI: pointer(int32(-60))}, BottomLeft)
+			d, err := NormalizeResolved(rt, Settings{Items: []string{"timestamp", "battery", "wifi"}, Margin: Margins{Left: 12, Right: 12, Top: 4, Bottom: 4}}, time.Date(2026, 10, 9, 12, 34, 0, 0, time.UTC), time.UTC, Telemetry{Percent: pointer(50.0), RSSI: pointer(int32(-60))}, BottomLeft)
 			if err != nil || d.Version != AppearanceVersion || d.Scale != AutoScale(rt.Target.Width, rt.Target.Height) || d.Timestamp != "2026-10-09 12:34" {
 				t.Fatal(d, err)
 			}

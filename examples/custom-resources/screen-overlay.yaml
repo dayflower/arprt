@@ -13,6 +13,8 @@ spec:
     # Shared clockwise corner cycle for this device UID; do not set position.
     # Foreground inset in bitmap pixels; the white background reaches the edges.
     margin:
-      horizontal: 12
-      vertical: 4
+      top: 4
+      bottom: 4
+      left: 12
+      right: 12
     cycleCorners: true

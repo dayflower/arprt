@@ -252,7 +252,7 @@ func TestDerivedMarginAndChargingIdentity(t *testing.T) {
 	d.Timestamp = ""
 	d.Battery = new(int)
 	var previous Metadata
-	for _, margin := range []overlay.Margins{{}, {Horizontal: 4}, {Vertical: 4}, {Horizontal: 8, Vertical: 4}} {
+	for _, margin := range []overlay.Margins{{}, {Left: 4, Right: 4}, {Top: 4, Bottom: 4}, {Left: 8, Right: 8, Top: 4, Bottom: 4}} {
 		d.Margin = margin
 		png, err := overlay.Compose(context.Background(), b, base.Unit.Target, d)
 		if err != nil {

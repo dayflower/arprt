@@ -107,11 +107,11 @@ def main():
             base_record = json.loads(inspect('cat /data/latest/' + key + '.json'))
             with forwarded(namespace, 8080, directory) as base:
                 original_bytes = fetch(base, image_route)
-                patch('arprtscreen', 'photo', {'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'horizontal': 12, 'vertical': 4}}}})
+                patch('arprtscreen', 'photo', {'spec': {'overlay': {'enabled': True, 'items': ['battery', 'wifi'], 'margin': {'top': 4, 'bottom': 4, 'left': 12, 'right': 12}}}})
                 composite = json.loads(fetch(base, path + '/api/display'))
                 composite_route = urllib.parse.urlsplit(composite['image_url']).path
                 composite_bytes = fetch(base, composite_route)
-                overlay_checks.assert_overlay(original_bytes, composite_bytes, width=40, height=18, margin_horizontal=12, margin_vertical=4)
+                overlay_checks.assert_overlay(original_bytes, composite_bytes, width=40, height=18, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
                 # Definition edit may refresh the base, but the pointer must still identify renderer bytes.
                 current_base = json.loads(inspect('cat /data/latest/' + key + '.json'))
                 assert current_base['imageDigest'] == base_record['imageDigest']

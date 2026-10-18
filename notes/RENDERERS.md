@@ -68,9 +68,11 @@ GET image, set the Screen's `spec.overlay.enabled: true`. Select items with
 draws nothing. Use `cycleCorners: true` to share the device UID's durable clockwise
 corner cycle across Screens; omit `position` in that mode. Fixed mode defaults
 to top-right. An optional positive `scale` overrides automatic integer scaling.
-Use nonnegative `margin.horizontal` and `margin.vertical` (each default 0) to
-independently inset foreground from the left/right and top/bottom edges in the
-logical viewing orientation while its white background reaches those edges.
+Use nonnegative `margin.top`, `.bottom`, `.left` and `.right` (each default 0) to
+independently inset the padded content row from each logical viewing edge. Top-right uses
+`top` and `right`; bottom-left uses `bottom` and `left`, with the same rule for
+the other corners. The content row has fixed 2px white padding on every side, scaled with the
+bitmaps. The white background reaches those two edges.
 The timestamp displays `↻ YYYY-MM-DD HH:mm` for image generation time. Home Video
 text cells are 12×18; the arrow and other icons use 18×18 cells matching the font
 height. Charging replaces the level icon only when current charging is known
@@ -119,6 +121,50 @@ The endpoint is `/render`; the controller supplies the target query. Append
 `?encoding=indexed` to the screen URL to exercise indexed output. Non-target
 query values are preserved. Grayscale and indexed output have synthetic fixtures
 under [PNG fixtures](../testdata/png/README.md).
+
+## Edge calibration Screen
+
+The [calibration renderer](../examples/renderers/http/calibration/renderer.py)
+draws a target-sized, pure black/white calibration pattern using Python's
+standard library. It supports all four logical rotations and dimensions from
+400 to 4096 pixels per side, with at most 4194304 pixels. The output is an
+eight-bit grayscale input; the controller converts it to the device palette.
+The [Screen](../examples/renderers/http/calibration/screen.yaml) selects no
+dithering, preserving the exact black/white pixel locations.
+
+```sh
+kubectl -n arprt create configmap calibration-renderer \
+  --from-file=renderer.py=examples/renderers/http/calibration/renderer.py
+kubectl -n arprt apply --validate=strict \
+  -f examples/renderers/http/calibration/renderer.yaml \
+  -f examples/renderers/http/calibration/screen.yaml
+```
+
+`edge-calibration` enables the controller's timestamp, battery and Wi-Fi overlay
+with `cycleCorners: true`. The renderer draws no overlay or telemetry. One
+corner is covered at a time; use the remaining edges/corners, or observe the next
+ordinary update. Corner cycling is separate from Device content rotation.
+
+The pattern includes frames at 0, 4, 8, 12, 16, 24 and 32 pixels from every
+logical edge. Distance 0 is the outermost pixel row/column. Each edge has a
+0–40 pixel ruler with alternating one-pixel steps, five-pixel marks and labels
+every ten pixels. Direction/corner labels and one-/two-pixel checkerboards help
+identify rotation and unintended scaling. White label backgrounds locally
+interrupt frame lines beside the rulers.
+
+The initial four Screen margins are zero; the controller still adds its fixed
+two-pixel padding around the content row. Change `spec.overlay.margin.top`,
+`.bottom`, `.left` and `.right` while measuring. These are unscaled bitmap
+pixels; choose `scale: 1` when comparing a nondefault overlay scale with the
+single-pixel ruler. The static base may be cached for 24 hours; overlay changes
+and corner selection remain controller-owned.
+
+Generate a local preview without a server:
+
+```sh
+python3 examples/renderers/http/calibration/renderer.py --output /tmp/edge-calibration.png
+python3 -m unittest discover -s tools -p 'test_calibration_renderer.py' -v
+```
 
 ## RGB and indexed Spectra example
 
@@ -256,6 +302,11 @@ if needed to fit the PNG size limit. RGB mode delegates palette conversion to
 the controller for E1002 color photographs. A failed download or conversion
 leaves compatible prior output available through the controller's usual
 fallback behavior.
+
+When Picsum returns a photo ID, the renderer logs both the ID and its image URL
+as `https://picsum.photos/id/<id>/<width>/<height>`. The dimensions are the
+requested source size, so rotations 90 and 270 use `480/800`. Local input and
+responses without a photo ID have no image URL in the log.
 
 The renderer's `--palette` argument selects `gray4` (the default), `bw` (black
 and white with dithering), or `rgb` (full-color input for controller

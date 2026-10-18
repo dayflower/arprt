@@ -83,7 +83,7 @@ omitted; underscore aliases follow the same rule. Charging uses `0`/`1`, cache/U
 USB connection is accepted but does not imply charging. Neither flag adds status
 or Render Context fields. OG / 1.8.17 sends neither flag.
 Unknown headers are ignored; invalid optional telemetry is omitted
-and reported by field name only. Never infer percentage from OG voltage.
+and reported by field name only. Never infer percentage from voltage.
 
 The reviewed model profiles are active independently of firmware version; known
 models resolve with missing or unknown firmware. Literal model aliases, default
@@ -316,16 +316,18 @@ bitmap identifying image generation time. Overlay observations use
 only valid percentage/voltage/RSSI and the charging flag from the current
 authenticated request;
 renderer Context may still merge valid known state. Missing overlay observations
-hide their items and gaps. Percent takes priority; OG voltage maps directly to
-low/medium/high icons without producing a measured percentage. Known charging
+hide their items and gaps. Percent takes priority; valid voltage maps directly
+to low/medium/high icons with shared thresholds for every device model, without
+producing a measured percentage. Known charging
 selects a charging mark; false or unavailable charging keeps the level icon.
 USB connection never selects the mark. A mark needs no level measurement. Configuration,
 thresholds and bitmap dimensions are in [OVERLAYS](OVERLAYS.md).
 
-Nonnegative Screen `margin.horizontal` and `margin.vertical` independently inset
-foreground along the logical viewing axes, scaling with the bitmap pixels; each
-defaults to zero. The opaque white background extends through both insets to the
-adjoining corner edges.
+Nonnegative Screen `margin.top`, `.bottom`, `.left` and `.right` independently
+inset the padded content row from each logical viewing edge, scaling with the bitmap pixels;
+each defaults to zero. Only the two edges adjoining the selected corner apply.
+The content row has fixed 2px padding on all sides, scaled with the bitmap.
+The opaque white background extends through the margin to the corner edges.
 Corners follow the logical viewing orientation; only overlay coordinates are
 rotated, preserving the already rotated base. Playlist/discovery replay returns
 the committed digest/filename/bytes and serving time even if telemetry, zone or
