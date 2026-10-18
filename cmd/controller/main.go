@@ -116,7 +116,7 @@ func run() error {
 		err := jobConfig.ValidateTopology(ctx, mgr.GetAPIReader(), root)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("Job storage topology: %w", err)
+			return fmt.Errorf("job storage topology: %w", err)
 		}
 		store, err := jobrender.NewStore(root)
 		if err != nil {

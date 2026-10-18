@@ -150,7 +150,7 @@ func TestRejectedSetupDoesNotProvisionCredentials(t *testing.T) {
 			case "disabled":
 				s.Config.EnableSetup = false
 			case "invalid-source":
-				d = identityMode(t, c, "secret")
+				identityMode(t, c, "secret")
 				var secret corev1.Secret
 				_ = c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "identity"}, &secret)
 				_ = c.Delete(context.Background(), &secret)

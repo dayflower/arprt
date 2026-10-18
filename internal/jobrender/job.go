@@ -31,14 +31,14 @@ type Config struct {
 
 func (c Config) ValidateTopology(ctx context.Context, r client.Reader, root string) error {
 	if c.PVC == "" || c.ControllerPod == "" || c.DeadlineSeconds < 1 || c.MaxActive < 1 {
-		return errors.New("Job rendering requires a PVC, controller Pod, positive deadline and concurrency")
+		return errors.New("job rendering requires a PVC, controller Pod, positive deadline and concurrency")
 	}
 	var pvc corev1.PersistentVolumeClaim
 	if err := r.Get(ctx, client.ObjectKey{Namespace: c.Namespace, Name: c.PVC}, &pvc); err != nil {
 		return err
 	}
 	if len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteOnce || (pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode != corev1.PersistentVolumeFilesystem) {
-		return errors.New("Job rendering supports only filesystem ReadWriteOnce PVCs")
+		return errors.New("job rendering supports only filesystem ReadWriteOnce PVCs")
 	}
 	var pod corev1.Pod
 	if err := r.Get(ctx, client.ObjectKey{Namespace: c.Namespace, Name: c.ControllerPod}, &pod); err != nil {

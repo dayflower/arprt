@@ -100,7 +100,7 @@ func TestHTTPFailures(t *testing.T) {
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch mode {
 					case "redirect":
-						http.Redirect(w, r, "/redirected", 302)
+						http.Redirect(w, r, "/redirected", http.StatusFound)
 					case "status":
 						w.WriteHeader(500)
 					case "type":

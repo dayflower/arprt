@@ -227,16 +227,16 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 			return err
 		})
 		if errors.Is(renderErr, artifact.ErrNotFound) {
-			renderErr = errors.New("Job image pending")
+			renderErr = errors.New("job image pending")
 		}
 		if m.ImageDigest != "" && (m.InputRevision != selected.revision || m.ScreenGeneration != assigned.Generation) {
-			renderErr = errors.New("Job update pending")
+			renderErr = errors.New("job update pending")
 		}
 		if c := meta.FindStatusCondition(d.Status.Conditions, "RenderReady"); !selected.cycling && c != nil && c.Status == metav1.ConditionFalse {
-			renderErr = errors.New("Job output pending or failed")
+			renderErr = errors.New("job output pending or failed")
 		}
 		if interval, _ := screen.EffectiveInterval(assigned.Spec); selected.cycling && m.ImageDigest != "" && time.Since(m.RenderedAt) >= interval {
-			renderErr = errors.New("Job refresh pending")
+			renderErr = errors.New("job refresh pending")
 		}
 	} else if assigned.Spec.Source.HTTP.Method == "POST" {
 		var snapshot render.Context

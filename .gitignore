@@ -2,4 +2,5 @@
 /dist/
 /coverage.out
 __pycache__/
+.ruff_cache/
 /charts/arprt/charts/

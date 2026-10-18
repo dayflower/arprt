@@ -353,7 +353,3 @@ type ArprtDeviceList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ArprtDevice `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ArprtScreen{}, &ArprtScreenList{}, &ArprtDevice{}, &ArprtDeviceList{}, &ArprtPlaylist{}, &ArprtPlaylistList{})
-}
