@@ -18,6 +18,7 @@ import (
 	"github.com/dayflower/arprt/internal/credentials"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1apply "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -30,8 +31,13 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 		t.Fatal(err)
 	}
 	// A GitOps-managed manifest declares the Secret without owning its key data.
-	placeholder := &corev1.Secret{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"}, ObjectMeta: metav1.ObjectMeta{Name: d.Name, Namespace: d.Namespace}, Type: corev1.SecretTypeOpaque}
-	if err := c.Patch(ctx, placeholder.DeepCopy(), client.Apply, client.FieldOwner("setup-gitops")); err != nil {
+	// Apply writes its response into the configuration, so recreate the intent on each call.
+	placeholder := func() *corev1apply.SecretApplyConfiguration {
+		return corev1apply.Secret(d.Name, d.Namespace).WithType(corev1.SecretTypeOpaque)
+	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return c.Apply(ctx, placeholder(), client.FieldOwner("setup-gitops"))
+	}); err != nil {
 		t.Fatal(err)
 	}
 	repo, err := artifact.NewPVC(t.TempDir())
@@ -83,7 +89,9 @@ func verifyAutomaticCredentials(t *testing.T, c client.Client) {
 			t.Fatal("setup returned a losing candidate")
 		}
 	}
-	if err := c.Patch(ctx, placeholder.DeepCopy(), client.Apply, client.FieldOwner("setup-gitops")); err != nil {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return c.Apply(ctx, placeholder(), client.FieldOwner("setup-gitops"))
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := credentials.Read(ctx, c, d); err != nil || got != key {

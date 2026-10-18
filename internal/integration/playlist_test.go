@@ -87,8 +87,12 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		return meta.IsStatusConditionTrue(p.Status.Conditions, controller.ConditionReady)
 	})
 	// Server-side apply must preserve an explicitly changed sequence.
-	applied := &api.ArprtPlaylist{TypeMeta: metav1.TypeMeta{APIVersion: api.GroupVersion.String(), Kind: "ArprtPlaylist"}, ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "later"}, {Name: "listed"}}}}
-	if err := c.Patch(ctx, applied, client.Apply, client.FieldOwner("playlist-test"), client.ForceOwnership); err != nil {
+	applied := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": api.GroupVersion.String(), "kind": "ArprtPlaylist",
+		"metadata": map[string]any{"namespace": p.Namespace, "name": p.Name},
+		"spec":     map[string]any{"screens": []any{map[string]any{"name": "later"}, map[string]any{"name": "listed"}}},
+	}}
+	if err := c.Apply(ctx, client.ApplyConfigurationFromUnstructured(applied), client.FieldOwner("playlist-test"), client.ForceOwnership); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil || p.Spec.Screens[0].Name != "later" {

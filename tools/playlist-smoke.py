@@ -4,21 +4,24 @@
 Reuses identical installed CRD schemas without modifying them; removes only
 resources this run created. Requires kubectl and a cluster-accessible image.
 """
+
 import argparse
-import overlay_checks
-import helm_install
 import base64
-import hashlib
 import importlib.util
 import json
-from pathlib import Path
 import tempfile
 import time
 import urllib.request
 import uuid
+from pathlib import Path
+
+import helm_install
+import overlay_checks
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('cluster_smoke', ROOT / 'tools/cluster-smoke.py')
+spec = importlib.util.spec_from_file_location(
+    "cluster_smoke", ROOT / "tools/cluster-smoke.py"
+)
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
@@ -26,41 +29,63 @@ kubectl, wait, forwarded = smoke.kubectl, smoke.wait, smoke.forwarded
 
 def job_output_ready(namespace):
     """Wait for publication, which can lag the Kubernetes Job completion."""
-    jobs = json.loads(kubectl('-n', namespace, 'get', 'jobs', '-o', 'json').stdout)['items']
-    complete = any(any(c['type'] == 'Complete' and c['status'] == 'True'
-                       for c in job.get('status', {}).get('conditions', [])) for job in jobs)
+    jobs = json.loads(kubectl("-n", namespace, "get", "jobs", "-o", "json").stdout)[
+        "items"
+    ]
+    complete = any(
+        any(
+            c["type"] == "Complete" and c["status"] == "True"
+            for c in job.get("status", {}).get("conditions", [])
+        )
+        for job in jobs
+    )
     if not complete:
         return False
-    screen = json.loads(kubectl('-n', namespace, 'get', 'arprtscreen', 'c-job', '-o', 'json').stdout)
+    screen = json.loads(
+        kubectl("-n", namespace, "get", "arprtscreen", "c-job", "-o", "json").stdout
+    )
     # ImageReady is reported only after PNG validation, durable publication and
     # scheduler bookkeeping. Restarting on Job Complete alone races collection.
-    return any(c['type'] == 'Ready' and c['status'] == 'True' and c.get('reason') == 'ImageReady'
-               and c.get('observedGeneration') == screen['metadata']['generation']
-               for c in screen.get('status', {}).get('conditions', []))
+    return any(
+        c["type"] == "Ready"
+        and c["status"] == "True"
+        and c.get("reason") == "ImageReady"
+        and c.get("observedGeneration") == screen["metadata"]["generation"]
+        for c in screen.get("status", {}).get("conditions", [])
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
     args = parser.parse_args()
-    namespace = 'arprt-playlist-' + uuid.uuid4().hex[:8]
-    with tempfile.TemporaryDirectory(prefix='arprt-playlist-smoke-') as temporary:
+    namespace = "arprt-playlist-" + uuid.uuid4().hex[:8]
+    with tempfile.TemporaryDirectory(prefix="arprt-playlist-smoke-") as temporary:
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
         try:
-            installation.settings['jobs'] = {'deadlineSeconds': 30}
+            installation.settings["jobs"] = {"deadlineSeconds": 30}
             installation.install()
 
             def apply(obj):
-                path = directory / 'resource.json'
+                path = directory / "resource.json"
                 path.write_text(json.dumps(obj))
-                kubectl('-n', namespace, 'apply', '--validate=strict', '-f', str(path))
+                kubectl("-n", namespace, "apply", "--validate=strict", "-f", str(path))
                 path.unlink()
 
-            kubectl('-n', namespace, 'rollout', 'status', 'deployment/arprt-arprt', '--timeout=180s')
-            image = base64.b64encode((ROOT / 'testdata/png/target-gray4.png').read_bytes()).decode()
+            kubectl(
+                "-n",
+                namespace,
+                "rollout",
+                "status",
+                "deployment/arprt-arprt",
+                "--timeout=180s",
+            )
+            image = base64.b64encode(
+                (ROOT / "testdata/png/target-gray4.png").read_bytes()
+            ).decode()
             # The renderer implements both HTTP transports without Kubernetes access.
-            program = '''import base64,json,os
+            program = """import base64,json,os
 from http.server import BaseHTTPRequestHandler,HTTPServer
 class Handler(BaseHTTPRequestHandler):
  def handle_render(self):
@@ -76,114 +101,349 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self): self.handle_render()
  def log_message(self,*args): pass
 HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
-'''
-            apply({'apiVersion':'v1','kind':'ConfigMap','metadata':{'name':'input'},'data':{'IMAGE_PNG':image,'server.py':program}})
-            apply({'apiVersion':'apps/v1','kind':'Deployment','metadata':{'name':'renderer'},'spec':{'replicas':1,
-                'selector':{'matchLabels':{'app':'renderer'}},'template':{'metadata':{'labels':{'app':'renderer'}},'spec':{
-                    'automountServiceAccountToken':False,'containers':[{'name':'renderer','image':'python:3.13-alpine',
-                        'command':['python','/input/server.py'],'envFrom':[{'configMapRef':{'name':'input'}}],
-                        'volumeMounts':[{'name':'input','mountPath':'/input','readOnly':True}]}],
-                    'volumes':[{'name':'input','configMap':{'name':'input'}}]}}}})
-            apply({'apiVersion':'v1','kind':'Service','metadata':{'name':'renderer'},'spec':{'selector':{'app':'renderer'},'ports':[{'port':8080}]}})
-            kubectl('-n',namespace,'rollout','status','deployment/renderer','--timeout=180s')
+"""
+            apply(
+                {
+                    "apiVersion": "v1",
+                    "kind": "ConfigMap",
+                    "metadata": {"name": "input"},
+                    "data": {"IMAGE_PNG": image, "server.py": program},
+                }
+            )
+            apply(
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "metadata": {"name": "renderer"},
+                    "spec": {
+                        "replicas": 1,
+                        "selector": {"matchLabels": {"app": "renderer"}},
+                        "template": {
+                            "metadata": {"labels": {"app": "renderer"}},
+                            "spec": {
+                                "automountServiceAccountToken": False,
+                                "containers": [
+                                    {
+                                        "name": "renderer",
+                                        "image": "python:3.13-alpine",
+                                        "command": ["python", "/input/server.py"],
+                                        "envFrom": [
+                                            {"configMapRef": {"name": "input"}}
+                                        ],
+                                        "volumeMounts": [
+                                            {
+                                                "name": "input",
+                                                "mountPath": "/input",
+                                                "readOnly": True,
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "volumes": [
+                                    {"name": "input", "configMap": {"name": "input"}}
+                                ],
+                            },
+                        },
+                    },
+                }
+            )
+            apply(
+                {
+                    "apiVersion": "v1",
+                    "kind": "Service",
+                    "metadata": {"name": "renderer"},
+                    "spec": {
+                        "selector": {"app": "renderer"},
+                        "ports": [{"port": 8080}],
+                    },
+                }
+            )
+            kubectl(
+                "-n",
+                namespace,
+                "rollout",
+                "status",
+                "deployment/renderer",
+                "--timeout=180s",
+            )
             sources = {
-                'a-get': {'http':{'url':'http://renderer:8080/render','method':'GET'}},
-                'b-post': {'http':{'url':'http://renderer:8080/render','method':'POST'}},
-                'c-job': {'job':{'renderer':{'image':'busybox:1.37.0','command':['sh','-ec'],
-                    'args':['test -r /arprt/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'],
-                    'envFrom':[{'configMapRef':{'name':'input'}}]}}}}
+                "a-get": {
+                    "http": {"url": "http://renderer:8080/render", "method": "GET"}
+                },
+                "b-post": {
+                    "http": {"url": "http://renderer:8080/render", "method": "POST"}
+                },
+                "c-job": {
+                    "job": {
+                        "renderer": {
+                            "image": "busybox:1.37.0",
+                            "command": ["sh", "-ec"],
+                            "args": [
+                                'test -r /arprt/context.json; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'
+                            ],
+                            "envFrom": [{"configMapRef": {"name": "input"}}],
+                        }
+                    }
+                },
+            }
             uids = {}
             for name, source in sources.items():
-                apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtScreen','metadata':{'name':name},'spec':{'source':source,'overlay':{'enabled':True,'cycleCorners':True,'margin':{'top':4,'bottom':4,'left':12,'right':12}}}})
-                uids[name] = json.loads(kubectl('-n',namespace,'get','arprtscreen',name,'-o','json').stdout)['metadata']['uid']
-            refs = [{'name':'b-post'},{'name':'missing'},{'name':'c-job'},{'name':'a-get'}]
-            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtPlaylist','metadata':{'name':'cycle'},'spec':{'screens':refs}})
-            apply({'apiVersion':'arprt.dayflower.github.io/v1alpha1','kind':'ArprtDevice','metadata':{'name':'living-room'},
-                'spec':{'authSecretRef':{'name':'living-room-auth'},'playlistRef':{'name':'cycle'}}})
-            token = ''
-            headers = {'ID':'02:00:00:00:00:01','Model':'og','FW-Version':'1.8.17','Width':'800','Height':'480','Battery-Voltage':'3.91','RSSI':'-48'}
-            path = '/arprt/devices/' + namespace + '/living-room'
+                apply(
+                    {
+                        "apiVersion": "arprt.dayflower.github.io/v1alpha1",
+                        "kind": "ArprtScreen",
+                        "metadata": {"name": name},
+                        "spec": {
+                            "source": source,
+                            "overlay": {
+                                "enabled": True,
+                                "cycleCorners": True,
+                                "margin": {
+                                    "top": 4,
+                                    "bottom": 4,
+                                    "left": 12,
+                                    "right": 12,
+                                },
+                            },
+                        },
+                    }
+                )
+                uids[name] = json.loads(
+                    kubectl(
+                        "-n", namespace, "get", "arprtscreen", name, "-o", "json"
+                    ).stdout
+                )["metadata"]["uid"]
+            refs = [
+                {"name": "b-post"},
+                {"name": "missing"},
+                {"name": "c-job"},
+                {"name": "a-get"},
+            ]
+            apply(
+                {
+                    "apiVersion": "arprt.dayflower.github.io/v1alpha1",
+                    "kind": "ArprtPlaylist",
+                    "metadata": {"name": "cycle"},
+                    "spec": {"screens": refs},
+                }
+            )
+            apply(
+                {
+                    "apiVersion": "arprt.dayflower.github.io/v1alpha1",
+                    "kind": "ArprtDevice",
+                    "metadata": {"name": "living-room"},
+                    "spec": {
+                        "authSecretRef": {"name": "living-room-auth"},
+                        "playlistRef": {"name": "cycle"},
+                    },
+                }
+            )
+            token = ""
+            headers = {
+                "ID": "02:00:00:00:00:01",
+                "Model": "og",
+                "FW-Version": "1.8.17",
+                "Width": "800",
+                "Height": "480",
+                "Battery-Voltage": "3.91",
+                "RSSI": "-48",
+            }
+            path = "/arprt/devices/" + namespace + "/living-room"
 
             def fetch(base, endpoint):
-                request = urllib.request.Request(base + endpoint, headers={**headers,'Access-Token':token})
-                with urllib.request.urlopen(request,timeout=15) as response:
+                request = urllib.request.Request(
+                    base + endpoint, headers={**headers, "Access-Token": token}
+                )
+                with urllib.request.urlopen(request, timeout=15) as response:
                     return response.read()
 
             def device():
-                return json.loads(kubectl('-n',namespace,'get','arprtdevice','living-room','-o','json').stdout)
+                return json.loads(
+                    kubectl(
+                        "-n",
+                        namespace,
+                        "get",
+                        "arprtdevice",
+                        "living-room",
+                        "-o",
+                        "json",
+                    ).stdout
+                )
 
             def expire():
-                kubectl('-n',namespace,'patch','arprtdevice','living-room','--subresource=status','--type=merge','-p',
-                    json.dumps({'status':{'screenCycle':{'servedAt':'2000-01-01T00:00:00.000000Z'}}}))
+                kubectl(
+                    "-n",
+                    namespace,
+                    "patch",
+                    "arprtdevice",
+                    "living-room",
+                    "--subresource=status",
+                    "--type=merge",
+                    "-p",
+                    json.dumps(
+                        {
+                            "status": {
+                                "screenCycle": {
+                                    "servedAt": "2000-01-01T00:00:00.000000Z"
+                                }
+                            }
+                        }
+                    ),
+                )
 
             def display(base):
-                return json.loads(fetch(base,path+'/api/display'))
+                return json.loads(fetch(base, path + "/api/display"))
 
             last_turn, corner_index = None, 0
 
             def turn(base, name):
                 nonlocal last_turn, corner_index
                 response = display(base)
-                committed = device().get('status', {}).get('screenCycle', {})
-                if response['status'] != 0 or committed.get('screenUID') != uids[name]:
-                    actual = next((name for name, uid in uids.items() if uid == committed.get('screenUID')), 'none')
-                    raise RuntimeError(f"wrong screen-cycle turn: expected {name}, status {response['status']}, committed {actual}")
-                image_path = response['image_url'].removeprefix('https://byos.example.test')
+                committed = device().get("status", {}).get("screenCycle", {})
+                if response["status"] != 0 or committed.get("screenUID") != uids[name]:
+                    actual = next(
+                        (
+                            name
+                            for name, uid in uids.items()
+                            if uid == committed.get("screenUID")
+                        ),
+                        "none",
+                    )
+                    raise RuntimeError(
+                        f"wrong screen-cycle turn: expected {name}, status {response['status']}, committed {actual}"
+                    )
+                image_path = response["image_url"].removeprefix(
+                    "https://byos.example.test"
+                )
                 if committed != last_turn:
                     corner = overlay_checks.CORNERS[corner_index % 4]
-                    overlay_checks.assert_overlay(base64.b64decode(image), fetch(base,image_path), corner, margin_top=4, margin_bottom=4, margin_left=12, margin_right=12)
+                    overlay_checks.assert_overlay(
+                        base64.b64decode(image),
+                        fetch(base, image_path),
+                        corner,
+                        margin_top=4,
+                        margin_bottom=4,
+                        margin_left=12,
+                        margin_right=12,
+                    )
                     corner_index += 1
                     last_turn = committed
-                replay_bytes = fetch(base,image_path)
-                headers['Percent-Charged'], headers['RSSI'] = '0', '-99'
-                headers['Battery-Charging'] = '1'
-                if display(base) != response or fetch(base,image_path) != replay_bytes:
-                    raise RuntimeError('retry telemetry changed the committed overlay')
-                headers.pop('Percent-Charged')
-                headers.pop('Battery-Charging')
-                headers['RSSI'] = '-48'
+                replay_bytes = fetch(base, image_path)
+                headers["Percent-Charged"], headers["RSSI"] = "0", "-99"
+                headers["Battery-Charging"] = "1"
+                if display(base) != response or fetch(base, image_path) != replay_bytes:
+                    raise RuntimeError("retry telemetry changed the committed overlay")
+                headers.pop("Percent-Charged")
+                headers.pop("Battery-Charging")
+                headers["RSSI"] = "-48"
                 return response
 
-            with forwarded(namespace,8080,directory) as base:
-                token = json.loads(fetch(base,path+'/api/setup'))['api_key']
-                first = turn(base,'b-post')
+            with forwarded(namespace, 8080, directory) as base:
+                token = json.loads(fetch(base, path + "/api/setup"))["api_key"]
+                first = turn(base, "b-post")
                 # Pre-rendering must publish before c-job is ever selected or
                 # restart interrupts collection. Do not poll display to wait:
                 # successful polls would advance the shared corner/cycle state.
                 wait(lambda: job_output_ready(namespace), 120)
-            kubectl('-n',namespace,'rollout','restart','deployment/arprt-arprt')
-            kubectl('-n',namespace,'rollout','status','deployment/arprt-arprt','--timeout=180s')
-            with forwarded(namespace,8080,directory) as base:
+            kubectl("-n", namespace, "rollout", "restart", "deployment/arprt-arprt")
+            kubectl(
+                "-n",
+                namespace,
+                "rollout",
+                "status",
+                "deployment/arprt-arprt",
+                "--timeout=180s",
+            )
+            with forwarded(namespace, 8080, directory) as base:
                 if display(base) != first:
-                    raise RuntimeError('screen-cycle replay lost across restart')
-                expire(); turn(base,'c-job'); expire(); turn(base,'a-get'); expire(); turn(base,'b-post')
+                    raise RuntimeError("screen-cycle replay lost across restart")
+                expire()
+                turn(base, "c-job")
+                expire()
+                turn(base, "a-get")
+                expire()
+                turn(base, "b-post")
                 # Editing the playlist resets its order, including within a retry window.
-                kubectl('-n',namespace,'patch','arprtplaylist','cycle','--type=merge','-p',json.dumps({'spec':{'screens':[{'name':'a-get'},{'name':'c-job'},{'name':'b-post'}]}}))
-                turn(base,'a-get')
+                kubectl(
+                    "-n",
+                    namespace,
+                    "patch",
+                    "arprtplaylist",
+                    "cycle",
+                    "--type=merge",
+                    "-p",
+                    json.dumps(
+                        {
+                            "spec": {
+                                "screens": [
+                                    {"name": "a-get"},
+                                    {"name": "c-job"},
+                                    {"name": "b-post"},
+                                ]
+                            }
+                        }
+                    ),
+                )
+                turn(base, "a-get")
                 # Discovery reuses the same pairs, in deterministic name order.
-                kubectl('-n',namespace,'patch','arprtdevice','living-room','--type=merge','-p',json.dumps({'spec':{'playlistRef':None}}))
-                turn(base,'a-get'); expire(); turn(base,'b-post'); expire(); turn(base,'c-job')
-                kubectl('-n',namespace,'delete','arprtscreen','a-get')
-                turn(base,'b-post')
+                kubectl(
+                    "-n",
+                    namespace,
+                    "patch",
+                    "arprtdevice",
+                    "living-room",
+                    "--type=merge",
+                    "-p",
+                    json.dumps({"spec": {"playlistRef": None}}),
+                )
+                turn(base, "a-get")
+                expire()
+                turn(base, "b-post")
+                expire()
+                turn(base, "c-job")
+                kubectl("-n", namespace, "delete", "arprtscreen", "a-get")
+                turn(base, "b-post")
                 # Removing Job eligibility cancels its scheduling state.
-                kubectl('-n',namespace,'delete','arprtscreen','c-job')
-                before = {j['metadata']['name'] for j in json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']}
+                kubectl("-n", namespace, "delete", "arprtscreen", "c-job")
+                before = {
+                    j["metadata"]["name"]
+                    for j in json.loads(
+                        kubectl("-n", namespace, "get", "jobs", "-o", "json").stdout
+                    )["items"]
+                }
                 time.sleep(3)
-                after = {j['metadata']['name'] for j in json.loads(kubectl('-n',namespace,'get','jobs','-o','json').stdout)['items']}
-                if not after.issubset(before): raise RuntimeError('removed Job pair scheduled new work')
-                kubectl('-n',namespace,'delete','arprtscreen','b-post')
-                if display(base) != {'status':202}:
-                    raise RuntimeError('empty discovery did not return pending')
-            account = 'system:serviceaccount:' + namespace + ':arprt-arprt'
-            for ns, allowed in [(namespace,True),('default',False)]:
-                result = kubectl('auth','can-i','list','arprtplaylists','-n',ns,'--as='+account,check=False)
-                if (result.stdout.strip()=='yes') != allowed:
-                    raise RuntimeError('playlist RBAC namespace mismatch')
-            print('PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC')
+                after = {
+                    j["metadata"]["name"]
+                    for j in json.loads(
+                        kubectl("-n", namespace, "get", "jobs", "-o", "json").stdout
+                    )["items"]
+                }
+                if not after.issubset(before):
+                    raise RuntimeError("removed Job pair scheduled new work")
+                kubectl("-n", namespace, "delete", "arprtscreen", "b-post")
+                if display(base) != {"status": 202}:
+                    raise RuntimeError("empty discovery did not return pending")
+            account = "system:serviceaccount:" + namespace + ":arprt-arprt"
+            for ns, allowed in [(namespace, True), ("default", False)]:
+                result = kubectl(
+                    "auth",
+                    "can-i",
+                    "list",
+                    "arprtplaylists",
+                    "-n",
+                    ns,
+                    "--as=" + account,
+                    check=False,
+                )
+                if (result.stdout.strip() == "yes") != allowed:
+                    raise RuntimeError("playlist RBAC namespace mismatch")
+            print(
+                "PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC"
+            )
         finally:
             installation.cleanup()
-            print('Disposable Helm test resources removed; existing CRDs untouched')
+            print("Disposable Helm test resources removed; existing CRDs untouched")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

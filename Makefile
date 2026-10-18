@@ -1,5 +1,11 @@
 GO ?= go
+UV ?= uv
 export GOTOOLCHAIN = go1.26.8
+STATICCHECK_VERSION := v0.8.2
+RUFF_VERSION := 0.17.1
+STATICCHECK := $(CURDIR)/bin/staticcheck-$(STATICCHECK_VERSION)/staticcheck
+RUFF := $(UV) tool run --from 'ruff==$(RUFF_VERSION)' ruff
+GO_SOURCE_DIRS := api cmd internal tools
 CONTROLLER_GEN_VERSION := v0.21.0
 ENVTEST_VERSION := v0.24.1
 ENVTEST_K8S_VERSION ?= 1.36.0
@@ -14,7 +20,7 @@ HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke image-benchmark
+.PHONY: generate manifests tools build test vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke image-benchmark
 
 tools: bin/controller-gen
 
@@ -23,6 +29,9 @@ bin/controller-gen:
 
 bin/setup-envtest:
 	GOBIN=$(CURDIR)/bin $(GO) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+
+$(STATICCHECK):
+	GOBIN=$(dir $(STATICCHECK)) $(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
 generate: bin/controller-gen
 	bin/controller-gen object paths=./api/...
@@ -64,11 +73,38 @@ helm-smoke: bin/kind chart-package
 helm-published-smoke: bin/kind $(HELM)
 	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)"
 
-fmt:
-	gofmt -w api cmd internal tools/crd-chart tools/chart-check
+fmt: format-go
+
+format: format-go format-python
+
+format-go:
+	gofmt -w $(GO_SOURCE_DIRS)
+
+format-python:
+	$(RUFF) check --select I --fix .
+	$(RUFF) format .
+
+format-check: format-check-go format-check-python
+
+format-check-go:
+	@files="$$(gofmt -l $(GO_SOURCE_DIRS))" && \
+	if [ -n "$$files" ]; then printf 'Run make format-go to format:\n%s\n' "$$files"; exit 1; fi
+
+format-check-python:
+	$(RUFF) format --check .
+
+lint: lint-go lint-python
+
+lint-go: vet $(STATICCHECK)
+	$(STATICCHECK) ./...
+	$(STATICCHECK) -tags=integration,gray4_native4 ./...
+
+lint-python:
+	$(RUFF) check .
 
 vet:
 	$(GO) vet ./...
+	$(GO) vet -tags=integration,gray4_native4 ./...
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -tags="$(GO_BUILD_TAGS)" -o bin/arprt ./cmd/controller
@@ -81,8 +117,7 @@ verify: manifests release-check
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
 	$(MAKE) chart-check
 	$(GO) mod tidy -diff
-	@test -z "$$(gofmt -l api cmd internal tools/crd-chart tools/chart-check)"
-	$(MAKE) vet test build
+	$(MAKE) lint format-check test build
 
 integration: manifests bin/setup-envtest $(HELM)
 	ARPRT_HELM="$(HELM)" KUBEBUILDER_ASSETS="$$($(CURDIR)/bin/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_BIN) -p path)" $(GO) test -tags=integration -count=1 -v ./internal/integration

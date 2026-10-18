@@ -7,12 +7,15 @@ runtime administration and [RENDERERS](RENDERERS.md) for example usage.
 
 ## Tooling and generated files
 
-Use Go, Make, a C compiler for race tests, Python 3 for examples/smoke/release checks,
-and Docker for images. The [Makefile](../Makefile) selects the Go toolchain and
+Use Go, Make, a C compiler for race tests, Python 3.12 or newer for development
+checks, [uv](https://docs.astral.sh/uv/getting-started/installation/) for Ruff,
+and Docker for images. Install uv and make it available on `PATH` before running
+Python lint or formatting targets; set `UV=/path/to/uv` to select another binary.
+The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest/kind and the kind node image;
-it also pins the Helm 4 client used for chart checks.
+it also pins Staticcheck, Ruff and the Helm 4 client used for chart checks.
 [go.mod](../go.mod) pins dependencies and [CI](../.github/workflows/ci.yaml)
-defines the Kubernetes test version.
+defines the Kubernetes test version and pins the uv version used by CI.
 Use those files when changing versions rather than adding another version list.
 Build tools and envtest binaries are installed under the ignored `bin/` directory.
 
@@ -39,13 +42,37 @@ make verify
 `make test` runs the race suite both with the default two-bit gray4 build and
 with the temporary `gray4_native4` build tag.
 
-`make verify` regenerates deepcopy/CRDs and chart copies, checks their diff, checks module tidiness
-and formatting, checks release guards/digest wiring and both charts (including
-dependencies, templates and packages), then runs vet, all race tests and the
-controller build. It does not run API integration or cluster tests. For API changes, edit types/validation
+`make verify` regenerates deepcopy/CRDs and chart copies, checks their diff and
+module tidiness, checks release guards/digest wiring and both charts (including
+dependencies, templates and packages), then runs Go/Python lint and formatting
+checks, all race tests and the controller build. It does not run API integration
+or cluster tests. For API changes, edit types/validation
 markers in [types.go](../api/v1alpha1/types.go), then run `make manifests` and
 include both the types and generated files in the change. `make generate` only
-regenerates deepcopy code. `make fmt` applies Go formatting.
+regenerates deepcopy code.
+
+```sh
+make lint                 # Go and Python lint
+make lint-go              # go vet and Staticcheck
+make lint-python          # Ruff lint, including import order
+make format-check         # Read-only Go and Python formatting checks
+make format-check-go      # gofmt check
+make format-check-python  # Ruff formatter check
+make format               # Apply Go/Python formatting and Python import sorting
+```
+
+`make format-go` (also `make fmt`) and `make format-python` apply formatting for
+one language. Go formatting covers `api/`, `cmd/`, `internal/` and all of `tools/`.
+Go lint checks both the default build and the combined `integration,gray4_native4`
+tags without starting envtest or a cluster. Ruff checks Python files throughout
+the repository, including tools and example renderers, using [ruff.toml](../ruff.toml).
+The first relevant target installs the pinned Staticcheck binary under `bin/`.
+Ruff runs through `uv tool run` at the version pinned in the Makefile; uv manages
+its isolated environment and cache. No manual virtual environment setup or global
+Python packages are needed. CI installs uv with `astral-sh/setup-uv` and caches
+its downloads using the Makefile as the dependency key.
+Both the pull request/main workflow and release workflow run these checks through
+`make verify`, subject to the prose-only CI scope described above.
 
 The generated-file check compares against the Git index, so it also reports
 intended unstaged generated changes. Review those changes and check that another

@@ -4,18 +4,23 @@
 import argparse
 import io
 import json
-from pathlib import Path
 import secrets
 import struct
 import time
 import urllib.request
 import zlib
+from pathlib import Path
 
 from PIL import Image, ImageOps
 
 
 def chunk(kind, data):
-    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data))
+    )
 
 
 def encode(image):
@@ -27,10 +32,17 @@ def encode(image):
         rows.append(0)
         offset = y * width
         for x in range(0, width, 4):
-            a, b, c, d = pixels[offset + x:offset + x + 4]
-            rows.append(((a // 85) << 6) | ((b // 85) << 4) | ((c // 85) << 2) | (d // 85))
+            a, b, c, d = pixels[offset + x : offset + x + 4]
+            rows.append(
+                ((a // 85) << 6) | ((b // 85) << 4) | ((c // 85) << 2) | (d // 85)
+            )
     header = struct.pack(">IIBBBBB", width, height, 2, 0, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(rows, 9))
+        + chunk(b"IEND", b"")
+    )
 
 
 def render(context, source=None, palette="gray4"):
@@ -38,11 +50,17 @@ def render(context, source=None, palette="gray4"):
     if palette not in ("gray4", "bw", "rgb"):
         raise ValueError("Expected output palette gray4, bw or rgb")
     target_palettes = ("gray4", "spectra6") if palette == "rgb" else ("gray4",)
-    if context["version"] != "v1" or any(
-        target.get(key) != value
-        for key, value in {"width": 800, "height": 480}.items()
-    ) or target.get("palette") not in target_palettes:
-        raise ValueError("Expected Render Context v1 for 800 x 480 / " + " or ".join(target_palettes))
+    if (
+        context["version"] != "v1"
+        or any(
+            target.get(key) != value
+            for key, value in {"width": 800, "height": 480}.items()
+        )
+        or target.get("palette") not in target_palettes
+    ):
+        raise ValueError(
+            "Expected Render Context v1 for 800 x 480 / " + " or ".join(target_palettes)
+        )
     rotation = target.get("rotation", 0)
     if type(rotation) is not int or rotation not in (0, 90, 180, 270):
         raise ValueError("Expected rotation 0, 90, 180 or 270")
@@ -51,7 +69,9 @@ def render(context, source=None, palette="gray4"):
     if source is None:
         # A fresh random query bypasses cached redirects without sending device data.
         url = f"https://picsum.photos/{size[0]}/{size[1]}.jpg?random={secrets.token_hex(16)}"
-        request = urllib.request.Request(url, headers={"User-Agent": "arprt-picsum/1.0"})
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "arprt-picsum/1.0"}
+        )
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(request, timeout=20) as response:
@@ -68,8 +88,11 @@ def render(context, source=None, palette="gray4"):
     if photo_id not in ("local", "unknown"):
         photo_ref += f" (https://picsum.photos/id/{photo_id}/{size[0]}/{size[1]})"
     with Image.open(io.BytesIO(source)) as photo:
-        fitted = ImageOps.fit(ImageOps.exif_transpose(photo).convert("RGB" if palette == "rgb" else "L"),
-                              size, method=Image.Resampling.LANCZOS)
+        fitted = ImageOps.fit(
+            ImageOps.exif_transpose(photo).convert("RGB" if palette == "rgb" else "L"),
+            size,
+            method=Image.Resampling.LANCZOS,
+        )
     if palette == "rgb":
         if rotation:
             fitted = fitted.rotate(-rotation, expand=True)
@@ -78,28 +101,43 @@ def render(context, source=None, palette="gray4"):
         png = output.getvalue()
         # This is renderer input, not device-ready output. The controller owns
         # palette conversion, dithering, overlays and the final device budget.
-        print(f"Rendered Picsum photo {photo_ref}: 800x480 rgb input, {len(png)} bytes", flush=True)
+        print(
+            f"Rendered Picsum photo {photo_ref}: 800x480 rgb input, {len(png)} bytes",
+            flush=True,
+        )
         return png
     gray = fitted
     gray = ImageOps.autocontrast(gray, cutoff=0.5)
     shades = (0, 255) if palette == "bw" else (0, 85, 170, 255)
     quantization_palette = Image.new("P", (1, 1))
-    quantization_palette.putpalette([v for shade in shades for v in (shade,) * 3] + [255] * ((256 - len(shades)) * 3))
+    quantization_palette.putpalette(
+        [v for shade in shades for v in (shade,) * 3]
+        + [255] * ((256 - len(shades)) * 3)
+    )
     # Floyd-Steinberg keeps gradients visible with the selected physical shades.
-    quantized = gray.convert("RGB").quantize(palette=quantization_palette, dither=Image.Dither.FLOYDSTEINBERG).convert("L")
+    quantized = (
+        gray.convert("RGB")
+        .quantize(palette=quantization_palette, dither=Image.Dither.FLOYDSTEINBERG)
+        .convert("L")
+    )
     if rotation:
         quantized = quantized.rotate(-rotation, expand=True)
     png = encode(quantized)
     if len(png) >= 90_000:
         # High-frequency photos can exceed the device's compressed-image budget.
         step = 255 // (len(shades) - 1)
-        quantized = gray.point(lambda value: min(len(shades) - 1, (value + step // 2) // step) * step)
+        quantized = gray.point(
+            lambda value: min(len(shades) - 1, (value + step // 2) // step) * step
+        )
         if rotation:
             quantized = quantized.rotate(-rotation, expand=True)
         png = encode(quantized)
     if len(png) >= 90_000:
         raise ValueError("PNG exceeds device size limit")
-    print(f"Rendered Picsum photo {photo_ref}: 800x480 {palette}, {len(png)} bytes", flush=True)
+    print(
+        f"Rendered Picsum photo {photo_ref}: 800x480 {palette}, {len(png)} bytes",
+        flush=True,
+    )
     return png
 
 
@@ -108,8 +146,12 @@ def main():
     parser.add_argument("--context", default="/arprt/context.json")
     parser.add_argument("--output", default="/arprt/output.png")
     parser.add_argument("--input", help="Use a local JPEG for offline checks")
-    parser.add_argument("--palette", choices=("gray4", "bw", "rgb"), default="gray4",
-                        help="gray4/bw write a 2-bit PNG; rgb delegates device palette conversion to arprt")
+    parser.add_argument(
+        "--palette",
+        choices=("gray4", "bw", "rgb"),
+        default="gray4",
+        help="gray4/bw write a 2-bit PNG; rgb delegates device palette conversion to arprt",
+    )
     args = parser.parse_args()
     context = json.loads(Path(args.context).read_text())
     source = Path(args.input).read_bytes() if args.input else None

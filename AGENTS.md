@@ -43,7 +43,8 @@ decision, and do not treat their old defaults or deployment state as current.
 
 ## Checks
 
-- `make verify` checks generation/dependencies/formatting, vet, race tests and build.
+- `make verify` checks generation/dependencies, Go/Python lint and formatting,
+  race tests and build.
 - API/CRD or reconciliation changes also need envtest on the CI Kubernetes version:
   `make integration ENVTEST_K8S_VERSION=1.36.0`.
 - Use the relevant cluster smoke checks for Job/PVC/deployment behavior; see
