@@ -26,16 +26,12 @@ def load(name, file):
 
 release = load("release_image", "release-image.py")
 SHA = "a" * 40
-MESSAGE = (
-    f"Physical-device-acceptance: {SHA}\nPhysical-device-date: 2026-10-08\nPhysical-device-scope: {release.SCOPE}\n"
-    "Physical-device-og-firmware: synthetic fixed v9.0.0\nPhysical-device-e1002-firmware: synthetic v9.0.0\n"
-)
 
 
 class ReleaseGateTests(unittest.TestCase):
-    def test_versions_and_physical_scope(self):
-        for tag in ["v0.1.0", "v1.2.3-rc.1", "v1.0.0-alpha-1"]:
-            self.assertEqual(release.validate_tag(tag, SHA, MESSAGE), tag[1:])
+    def test_release_versions(self):
+        for tag in ["v0.2.0", "v1.2.3-rc.1", "v1.0.0-alpha-1"]:
+            self.assertEqual(release.validate_tag(tag), tag[1:])
         for tag in [
             "latest",
             "v01.0.0",
@@ -45,40 +41,7 @@ class ReleaseGateTests(unittest.TestCase):
             "v1.0.0-rc.01",
         ]:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
-                release.validate_tag(tag, SHA, MESSAGE)
-        for message in [
-            "",
-            MESSAGE.replace(SHA, "b" * 40),
-            MESSAGE.replace(release.SCOPE, release.LEGACY_SCOPE),
-            MESSAGE.replace("2026-10-08", "2099-01-01"),
-            MESSAGE + MESSAGE,
-            MESSAGE.replace("2026-10-08", "2026-02-30"),
-        ]:
-            with self.subTest(message=message), self.assertRaises(ValueError):
-                release.validate_tag("v0.1.0", SHA, message)
-
-    def test_new_scope_requires_both_exact_firmware_annotations(self):
-        for name in release.FIRMWARE_FIELDS:
-            line = next(
-                line
-                for line in MESSAGE.splitlines(keepends=True)
-                if line.startswith(name + ": ")
-            )
-            for message in (
-                MESSAGE.replace(line, ""),
-                MESSAGE + line,
-                MESSAGE.replace(line, name + ": \n"),
-                MESSAGE.replace(line, name + ": <accepted firmware>\n"),
-            ):
-                with self.subTest(name=name), self.assertRaises(ValueError):
-                    release.validate_tag("v1.0.0", SHA, message)
-        legacy = MESSAGE.replace(release.SCOPE, release.LEGACY_SCOPE)
-        legacy = "\n".join(
-            line
-            for line in legacy.splitlines()
-            if not line.startswith(release.FIRMWARE_FIELDS)
-        )
-        release.validate_tag("v0.1.0", SHA, legacy, allow_legacy_scope=True)
+                release.validate_tag(tag)
 
     def test_tag_must_be_annotated_on_main_and_checked_out(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -96,24 +59,31 @@ class ReleaseGateTests(unittest.TestCase):
             git("commit", "--allow-empty", "-m", "main")
             main_sha = git("rev-parse", "HEAD")
             git("update-ref", "refs/remotes/origin/main", main_sha)
-            git("tag", "-a", "v0.1.0", "-m", MESSAGE.replace(SHA, main_sha))
+            git("tag", "-a", "v0.2.0", "-m", "arprt v0.2.0")
             with chdir(directory):
+                output = Path(directory) / "outputs"
                 with patch.dict(
                     release.os.environ,
-                    {"GITHUB_OUTPUT": str(Path(directory) / "outputs")},
+                    {"GITHUB_OUTPUT": str(output)},
                 ):
-                    release.guard("v0.1.0")
-                git("tag", "v0.2.0")
-                with self.assertRaises(ValueError):
                     release.guard("v0.2.0")
+                self.assertEqual(
+                    output.read_text(),
+                    f"tag=v0.2.0\nversion=0.2.0\nrevision={main_sha}\n",
+                )
+                git("tag", "v0.2.1")
+                with self.assertRaisesRegex(ValueError, "annotated tag"):
+                    release.guard("v0.2.1")
+                git("tag", "-a", "v01.0.0", "-m", "invalid version")
+                with self.assertRaisesRegex(ValueError, "vMAJOR.MINOR.PATCH"):
+                    release.guard("v01.0.0")
                 git("checkout", "-b", "other")
                 git("commit", "--allow-empty", "-m", "outside main")
-                other_sha = git("rev-parse", "HEAD")
-                git("tag", "-a", "v0.3.0", "-m", MESSAGE.replace(SHA, other_sha))
+                git("tag", "-a", "v0.3.0", "-m", "arprt v0.3.0")
                 with self.assertRaises(subprocess.CalledProcessError):
                     release.guard("v0.3.0")
-                with self.assertRaises(ValueError):
-                    release.guard("v0.1.0")
+                with self.assertRaisesRegex(ValueError, "exact tagged commit"):
+                    release.guard("v0.2.0")
 
     def test_existing_tags_and_authentication_failures_rejected(self):
         result = subprocess.CompletedProcess(

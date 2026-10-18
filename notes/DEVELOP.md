@@ -407,7 +407,7 @@ replacement and failure preservation; avoid tests that merely repeat code.
 | Capacity, corruption, GC, metrics, logs or distribution | `operations-smoke.py` |
 | Image processing, profiles, palettes or resource admission | `image-smoke.py`, plus the existing HTTP/Job/playlist/operations suites |
 | Docker/manifests/examples | Docker build and relevant Helm/cluster checks |
-| Release | Full software matrix and relevant physical-device acceptance |
+| Release | Full software/native/anonymous distribution matrix; no physical-device tests |
 
 ```sh
 make integration ENVTEST_K8S_VERSION=1.36.0
@@ -505,46 +505,34 @@ Use the published image index digest for installations that support both
 architectures. `--version` also records the full source commit, matching OCI
 revision metadata. Development images default to version `dev`.
 
-Before tagging, merge the intended revision into `main`, run the full software
-matrix, and complete the applicable [physical acceptance](#physical-device-regression)
-on that exact revision with corrected-expansion OG firmware and E1002. Record
-the exact firmware version and distribution for each model. A full baseline can
-be reused only for the same firmware/distribution tuple and the changes permitted below; current-image installation
-checks still apply. For the physical
-check, build the revision with its intended version:
+Before tagging, merge the intended revision into `main` and run the full software
+matrix. Release preparation and publication do not include physical-device
+testing, including corrected-gray4 OG firmware and E1002 checks. Neither new
+hardware observations nor reuse of a physical baseline is required. Historical
+observations and optional hardware procedures remain separate evidence for
+[device support claims](../README.md#security-and-support-boundary); software
+acceptance does not establish panel behavior.
+
+For a release build before tagging, use its intended version:
 
 ```sh
-make docker-build IMAGE=arprt:release-check VERSION=0.1.0
+make docker-build IMAGE=arprt:release-check VERSION=0.2.0
 ```
 
-Record environment and observation scope privately, without credentials or real
-identities. After acceptance, create an annotated tag whose message attests the
-revision, JST date, required scope and exact firmware/distribution (replace the
-example version/date and both firmware placeholders; choose
-an unused version):
+After software validation, create an annotated tag on the intended revision
+(use an unused version). No physical-device attestation, firmware annotation or
+acceptance date is required:
 
 ```sh
 arprt_release_revision="$(git rev-parse HEAD)"
-cat > /tmp/arprt-release-tag.txt <<EOF
-arprt v0.1.0
-
-Physical-device-acceptance: $arprt_release_revision
-Physical-device-date: 2026-10-13
-Physical-device-scope: OG corrected gray4 firmware + E1002; DEVELOP physical-device regression
-Physical-device-og-firmware: <accepted OG distribution, version and source revision>
-Physical-device-e1002-firmware: <accepted E1002 distribution, version and source revision>
-Physical-device-mode: full
-EOF
-git tag -a v0.1.0 "$arprt_release_revision" -F /tmp/arprt-release-tag.txt
-rm /tmp/arprt-release-tag.txt
-git push origin refs/tags/v0.1.0
+git tag -a v0.2.0 "$arprt_release_revision" -m "arprt v0.2.0"
+git push origin refs/tags/v0.2.0
 ```
 
-The annotation is an operator attestation, not automated proof of hardware
-behavior. The workflow rejects lightweight tags, invalid versions, missing
-attestations, a checkout different from the tagged commit, and commits outside
-`origin/main`. It explicitly runs `make verify` and envtest on Kubernetes 1.36.0
-alongside independent Docker Buildx/cluster jobs on that exact commit on native
+The workflow rejects lightweight tags, invalid versions, a checkout different
+from the tagged commit, and commits outside `origin/main`. It explicitly runs
+`make verify` and envtest on Kubernetes 1.36.0 alongside independent Docker
+Buildx/cluster jobs on that exact commit on native
 `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Publication requires all
 of these jobs to pass. Both the pre-publication and anonymous acceptance runs
 retain the complete five-suite cluster matrix. These are
@@ -597,7 +585,7 @@ If an anonymous check fails before visibility is changed, set all three packages
 public and rerun acceptance only:
 
 ```sh
-gh workflow run release-image.yaml --ref v0.1.0 -f tag=v0.1.0 \
+gh workflow run release-image.yaml --ref v0.2.0 -f tag=v0.2.0 \
   -f digest=sha256:<published-index-digest>
 ```
 
@@ -661,8 +649,9 @@ regeneration. When intentionally changing a dependency version, update the exact
 parent dependency and regenerate/review `Chart.lock` with the pinned Helm client;
 normal `make chart-dependencies` rebuilds archives while requiring that lock to
 stay unchanged. Run the chart checks, API integration, Docker build and full
-Helm lifecycle/smoke matrix described above against the intended image. Preserve
-the image release's physical-device acceptance requirements. `make chart-package`
+Helm lifecycle/smoke matrix described above against the intended image.
+Physical-device tests are outside release preparation and publication.
+`make chart-package`
 (also included by `chart-check` and `helm-smoke`) writes the standalone CRD archive
 and parent archive containing its pinned dependency. Keep the exact archives
 exercised by the checks for distribution.
@@ -697,9 +686,10 @@ digests plus downloaded archive hashes in `distribution.json`. The subsequent
 full lifecycle/five-suite matrix pulls those chart digests with no local-source
 fallback, checks their recorded archive hashes, and normalizes Helm's digest-based
 filenames for the existing suite helpers. Both architectures must report identical distribution records before
-the announcement job creates a GitHub release. Registry uploads, local checks
-and physical acceptance each retain their distinct scope. No workflow change
-waives the annotated tag's physical-device requirements.
+the announcement job creates a GitHub release. Registry uploads and software
+acceptance do not attest physical-device behavior.
+Release notes describe the completed software checks and explicitly state that
+the workflow does not attest physical-device checks.
 
 ## Integrated image acceptance
 
@@ -827,56 +817,19 @@ Record the source revision/image, environment, date and observation scope.
 Keep credentials and real identities out of reports. Restore temporary assignments,
 polling settings and renderers after the check.
 
-### Selecting physical acceptance
+### Hardware evidence and publication
 
-Keep the candidate model/firmware/distribution tuple fixed during each session.
-An initial release, a new tuple,
-runtime/PNG/rendering/overlay/assignment/credential/storage changes, dependencies,
-Dockerfile, Makefile, examples/fixtures or unknown paths require the full numbered
-regression below. Do not infer display correctness or new hardware support from CI.
+The procedures below are references for optional hardware investigations and
+future support claims. They are not part of release preparation or publication,
+and the release guard does not select a physical scope or require baseline
+reuse. Release tags need no `Physical-device-*` annotations.
 
-For documentation, CI/harness, Go test-only or installation changes under
-`charts` and `examples/networking/envoy-gateway`, reuse a full accepted release
-baseline when the committed trees contain no other changes. Select it with:
-
-```sh
-python3 tools/release-image.py physical-scope v0.1.0
-```
-
-The command compares committed Git trees, not uncommitted edits. It validates
-the baseline's annotation and main ancestry, reports `full` or `reuse`, and
-lists paths that require full regression. Deleted and renamed paths are checked.
-It never attests that a device passed a test. Reuse must refer directly to a full
-baseline, not to a chain of reused releases; legacy tags without a mode count as
-full acceptance. The historical OG / 1.8.17 scope remains readable but always
-requires full acceptance of the corrected-gray4 OG and E1002 contract, even when
-no runtime paths changed. It cannot be reused as evidence for the new scope.
-Record that baseline, its tuple/date, the changed paths and
-current installation observations privately.
-
-In reuse mode, build/deploy the exact current revision/image through the intended
-installation, check readiness, setup/key reuse and authenticated TLS image
-delivery, fetch a previously issued URL after restart, and confirm normal device
-content/current telemetry/overlay readability visually. Restore the normal
-assignment and polling interval. A firmware/model change, unexplained failure or
-uncertain baseline requires full regression. Use the normal image polling
-interval; no four-corner/rotation/outage tour is required in reuse mode.
-
-After those checks, keep the exact current revision, date and scope fields in
-the tag and replace its full-mode line with:
-
-```text
-Physical-device-mode: reuse
-Physical-device-baseline: v0.1.0
-Physical-device-installation: passed
-```
-
-The release guard rejects reuse if runtime inputs or firmware/distribution differ,
-the baseline has the historical scope or is not a
-full accepted ancestor on main, installation acceptance is absent or its date
-predates the baseline. GitHub release notes distinguish full regression from
-current installation checks with baseline reuse. Full software/native/anonymous
-acceptance remains required for both modes.
+Keep the candidate model/firmware/distribution tuple fixed when collecting new
+hardware evidence. Record the exact source revision/image, firmware/distribution,
+date and observed scope privately. Historical observations apply only to their
+recorded tuple and scope; do not infer panel correctness, corrected gray4
+expansion or E1002 acceptance from software CI or a published chart. Change
+README hardware support claims only when observations support them.
 
 ### Full regression procedure
 

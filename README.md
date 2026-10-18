@@ -145,7 +145,7 @@ transfer CRD ownership. See
 
 ## Security and support boundary
 
-The accepted public release's verified physical baseline is
+The historically verified physical baseline is
 **TRMNL OG / firmware 1.8.17 / 800 × 480 gray4** on Linux,
 Kubernetes **1.36.0+ within minor 1.36**, one namespace and one active controller.
 Use a POSIX filesystem RWO PVC with same-node renderer mounts, atomic rename,
@@ -153,6 +153,10 @@ fsync and advisory locking. The supplied Deployment runs as UID/GID 1000 with
 Recreate rollout and namespace-scoped RBAC. Job mode rejects RWOP, RWX, block
 volumes and subtree mounts. Other devices/firmware, Kubernetes minors, storage
 backends, multiple active replicas and multi-node failover are unverified.
+
+Release preparation and publication use software validation and do not include
+physical-device testing. Publishing an image or chart does not extend the
+recorded hardware verification below.
 
 Runtime model profiles include OG and reTerminal E1001–E1004 with gray4, gray16
 and Spectra 6 outputs. These profiles are source reviewed and software tested;
@@ -208,8 +212,8 @@ images. The controller normalizes to the resolved Device display using Screen
 (`atkinson`/`floyd-steinberg`/`bayer`/`none`); defaults are contain/Atkinson.
 Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
 are drawn afterwards. Generated gray4 temporarily uses native two-bit PNG;
-the opt-in four-bit build assumes corrected firmware expansion and needs new
-physical acceptance, separate from the historical OG / 1.8.17 baseline.
+the opt-in four-bit build assumes corrected firmware expansion and has not been
+physically accepted. The historical OG / 1.8.17 baseline does not validate it.
 GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending. Firmware can retain the previous image
