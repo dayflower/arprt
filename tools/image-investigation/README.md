@@ -1,9 +1,10 @@
 # Image processing investigation
 
-These experiments inform the proposed processing design in
-[DESIGN](../../notes/DESIGN.md#image-processing-design-before-integration).
+These experiments inform the image-processing design in
+[DESIGN](../../notes/DESIGN.md#image-processing).
 They do not change the controller, establish physical support, or replace the
-integration and deployment acceptance required when the pipeline is connected.
+production software and deployment checks in
+[DEVELOP](../../notes/DEVELOP.md#integrated-image-acceptance).
 
 Run from the repository root with Python 3, a C++ compiler and the Go toolchain
 selected by the Makefile. Firmware downloads are public pinned sources, verified
@@ -30,7 +31,7 @@ model aliases.
 
 The Go probe generates legal PNG combinations and both APNG layouts without an
 external imaging library. The measured pipeline is an experimental stretch /
-bilinear / Lab / row-error implementation, not the future production
+bilinear / Lab / row-error implementation, separate from the production
 implementation. It processes the complete output rectangle and uses a synthetic
 palette overlay; production contain layout and overlay drawing need their own
 integration checks.
@@ -58,5 +59,5 @@ output contract. The probe deliberately reports oversized outputs instead of
 altering dithering to fit a budget. Production must reject those outputs.
 Cancellation measurements wait for the synchronous operation to finish; there
 is no detached worker continuing after a timeout response. The Go decoder's
-row/pass work between Reader calls still needs adversarial and native arm64
-latency checks during integration, as DESIGN records.
+row/pass work between Reader calls requires adversarial and native-architecture
+latency checks when changing the decoder/toolchain, as DESIGN records.

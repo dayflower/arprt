@@ -21,6 +21,8 @@ Runtime model profiles include OG and reTerminal E1001–E1004 with gray4, gray1
 and Spectra 6 outputs. These profiles are source reviewed and software tested;
 full physical acceptance remains pending. E1002 has
 [initial six-color and delivery observations](notes/DEVELOP.md#image-processing-physical-observations).
+Remaining hardware sessions are tracked in
+[physical checks](notes/DEVELOP.md#remaining-image-processing-physical-checks).
 Native four-bit gray4 output assumes corrected firmware expansion: physical
 testing confirmed corrupted grayscale on OG / 1.8.17. Normal builds temporarily
 use two-bit gray4 for all four shades; the four-bit path remains behind a

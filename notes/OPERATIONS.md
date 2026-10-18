@@ -28,7 +28,9 @@ compatible prior-policy image may remain a stale fallback. Previously issued
 URLs retain their original immutable bytes. Legacy active Jobs become obsolete
 under the new processing revision and are cancelled before replacement; completed
 current attempts remain recoverable across restart. Physical acceptance of new
-profiles and corrected gray4 firmware remains a separate gate.
+profiles and corrected gray4 firmware is tracked in
+[DEVELOP](DEVELOP.md#remaining-image-processing-physical-checks), separately from
+the completed implementation.
 
 OG firmware 1.8.17 showed corrupted grayscale with native four-bit output in
 [physical testing](DEVELOP.md#image-processing-physical-observations). Normal

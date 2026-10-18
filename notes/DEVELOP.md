@@ -606,9 +606,15 @@ with the source revision, image digest, architecture, CPU model and node image; 
 CI and image acceptance run the five-suite matrix on native linux/amd64 and
 linux/arm64. A local amd64 run or an emulated arm64 build does not attest native
 arm64 performance. Source/host decoder probes, software cluster checks and
-physical display observations are distinct acceptance layers. Until the native
-resource runs and physical sessions pass for the candidate, retain the proposal
-and plan and do not expand the support claim.
+physical display observations are distinct acceptance layers. Preserve native
+architecture/resource checks for processing changes and releases, with their raw
+CI/run artifacts. Current requirements and rationale are maintained in
+[PROTOCOL](PROTOCOL.md#png-contract), [DESIGN](DESIGN.md#image-processing),
+[RENDERERS](RENDERERS.md#choosing-a-source),
+[OVERLAYS](OVERLAYS.md#image-and-artifact-guarantees) and
+[OPERATIONS](OPERATIONS.md#image-processing-resources). Implementation is complete;
+the remaining physical checks below are tracked independently of documentation
+integration and do not expand the verified support claim until accepted.
 
 ### Image-processing physical observations
 
@@ -654,8 +660,24 @@ it does not accept the opt-in native four-bit path on firmware 1.8.17.
 These are initial color/delivery,
 repeated polling and restart observations, not complete acceptance of physical
 sleep/wake, outage/pending recovery or OG's new native four-bit grayscale output.
-Full OG regression, remaining E1002 sessions and native arm64 resource acceptance
-remain required. E1001, E1003 and E1004 have no physical acceptance recorded.
+Full OG regression and remaining E1002 sessions remain required. E1001, E1003 and
+E1004 have no physical acceptance recorded.
+
+### Remaining image-processing physical checks
+
+| Target | Remaining confirmation |
+| --- | --- |
+| OG, temporary two-bit default | Complete the full regression below for the selected candidate, including ordinary timer sleep/wake, outage/pending recovery and overlays; retain the known color-count heuristic limitation. |
+| OG, `gray4_native4` | Use firmware with corrected grayscale expansion, record its exact revision/distribution and complete native four-bit grayscale and full regression checks. Firmware 1.8.17 does not accept this path. |
+| E1002 | Complete the E1002 sessions below beyond the recorded initial colors, polling and restart observations, including sleep/wake, stale delivery, pending and recovery. |
+| E1001, E1003, E1004 | Physical acceptance is unavailable until hardware sessions occur; retain the source-reviewed/software-tested distinction. |
+
+Keep candidate source revision/image, model, firmware/distribution, date and
+observation scope with each result. Record visual confirmation separately from
+PNG metadata and authenticated fetches. Update README support claims only for
+the accepted scope. After corrected-firmware acceptance, remove the temporary
+gray4 build switch in a separate implementation change and rerun its applicable
+software and physical checks.
 
 ## Physical-device regression
 
@@ -735,7 +757,9 @@ or interruption. An observer should report the first unexpected screen promptly.
 2. Display all-black/all-white, four gray bands and intermediate grays only on
    the final row in grayscale, then indexed encoding; confirm levels and
    orientation visually. Inspect the delivered whole-image depth first: native
-   gray4 with intermediate gray must be four-bit. Verify filename reuse for
+   gray4 with intermediate gray must be four-bit in a `gray4_native4` build;
+   the temporary default instead uses two-bit and retains its documented
+   color-count heuristic limitation. Verify filename reuse for
    identical bytes and a different filename for changed bytes.
 3. Verify POST shows current observed voltage/RSSI, without inferred percentage.
    Verify mixed GET/POST/Job playlist order and name-sorted discovery; check Job
