@@ -2,7 +2,6 @@
 """Gate immutable releases and record anonymously verified GHCR image digests."""
 
 import argparse
-import datetime
 import hashlib
 import json
 import os
@@ -13,156 +12,36 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from check_scope import physical_changes
-
 SEMVER = r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
-LEGACY_SCOPE = "OG / firmware 1.8.17; DEVELOP physical-device regression"
-SCOPE = "OG corrected gray4 firmware + E1002; DEVELOP physical-device regression"
-FIRMWARE_FIELDS = ("Physical-device-og-firmware", "Physical-device-e1002-firmware")
-
-
-def field(message, name, default=None):
-    values = [
-        line.removeprefix(name + ": ")
-        for line in message.splitlines()
-        if line.startswith(name + ": ")
-    ]
-    if len(values) > 1:
-        raise ValueError("duplicate annotation field: " + name)
-    return values[0] if values else default
 
 
 def run(*args):
     return subprocess.check_output(args, text=True).strip()
 
 
-def validate_tag(tag, revision, message, *, allow_legacy_scope=False):
+def validate_tag(tag):
     if not re.fullmatch("v" + SEMVER, tag):
         raise ValueError(
             "release tag must be vMAJOR.MINOR.PATCH with optional SemVer prerelease"
         )
-    lines = message.splitlines()
-    if lines.count("Physical-device-acceptance: " + revision) != 1:
-        raise ValueError(
-            "annotated tag must attest physical acceptance of this exact revision"
-        )
-    scope = field(message, "Physical-device-scope")
-    if scope != SCOPE and not (allow_legacy_scope and scope == LEGACY_SCOPE):
-        raise ValueError(
-            "annotated tag must record the required physical-device regression scope"
-        )
-    if scope == SCOPE:
-        for name in FIRMWARE_FIELDS:
-            value = field(message, name, "")
-            if (
-                not value.strip()
-                or value != value.strip()
-                or len(value) > 256
-                or any(c in value for c in "<>\t\r")
-                or value.lower() in ("unknown", "pending", "unavailable")
-            ):
-                raise ValueError(
-                    "annotated tag must record exact firmware and distribution: " + name
-                )
-    dates = [
-        line.removeprefix("Physical-device-date: ")
-        for line in lines
-        if line.startswith("Physical-device-date: ")
-    ]
-    if len(dates) != 1 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", dates[0]):
-        raise ValueError(
-            "annotated tag must record one YYYY-MM-DD physical acceptance date (JST)"
-        )
-    date = datetime.date.fromisoformat(dates[0])
-    if (
-        date
-        > datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).date()
-    ):
-        raise ValueError("physical acceptance date must not be in the future")
-    mode = field(message, "Physical-device-mode", "full")
-    baseline = field(message, "Physical-device-baseline")
-    if mode not in ("full", "reuse"):
-        raise ValueError("physical acceptance mode must be full or reuse")
-    if mode == "reuse":
-        if not baseline or field(message, "Physical-device-installation") != "passed":
-            raise ValueError(
-                "baseline reuse requires its release tag and current-revision installation acceptance"
-            )
-    elif baseline is not None:
-        raise ValueError("full acceptance must not declare baseline reuse")
     return tag[1:]
 
 
-def physical_scope(baseline, revision):
-    if not re.fullmatch("v" + SEMVER, baseline):
-        raise ValueError("physical baseline must be a release version tag")
-    ref = "refs/tags/" + baseline
-    if run("git", "cat-file", "-t", ref) != "tag":
-        raise ValueError("physical baseline must be annotated")
-    base_revision = run("git", "rev-parse", ref + "^{commit}")
-    message = run("git", "for-each-ref", "--format=%(contents)", ref)
-    validate_tag(baseline, base_revision, message, allow_legacy_scope=True)
-    if field(message, "Physical-device-mode", "full") != "full":
-        raise ValueError(
-            "reuse must refer directly to a full physical acceptance, not another reuse"
-        )
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base_revision, "origin/main"], check=True
-    )
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base_revision, revision], check=True
-    )
-    changed = physical_changes(base_revision, revision)
-    scope_changed = field(message, "Physical-device-scope") != SCOPE
-    return {
-        "mode": "full" if changed or scope_changed else "reuse",
-        "baseline": baseline,
-        "baselineRevision": base_revision,
-        "revision": revision,
-        "physicalChanges": changed,
-        "baselineDate": field(message, "Physical-device-date"),
-        "scopeChanged": scope_changed,
-        "firmware": {name: field(message, name) for name in FIRMWARE_FIELDS},
-    }
-
-
 def guard(tag):
+    version = validate_tag(tag)
     ref = "refs/tags/" + tag
     if run("git", "cat-file", "-t", ref) != "tag":
-        raise ValueError(
-            "release requires an annotated tag with physical-device acceptance"
-        )
+        raise ValueError("release requires an annotated tag")
     revision = run("git", "rev-parse", ref + "^{commit}")
     if revision != run("git", "rev-parse", "HEAD"):
         raise ValueError("checkout must be the exact tagged commit")
     subprocess.run(
         ["git", "merge-base", "--is-ancestor", revision, "origin/main"], check=True
     )
-    message = run("git", "for-each-ref", "--format=%(contents)", ref)
-    version = validate_tag(tag, revision, message)
-    mode = field(message, "Physical-device-mode", "full")
-    baseline = field(message, "Physical-device-baseline", "")
-    if mode == "reuse":
-        scope = physical_scope(baseline, revision)
-        if scope["mode"] != "reuse":
-            raise ValueError(
-                "runtime/unknown changes or a legacy scope require full physical regression: "
-                + ", ".join(scope["physicalChanges"])
-            )
-        if any(
-            field(message, name) != scope["firmware"][name] for name in FIRMWARE_FIELDS
-        ):
-            raise ValueError(
-                "firmware/distribution changes require full physical regression"
-            )
-        if field(message, "Physical-device-date") < scope["baselineDate"]:
-            raise ValueError("installation acceptance cannot predate its full baseline")
     outputs = {
         "tag": tag,
         "version": version,
         "revision": revision,
-        "physical_mode": mode,
-        "physical_baseline": baseline,
     }
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
@@ -291,22 +170,12 @@ def main():
     free = commands.add_parser("unused")
     free.add_argument("repository")
     free.add_argument("tag")
-    physical = commands.add_parser("physical-scope")
-    physical.add_argument(
-        "baseline", help="annotated release with full physical acceptance"
-    )
     check = commands.add_parser("inspect")
     for argument in ["repository", "tag", "digest", "revision", "output"]:
         check.add_argument(argument)
     args = parser.parse_args()
     if args.command == "guard":
         guard(args.tag)
-    elif args.command == "physical-scope":
-        print(
-            json.dumps(
-                physical_scope(args.baseline, run("git", "rev-parse", "HEAD")), indent=2
-            )
-        )
     elif args.command == "unused":
         unused(args.repository, args.tag)
     else:

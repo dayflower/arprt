@@ -469,10 +469,12 @@ Remove this switch after the firmware migration. Build commands are in
 The English rationale beside the shared encoding decision
 links to the pinned callback above. Row 430 is firmware evidence, never a
 controller scan limit. Native 4-bit assumes corrected expansion: v1.8.17's
-existing physical baseline cannot validate it. New OG acceptance must record
-the actual corrected firmware revision and user visual observations; do not
-introduce a runtime firmware gate or an indexed workaround. E1002 also needs
-physical acceptance. E1001/E1003/E1004 remain source reviewed only.
+existing physical baseline cannot validate it. Any future OG acceptance must
+record the actual corrected firmware revision and user visual observations;
+do not introduce a runtime firmware gate or an indexed workaround. Full E1002
+physical acceptance remains unrecorded. These observations concern hardware
+support claims and are outside release preparation and publication.
+E1001/E1003/E1004 remain source reviewed only.
 
 ### Shared PNG foundations
 

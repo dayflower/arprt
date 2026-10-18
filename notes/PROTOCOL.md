@@ -307,7 +307,8 @@ Native 4-bit assumes corrected firmware expansion; the historical OG / 1.8.17
 physical baseline does not validate this encoding. See the
 [temporary build switch](DEVELOP.md#temporary-gray4-encoding-switch). The build
 modes have different encoder identities for freshness, replay and derived
-caches. New physical acceptance remains required; this switch does not expand
+caches. Physical observations are needed before claiming corrected-firmware
+support; they are not a publication prerequisite. This switch does not expand
 verified device support.
 
 Processing has a 10-second bound after reception/collection, further bounded

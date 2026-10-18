@@ -181,4 +181,4 @@ acceptance from published charts are gated by the
 
 Image-processing resource acceptance uses the actual default controller limits;
 see [integrated image acceptance](../../notes/DEVELOP.md#integrated-image-acceptance)
-for native benchmark records, kernel peak/OOM checks and physical-support gates.
+for native benchmark records, kernel peak/OOM checks and hardware evidence.
