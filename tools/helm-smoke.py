@@ -7,6 +7,7 @@ production charts and the matching-schema smoke suites.
 
 import argparse
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -64,21 +65,62 @@ def packages(args, directory, env):
             "@sha256:" in args.image,
             "published acceptance requires the image index digest",
         )
+        record_path = getattr(args, "distribution_record", None)
+        record = json.loads(Path(record_path).read_text()) if record_path else None
         require(
-            args.oci_repository.startswith("oci://") and args.chart_version,
-            "published acceptance requires OCI repository and chart version",
+            args.oci_repository.startswith("oci://") and (args.chart_version or record),
+            "published acceptance requires OCI repository and chart version or record",
         )
+        if record:
+            require(
+                record["image"] + "@" + record["indexDigest"] == args.image,
+                "distribution record image differs from the requested image",
+            )
         for name in ("arprt", "arprt-crds"):
+            reference = args.oci_repository.rstrip("/") + "/" + name
+            version = (
+                getattr(args, "crd_chart_version", None) or args.chart_version
+                if name == "arprt-crds"
+                else args.chart_version
+            )
+            pull_destination = destination
+            if record:
+                published = record["charts"][name]
+                require(
+                    published["reference"] == reference,
+                    "chart repository differs from distribution record",
+                )
+                require(
+                    re.fullmatch(r"sha256:[0-9a-f]{64}", published["digest"]),
+                    "invalid chart digest",
+                )
+                require(
+                    re.fullmatch(r"[0-9][0-9A-Za-z.-]*", published["version"]),
+                    "invalid chart version in distribution record",
+                )
+                reference += "@" + published["digest"]
+                pull_destination = destination / name
+                pull_destination.mkdir()
             run(
                 args.helm,
                 "pull",
-                args.oci_repository.rstrip("/") + "/" + name,
-                "--version",
-                args.chart_version,
+                reference,
+                *([] if record else ["--version", version]),
                 "--destination",
-                destination,
+                pull_destination,
                 env=env,
             )
+            if record:
+                # Helm 4 names digest pulls after the digest, not chart version.
+                # Verify the exact downloaded archive before normalizing its name.
+                downloads = list(pull_destination.glob("*.tgz"))
+                require(len(downloads) == 1, "expected one digest-pulled chart archive")
+                require(
+                    hashlib.sha256(downloads[0].read_bytes()).hexdigest()
+                    == published["packageSHA256"],
+                    "downloaded chart hash differs from distribution record",
+                )
+                downloads[0].replace(destination / f"{name}-{published['version']}.tgz")
     else:
         require(args.packages, "local acceptance requires packaged charts")
         for archive in Path(args.packages).glob("*.tgz"):
@@ -150,6 +192,12 @@ class Lifecycle:
                 "identitySecrets": ["living-room-identity"],
             },
         }
+        self.use_chart_image = bool(
+            args.oci_repository or getattr(args, "use_chart_image", False)
+        )
+        if self.use_chart_image:
+            # Exercise distribution defaults, including the resolved index.
+            self.settings.pop("image")
 
     def helm(self, *args):
         return run(self.args.helm, *args, "--namespace", self.namespace, env=self.env)
@@ -203,6 +251,14 @@ class Lifecycle:
             "deployment/" + self.name,
             "--timeout=180s",
         )
+        if self.use_chart_image:
+            require(
+                self.get("deployment", self.name)["spec"]["template"]["spec"][
+                    "containers"
+                ][0]["image"]
+                == self.args.image,
+                "published chart default differs from the accepted image index",
+            )
 
     def forward(self):
         # Forward through the actual release-specific Service to test selectors.
@@ -622,10 +678,13 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--node-image", required=True)
     parser.add_argument("--load-image", action="store_true")
+    parser.add_argument("--use-chart-image", action="store_true")
     sources = parser.add_mutually_exclusive_group(required=True)
     sources.add_argument("--packages")
     sources.add_argument("--oci-repository")
     parser.add_argument("--chart-version")
+    parser.add_argument("--crd-chart-version")
+    parser.add_argument("--distribution-record")
     args = parser.parse_args()
 
     def terminate(*_):

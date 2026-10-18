@@ -336,11 +336,10 @@ downgrade. Do not rely on rollback for automatic recovery.
 After uninstall, retained CRDs still carry the original release name and
 namespace. Reinstall the compatible owning chart (parent for bundled CRDs,
 CRD-only for separate management) using that same name/namespace to resume
-management. A different release or installation system cannot
-silently assume ownership. CRDs are cluster-wide, so changing release namespace
-does not provide another independent set. Kustomize adoption, changes between
-separate and bundled CRD ownership, and forced ownership transfer are outside
-the tested installation path.
+management. A different release cannot silently assume ownership. CRDs are
+cluster-wide, so changing release namespace does not provide another independent
+set. Changes between separate and bundled CRD ownership and forced ownership
+transfer are outside the tested installation path.
 
 Explicit removal is a separate destructive operator action: first stop all
 controllers using this API, back up their PVCs, CRs and auth Secrets consistently,
@@ -398,22 +397,21 @@ and image index digest before upgrading. A compatible upgrade preserves existing
 CR UIDs, auth keys, registered identity, PVC contents and issued-image access.
 Breaking API or data-format changes require an explicit validated migration
 procedure; the generic commands below do not supply one. Record the source
-revision and retain the previous compatible checkout or chart packages, image
-digest and complete private values with the backup.
+revision and retain the previous compatible chart packages, image digest and
+complete private values with the backup.
 
 Keep the release name, namespace, CRD ownership mode, claim and credential
-references stable. From the repository root of the compatible target checkout,
-prepare the controller chart's locked dependency:
-
-```sh
-helm dependency build ./charts/arprt --skip-refresh
-```
+references stable. Select the explicit chart versions from the compatible
+target release. Published parent packages include their locked CRD dependency;
+no source checkout or dependency build is needed. Local chart development uses
+the [DEVELOP procedure](DEVELOP.md#local-chart-installation).
 
 For separate management, first upgrade the independent CRD release when the
 target controller requires a newer compatible schema:
 
 ```sh
-helm upgrade arprt-crds ./charts/arprt-crds --namespace arprt --wait
+helm upgrade arprt-crds oci://ghcr.io/dayflower/charts/arprt-crds \
+  --version <crd-chart-version> --namespace arprt --wait
 ```
 
 The intermediate schema must remain compatible with the running controller.
@@ -425,7 +423,8 @@ Upgrade the controller with the complete private values file, retaining
 operation updates both schemas and controller:
 
 ```sh
-helm upgrade home ./charts/arprt --namespace arprt --wait \
+helm upgrade home oci://ghcr.io/dayflower/charts/arprt \
+  --version <chart-version> --namespace arprt --wait \
   --values /path/to/private-values.yaml
 ```
 
@@ -452,13 +451,12 @@ For a compatible reinstall of `home` in namespace `arprt`, keep the namespace,
 CRDs, CRs, PVC and auth Secrets. Stop outstanding renderer Jobs before allowing
 another controller to use the PVC. Use the same release name/namespace, compatible
 chart/image, auth Secret names and creation flags, and the original CRD mode.
-From the repository root of the compatible checkout, prepare the locked
-dependency before uninstalling:
+Use the compatible chart version recorded with the backup:
 
 ```sh
-helm dependency build ./charts/arprt --skip-refresh
 helm uninstall home --namespace arprt --wait
-helm install home ./charts/arprt --namespace arprt --wait \
+helm install home oci://ghcr.io/dayflower/charts/arprt \
+  --version <chart-version> --namespace arprt --wait \
   --values /path/to/private-values.yaml
 ```
 
@@ -489,35 +487,7 @@ recovery across config upgrades and same-owner reinstall, with bundled and
 separately managed CRDs. These checks use compatible temporary schema fixtures;
 they do not establish arbitrary version upgrades or safe rollback.
 Bundled-to-separate CRD transfer, release renaming and forced ownership changes
-remain outside the tested path. These reinstall steps apply to existing Helm
-releases; see the legacy boundary below for other installation systems.
-
-## Legacy installations
-
-The controller Kustomize base and overlays have been retired. Helm is the only
-supported installation and compatible-upgrade path for this checkout. Existing
-Kustomize installations are **not** automatically adopted. A state-preserving
-Kustomize-to-Helm adoption or backup/restore migration has not been validated;
-there is no supported in-place transition procedure in this release.
-
-Existing operators should keep their last working checkout, private manifests,
-image digest and running installation while planning migration. Do not apply this
-checkout's Helm chart over those resources, relabel them for Helm adoption,
-force ownership, delete/recreate CRDs or CRs, or switch a live device to a fresh
-PVC. A fresh installation is a separate environment and does not inherit device
-identity, auth keys, CR UIDs or issued-image authorization. Cluster-wide CRD names
-also mean a fresh namespace in the same legacy cluster is not an independent
-installation.
-
-Before moving an existing installation, retain a consistent private backup of
-the PVC, CRs and auth/identity Secrets, including original UIDs and issued URLs.
-A future supported migration must prove those UIDs, generated keys, registered
-identity, PVC data and authenticated issued-image access survive before operators
-are instructed to change ownership. Continued legacy operation is pinned to its
-previous checkout; this checkout provides no legacy installation/upgrade tooling.
-Do not remove the existing installation until a validated transition is available
-or an operator explicitly accepts a new installation with new state. Retiring
-the tooling does not establish rollback or migration safety.
+remain outside the tested path.
 
 ## Recovery and troubleshooting
 

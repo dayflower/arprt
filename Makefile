@@ -20,7 +20,7 @@ HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-published-smoke image-benchmark
+.PHONY: generate manifests tools build test vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
 
 tools: bin/controller-gen
 
@@ -66,12 +66,32 @@ chart-check: crd-chart-check chart-lint chart-package
 	$(GO) run ./tools/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
 
 # Both entrypoints own their kind cluster and kubeconfig, including failure cleanup.
-helm-smoke: bin/kind chart-package
-	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,)
+helm-smoke: chart-package
+	$(MAKE) helm-release-smoke
+
+# Test already assembled release archives without rebuilding them.
+helm-release-smoke: bin/kind $(HELM)
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,) $(if $(filter true,$(USE_CHART_IMAGE)),--use-chart-image,)
 
 # Available once the OCI charts are published; never falls back to local sources.
 helm-published-smoke: bin/kind $(HELM)
-	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)"
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)" --crd-chart-version "$(CRD_CHART_VERSION)" $(if $(DISTRIBUTION_RECORD),--distribution-record "$(DISTRIBUTION_RECORD)",)
+
+# Release jobs use the same pinned Helm client as local checks.
+release-chart-metadata: $(HELM)
+	python3 tools/release-charts.py metadata --helm "$(HELM)" --version "$(VERSION)"
+
+release-chart-prepare: $(HELM)
+	python3 tools/release-charts.py prepare --helm "$(HELM)" --version "$(VERSION)" --repository "$(REPOSITORY)" --digest "$(INDEX_DIGEST)" --packages "$(CHART_OUTPUT)"
+
+release-chart-login: $(HELM)
+	@printf '%s' "$$GH_TOKEN" | "$(HELM)" registry login ghcr.io --username "$$GITHUB_ACTOR" --password-stdin
+
+release-chart-publish: $(HELM)
+	python3 tools/release-charts.py publish --helm "$(HELM)" --version "$(VERSION)" --repository "$(REPOSITORY)" --packages "$(CHART_OUTPUT)"
+
+release-chart-verify: $(HELM)
+	python3 tools/release-charts.py verify --helm "$(HELM)" --version "$(VERSION)" --repository "$(REPOSITORY)" --packages "$(CHART_OUTPUT)" --image-evidence "$(IMAGE_EVIDENCE)" --output "$(DISTRIBUTION_RECORD)"
 
 fmt: format-go
 

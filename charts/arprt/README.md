@@ -15,14 +15,13 @@ reviewed/software tested pending physical acceptance.
 
 ## Local installation
 
-Helm 4 is the sole supported controller installation path. Use a fresh
-installation; existing resources and differently owned CRDs are not automatically
-adopted. Existing operators must read the
-[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations).
+Helm 4 is the supported controller installation path.
 The commands below assume the verified Helm 4.3.0 client is installed as `helm`
-on your `PATH`; Helm 3 is unsupported. OCI chart publication is pending; use
-this checkout's charts with the accepted public controller image. From the
-repository root, prepare the dependency pinned by `Chart.lock`:
+on your `PATH`; Helm 3 is unsupported. For an accepted public distribution,
+use the [OCI installation guide](../../README.md#published-chart-installation).
+It requires no local dependency assembly. Until a release includes an accepted
+`distribution.json`, use the local path below with the accepted public image.
+From the repository root, prepare the dependency pinned by `Chart.lock`:
 
 ```sh
 helm dependency build ./charts/arprt --skip-refresh
@@ -58,7 +57,9 @@ Create devices and renderers separately following the
 [renderer guide](../../notes/RENDERERS.md); adapt namespaces and Secret references.
 
 The default image is the accepted [v0.1.0 release](https://github.com/dayflower/arprt/releases/tag/v0.1.0),
-pinned to its `linux/amd64` and `linux/arm64` image index digest. A nonempty
+pinned to its `linux/amd64` and `linux/arm64` image index digest for local installs.
+Published packages resolve these defaults to their own accepted release image
+and index digest; see their `distribution.json`. A nonempty
 `image.digest` always takes precedence over `image.tag`. Clear the digest to use
 a tag; at least one must be nonempty.
 
@@ -100,9 +101,9 @@ including IANA zone availability and existing PVC topology. Defaults follow
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `crds.enabled` | `true` | Include CRDs in this release |
-| `image.repository` | `ghcr.io/dayflower/arprt` | Image repository |
-| `image.tag` | `v0.1.0` | Used only with an empty digest |
-| `image.digest` | v0.1.0 index SHA-256 | Takes precedence over tag |
+| `image.repository` | Release image repository | Local default: `ghcr.io/dayflower/arprt` |
+| `image.tag` | Release image tag | Used only with an empty digest; local default: `v0.1.0` |
+| `image.digest` | Release index SHA-256 | Takes precedence over tag; local default: v0.1.0 index |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `imagePullSecrets` | `[]` | Existing registry Secret references (`name`) |
 | `byos.publicBaseURL` | **required** | Absolute HTTP(S) URL with prefix; no userinfo, query, fragment or escaped/noncanonical path |
@@ -175,7 +176,8 @@ documented in [DEVELOP](../../notes/DEVELOP.md#helm-chart-checks).
 `make helm-smoke` checks the full cluster lifecycle and all five software smoke
 suites. See [Helm checks](../../notes/DEVELOP.md#helm-chart-checks)
 for client selection and the validation boundary. OCI publication and anonymous
-acceptance from published charts remain a separate distribution milestone.
+acceptance from published charts are gated by the
+[distribution workflow](../../notes/DEVELOP.md#chart-release-preparation).
 
 Image-processing resource acceptance uses the actual default controller limits;
 see [integrated image acceptance](../../notes/DEVELOP.md#integrated-image-acceptance)

@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""Assemble immutable OCI charts and verify the exact public distribution."""
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import urllib.parse
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location(
+    "release_image", ROOT / "tools/release-image.py"
+)
+image_release = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(image_release)
+
+
+def run(*args, env=None):
+    result = subprocess.run(
+        [str(arg) for arg in args], capture_output=True, text=True, env=env
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr or result.stdout)
+    return result.stdout + result.stderr
+
+
+def chart_metadata(helm, chart):
+    # Read Helm's normalized output, not arbitrary user YAML. Restrict these
+    # scalar release identifiers to SemVer without build metadata.
+    text = run(helm, "show", "chart", chart)
+
+    def scalar(name, source=text, indent=""):
+        matches = re.findall(r"^" + indent + re.escape(name) + r": (.+)$", source, re.M)
+        if len(matches) != 1:
+            raise ValueError("expected one chart metadata field: " + name)
+        return matches[0].strip("\"'")
+
+    metadata = {key: scalar(key) for key in ("name", "version", "appVersion")}
+    for key in ("version", "appVersion"):
+        if not re.fullmatch(image_release.SEMVER, metadata[key]):
+            raise ValueError("chart " + key + " must be SemVer without build metadata")
+    if metadata["name"] == "arprt":
+        dependencies = re.findall(r"^dependencies:\n((?:[- ].*\n)+)", text, re.M)
+        if len(dependencies) != 1 or dependencies[0].count("- condition:") != 1:
+            raise ValueError("parent must have exactly one conditional CRD dependency")
+        dependency = dependencies[0].replace("- condition:", "  condition:")
+        metadata["dependencyVersion"] = scalar("version", dependency, "  ")
+        if not re.fullmatch(image_release.SEMVER, metadata["dependencyVersion"]):
+            raise ValueError("CRD dependency must pin one exact version")
+        for key, expected in {
+            "name": "arprt-crds",
+            "repository": "file://../arprt-crds",
+            "condition": "crds.enabled",
+        }.items():
+            if scalar(key, dependency, "  ") != expected:
+                raise ValueError("incorrect CRD dependency " + key)
+    return metadata
+
+
+def metadata(helm, version):
+    parent = chart_metadata(helm, ROOT / "charts/arprt")
+    crds = chart_metadata(helm, ROOT / "charts/arprt-crds")
+    if parent["name"] != "arprt" or crds["name"] != "arprt-crds":
+        raise ValueError("unexpected chart name")
+    if parent["appVersion"] != version:
+        raise ValueError("parent appVersion must match the controller release version")
+    if parent["dependencyVersion"] != crds["version"]:
+        raise ValueError(
+            "bundled dependency must match the standalone CRD chart version"
+        )
+    return {
+        "chart_version": parent["version"],
+        "crd_version": crds["version"],
+        "dependency_version": parent["dependencyVersion"],
+    }
+
+
+def contents(archive):
+    """Compare package files, ignoring tar/gzip timestamps and ownership."""
+    files = {}
+    with tarfile.open(archive) as source:
+        for member in source:
+            if member.isdir():
+                continue
+            if not member.isfile() or member.name in files:
+                raise ValueError("unexpected package member: " + member.name)
+            files[member.name] = source.extractfile(member).read()
+    return files
+
+
+def same_package(expected, actual):
+    if contents(expected) != contents(actual):
+        raise ValueError("published chart contents differ from the validated package")
+
+
+def prepare(helm, version, repository, digest, destination):
+    versions = metadata(helm, version)
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        raise ValueError("a validated image index digest is required")
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    if list(destination.glob("*.tgz")):
+        raise ValueError("release package destination must be empty")
+    with tempfile.TemporaryDirectory(prefix="arprt-release-charts-") as temporary:
+        charts = Path(temporary) / "charts"
+        shutil.copytree(
+            ROOT / "charts", charts, ignore=shutil.ignore_patterns("charts", "*.tgz")
+        )
+        parent = charts / "arprt"
+        values = parent / "values.yaml"
+        resolved = {
+            "repository": "ghcr.io/" + repository,
+            "tag": "v" + version,
+            "digest": digest,
+            "pullPolicy": "IfNotPresent",
+        }
+        text, count = re.subn(
+            r"(?ms)^image:\n.*?(?=^\S|\Z)",
+            "image: " + json.dumps(resolved) + "\n",
+            values.read_text(),
+        )
+        if count != 1:
+            raise ValueError("expected exactly one default image block")
+        values.write_text(text)
+        lock = (parent / "Chart.lock").read_bytes()
+        run(helm, "dependency", "build", parent, "--skip-refresh")
+        if (parent / "Chart.lock").read_bytes() != lock:
+            raise ValueError("committed dependency lock changed")
+        for chart in (charts / "arprt-crds", parent):
+            run(
+                helm,
+                "lint",
+                "--strict",
+                chart,
+                "--kube-version",
+                "1.36.0",
+                "--set",
+                "byos.publicBaseURL=https://byos.example.test/arprt",
+            )
+            run(helm, "package", chart, "--destination", destination.resolve())
+    return versions
+
+
+def existing(repository, name, version):
+    owner, _ = repository.split("/")
+    owner_type = image_release.run(
+        "gh", "api", "repos/" + repository, "--jq", ".owner.type"
+    )
+    prefix = "orgs" if owner_type == "Organization" else "users"
+    package = urllib.parse.quote("charts/" + name, safe="")
+    endpoint = f"{prefix}/{owner}/packages/container/{package}/versions?per_page=100"
+    result = subprocess.run(
+        ["gh", "api", "--paginate", "--slurp", endpoint], capture_output=True, text=True
+    )
+    if result.returncode:
+        if "(HTTP 404)" in result.stderr:
+            return False
+        raise RuntimeError(result.stderr)
+    return any(
+        version in item["metadata"]["container"]["tags"]
+        for page in json.loads(result.stdout)
+        for item in page
+    )
+
+
+def publish(helm, repository, packages, versions):
+    oci = "oci://ghcr.io/" + repository.split("/")[0] + "/charts"
+    parent_version, crd_version = versions["chart_version"], versions["crd_version"]
+    if existing(repository, "arprt", parent_version):
+        raise ValueError("parent chart version already exists; never overwrite it")
+    # Check both before writing either package. An unchanged CRD release may be
+    # reused only after checking every packaged file, including schema bytes.
+    reuse = existing(repository, "arprt-crds", crd_version)
+    if reuse:
+        with tempfile.TemporaryDirectory() as temporary:
+            run(
+                helm,
+                "pull",
+                oci + "/arprt-crds",
+                "--version",
+                crd_version,
+                "--destination",
+                temporary,
+            )
+            same_package(
+                Path(packages) / f"arprt-crds-{crd_version}.tgz",
+                Path(temporary) / f"arprt-crds-{crd_version}.tgz",
+            )
+    else:
+        run(helm, "push", Path(packages) / f"arprt-crds-{crd_version}.tgz", oci)
+    run(helm, "push", Path(packages) / f"arprt-{parent_version}.tgz", oci)
+
+
+def verify(helm, repository, packages, versions, image_evidence, output):
+    evidence = json.loads(Path(image_evidence).read_text())
+    if evidence["image"] != "ghcr.io/" + repository:
+        raise ValueError("image evidence belongs to another repository")
+    oci = "oci://ghcr.io/" + repository.split("/")[0] + "/charts"
+    evidence["charts"] = {}
+    # No inherited Helm/Docker credentials, plugins or registry configuration.
+    with tempfile.TemporaryDirectory(prefix="arprt-anonymous-charts-") as temporary:
+        directory = Path(temporary)
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("HELM_")
+        }
+        env.update(
+            {
+                "DOCKER_CONFIG": str(directory / "docker"),
+                "HELM_CONFIG_HOME": str(directory / "config"),
+                "HELM_CACHE_HOME": str(directory / "cache"),
+                "HELM_DATA_HOME": str(directory / "data"),
+                "HELM_REGISTRY_CONFIG": str(directory / "registry.json"),
+            }
+        )
+        for name, version in (
+            ("arprt-crds", versions["crd_version"]),
+            ("arprt", versions["chart_version"]),
+        ):
+            result = run(
+                helm,
+                "pull",
+                oci + "/" + name,
+                "--version",
+                version,
+                "--destination",
+                directory,
+                env=env,
+            )
+            digests = re.findall(r"^Digest: (sha256:[0-9a-f]{64})$", result, re.M)
+            if len(digests) != 1:
+                raise ValueError("Helm pull did not report exactly one OCI digest")
+            archive = directory / f"{name}-{version}.tgz"
+            same_package(Path(packages) / archive.name, archive)
+            evidence["charts"][name] = {
+                "reference": oci + "/" + name,
+                "version": version,
+                "digest": digests[0],
+                "packageSHA256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            }
+    evidence["dependencyVersion"] = versions["dependency_version"]
+    evidence["anonymousChartRead"] = True
+    Path(output).write_text(json.dumps(evidence, indent=2) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("metadata", "prepare", "publish", "verify"))
+    parser.add_argument("--helm", required=True)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--repository")
+    parser.add_argument("--digest")
+    parser.add_argument("--packages")
+    parser.add_argument("--image-evidence")
+    parser.add_argument("--output")
+    args = parser.parse_args()
+    versions = metadata(args.helm, args.version)
+    if args.command == "metadata":
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+                for key, value in versions.items():
+                    stream.write(f"{key}={value}\n")
+        print(json.dumps(versions, indent=2))
+    elif args.command == "prepare":
+        prepare(args.helm, args.version, args.repository, args.digest, args.packages)
+    elif args.command == "publish":
+        publish(args.helm, args.repository, args.packages, versions)
+    else:
+        verify(
+            args.helm,
+            args.repository,
+            args.packages,
+            versions,
+            args.image_evidence,
+            args.output,
+        )
+
+
+if __name__ == "__main__":
+    main()

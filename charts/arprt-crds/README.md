@@ -12,9 +12,14 @@ the [project support boundary](../../README.md#security-and-support-boundary):
 ## Local installation
 
 Helm 4 is required; Helm 4.3.0 is verified and Helm 3 is unsupported. The commands
-below assume the verified client is installed as `helm` on your `PATH`. OCI chart
-publication is pending. From the repository root, with a fresh cluster that
-does not already contain ARPRT CRDs, install directly from the chart directory:
+below assume the verified client is installed as `helm` on your `PATH`.
+For a release with an accepted `distribution.json`, use
+`oci://ghcr.io/dayflower/charts/arprt-crds` and its recorded CRD chart version
+with `--version`, following the [OCI guide](../../README.md#published-chart-installation).
+The CRD version may differ from the parent version; unchanged CRD packages can
+be reused. Until that acceptance exists, use the local path below.
+From the repository root, with a fresh cluster that does not already contain
+ARPRT CRDs, install directly from the chart directory:
 
 ```sh
 helm install arprt-crds ./charts/arprt-crds \
@@ -24,10 +29,7 @@ helm install arprt-crds ./charts/arprt-crds \
 The namespace stores Helm release records; the CRDs themselves are
 cluster-scoped. Release names and namespaces never change CRD names or the
 `arprt.dayflower.github.io` API group. Cluster-level CRD permissions are required.
-Use one owner for these CRDs. Existing Kustomize-managed or differently owned
-CRDs are not automatically adopted; ownership migration is outside the tested
-installation path. Existing operators must read the
-[legacy installation boundary](../../notes/OPERATIONS.md#legacy-installations).
+Use one Helm release to own these CRDs.
 The [controller chart](../arprt/README.md#separate-crd-management) can include this
 chart as a dependency or use this separately managed installation. In the latter
 case, keep `crds.enabled: false` in the controller's private values throughout
