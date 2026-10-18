@@ -286,9 +286,9 @@ keep the existing pending/error behavior.
 The controller normalizes renderer input before bounded bitmap compositing.
 Validate the normalized base and the final composite against the same resolved
 target before publication/issuance. Preserve base pixels outside the overlay,
-physical dimensions, rotation compatibility and semantic palette. Active OG
-delivery uses the [PNG contract](PROTOCOL.md#png-contract), including generated
-the temporary gray4 encoding switch. Legacy appearance/encoding records stay readable.
+physical dimensions, rotation compatibility and semantic palette. Resolved-target
+delivery uses the [PNG contract](PROTOCOL.md#png-contract), including the
+temporary gray4 encoding switch. Legacy appearance/encoding records stay readable.
 
 The internal resolved-target compositing path supports gray4, gray16 and
 Spectra 6 within the shared output dimension/allocation bounds. It maps exact

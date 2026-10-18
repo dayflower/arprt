@@ -216,11 +216,23 @@ fields. Removing fields or changing semantics requires a new context version.
 
 Renderer input and device output have separate contracts. GET, POST and Job
 accept complete legal PNGs of all standard color/depth combinations, including
-alpha, tRNS, Adam7 and APNG's IDAT default image. Both APNG layouts are supported;
-subsequent frames are structurally checked but never decoded or displayed.
+16-bit grayscale/RGB/alpha, indexed transparency, Adam7 and APNG's IDAT default
+image. Both APNG layouts are supported: the default image can be shared with
+the first animation frame or separate from it. Subsequent frames are structurally
+checked but never decoded or displayed. APNG always becomes a static PNG without
+animation chunks; it never qualifies for byte-preserving passthrough.
 Input is at most **32 MiB**, **16,777,216 pixels** and **16,384 per axis**. CRCs,
 chunk structure, exact inflated image length and trailing bytes are checked
-before publication. Invalid PNGs remain rendering failures.
+before publication. The complete file, including metadata and skipped animation
+data, counts toward the byte limit. Dimensions and area apply to the default
+image canvas and are checked before allocation. Invalid PNGs remain rendering
+failures; a valid input requiring conversion is accepted.
+
+RGB channels, grayscale samples and indexed palette entries are interpreted as
+sRGB, including APNG default images. Embedded ICC, gamma and chromaticity metadata
+does not transform samples, change palette membership or by itself require
+normalization. Compatible passthrough retains its original chunks; re-encoding
+omits ignored source declarations. Metadata still undergoes structure/CRC checks.
 
 The resolved target selects dimensions, palette and an exclusive output budget:
 OG defaults to **encoded bytes < 90,000**; E1001–E1004 default to
@@ -263,17 +275,26 @@ An executable indexed example and all six RGB tuples are in the
 [renderer guide](RENDERERS.md#rgb-and-indexed-spectra-example).
 
 Generated Spectra 6 uses type 3/depth 4 with exactly these six PLTE entries in the
-listed order. New profile support is source reviewed and software tested;
-physical acceptance remains separate from the historical OG baseline.
+listed order, and pixels reference only those six entries. These are selected
+reference colors, not calibration evidence for every panel. Profile support is
+source reviewed and software tested; physical acceptance remains separate from
+the historical OG baseline.
+
+Every controller-generated PNG has the effective target dimensions, is opaque,
+static and noninterlaced, and uses PNG compression method 0 and filter method 0.
+Native grayscale output has no PLTE chunk. The controller does not automatically
+generate one-bit output; compatible one-bit input may still pass through.
+The effective palette selects the encoding independently of model defaults.
 
 `ArprtScreen.spec.imageProcessing.resizeMode` selects `contain` (default) or
 `stretch`; `.dithering` selects `atkinson` (default), `floyd-steinberg`, `bayer` or
-`none`. Omitted and explicit defaults are equivalent. Normalization interprets
-samples as sRGB without applying embedded gamma/profile/chromaticity metadata,
-composites transparency onto white, resizes with half-pixel four-neighbor
-bilinear interpolation, then matches colors in Lab D65. Contain centers content
-with white padding, placing an odd extra pixel on the right/bottom. `none`
-disables dithering while retaining necessary conversion. Renderers own content
+`none`. Omitted and explicit defaults are equivalent. Normalization composites
+transparency onto white, resizes with half-pixel four-neighbor
+bilinear interpolation, then matches colors in Lab D65. Both resize modes allow
+enlargement and reduction. Contain preserves aspect ratio and centers the entire
+image with white padding, placing an odd extra pixel on the right/bottom;
+stretch fills the target without preserving aspect ratio. Neither mode crops.
+`none` disables dithering while retaining necessary conversion. Renderers own content
 rotation; the controller does not rotate it again. Numerical rules are in
 [DESIGN](DESIGN.md#numerical-processing-semantics).
 
@@ -291,7 +312,8 @@ verified device support.
 
 Processing has a 10-second bound after reception/collection, further bounded
 by enclosing contexts. The exclusive output limit applies to passthrough,
-normalized bases and final overlays. Oversized/invalid processing preserves an
+normalized bases and final overlays, including all chunks; equality with the
+limit is oversized. Oversized/invalid processing preserves an
 exact-target compatible previous success or pending; neither dithering nor
 content changes to fit. Optional overlays run after normalization and may fall
 back to the validated base. Issued URLs continue serving their original bytes

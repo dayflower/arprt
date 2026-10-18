@@ -335,15 +335,17 @@ Operational steps and migration limits belong in
 [OPERATIONS](OPERATIONS.md#helm-controller-state); the supporting lifecycle
 checks are described in [DEVELOP](DEVELOP.md#helm-chart-checks).
 
-## Image-processing design before integration
+## Image processing
 
-This section preserves the initial investigation decisions and their integrated
-implementation. PNG normalization, persistence, overlays, Screen processing
-settings and Device profiles/overrides are active; deployment resource and
-physical acceptance remain separate gates. The requirements baseline is [IMAGE-PROCESSING](IMAGE-PROCESSING.md); reproducible experiments
-live beside [image-investigation](../tools/image-investigation/README.md).
-arprt remains independent and unofficial, without affiliation or endorsement
-by TRMNL. Source review and host execution do not establish physical acceptance.
+HTTP GET/POST and Job collection share PNG normalization, Screen processing
+policy, Device profiles/overrides and palette-aware overlays. This section owns
+their design rationale, firmware evidence, resource control and persistence
+compatibility. [PROTOCOL](PROTOCOL.md#png-contract) owns the input/output contract;
+[DEVELOP](DEVELOP.md#integrated-image-acceptance) owns software checks and the
+remaining physical acceptance. Reproducible experiments live beside
+[image-investigation](../tools/image-investigation/README.md). Source review and
+host execution do not establish physical acceptance or expand the verified
+support scope in [README](../README.md#security-and-support-boundary).
 
 ### Firmware evidence and profiles
 
@@ -377,8 +379,16 @@ The upstream device table selects the OG monochrome path for E1001, Spectra for
 E1002/E1004, and IT8951/FastEPD for E1003. The pinned FastEPD
 [ED103TC2 definition](https://github.com/bitbank2/FastEPD/blob/9a84c35e52849f9f22d2a7ad5231ef501be49e04/src/FastEPD.inl#L1808)
 sets 1872 x 1404. Thus E1003 defaults use landscape firmware ordering; the
-hardware comparison's 1404 x 1872 ordering is not the profile default. Explicit
+hardware comparison's [1404 x 1872 ordering](https://wiki.seeedstudio.com/reterminal_e10xx_main_page/#specification-comparison)
+is not the profile default. Explicit
 dimensions win, followed by a valid reported pair, then this model default.
+
+Profiles describe semantic color sets, not ranked color counts: Spectra 6 lacks
+the intermediate neutral grays in gray4. A shared family or palette does not
+establish decoder or transport compatibility for another model. The reviewed
+E1002 display sources have a six-color path; monochrome-only vendor guidance
+does not establish a firmware color restriction. The selected Spectra reference
+colors are transmission/matching values, not calibration evidence for every panel.
 
 The reviewed display header builders send `Model`, `FW-Version`, `Width` and
 `Height`; setup builders omit dimensions. They send no semantic palette.
@@ -425,6 +435,25 @@ The host harness compares full-resolution output, not just decoder return codes:
   the two-color counting heuristic and remains observable with native 4-bit
   samples 0/5/10/15.
 
+On the native grayscale path, E1003 uses one-bit samples directly. Upstream
+expands two-bit samples 0/1/2/3 to 0/5/10/15 for FastEPD's four-bit mode; Seeed
+common instead uses its native two-bit mode. Decode support therefore does not
+establish identical panel appearance across distributions.
+
+The [pinned counting callback](https://github.com/usetrmnl/trmnl-firmware/blob/d5f98f2b88d09eb0c644a7d19a480ebce6d2b5aa/src/display.cpp#L1574)
+counts sample/index numbers rather than palette colors, and stops after y=430.
+A full four-gray PLTE does not prevent black/white updates when only two numbers
+occur in that region. The whole-image gray4 decision deliberately avoids both
+the cutoff and a color-count approximation.
+
+For the separate expansion bug, v1.8.17/Seeed uses
+`(s[0] & 0xf) | (s[0] << 4)`, retaining unwanted upper bits. Upstream
+[PR #671](https://github.com/usetrmnl/trmnl-firmware/pull/671), commit
+`47cc1f7c9a7a1e31cf09e75e329d8146dcfd7704`, masks the low nibble before shifting.
+Its inclusion in source is not evidence of acceptance of a distributed binary,
+and it does not fix the two-bit counting heuristic. Do not select indexed output
+solely to avoid the expansion bug or add a runtime firmware eligibility gate.
+
 The intended gray4 encoding inspects every final pixel, uses native type 0 /
 2-bit only for black/white, and uses type 0 / 4-bit otherwise, without
 re-dithering exact gray4 samples. It remains available behind the temporary
@@ -448,10 +477,11 @@ physical acceptance. E1001/E1003/E1004 remain source reviewed only.
 ### Shared PNG foundations
 
 [`internal/imageprocessing`](../internal/imageprocessing/palette.go) owns the
-transport-independent image primitives. HTTP GET/POST and Job collection now
-normalize inputs for resolved Device targets. New artifact Units carry explicit
+transport-independent image primitives. HTTP GET/POST and Job collection
+normalize inputs for resolved Device targets. Current artifact Units carry explicit
 output constraints; BYOS uses resolved palette-aware overlays. Device profiles
-and overrides share one resolution contract in `internal/devicestate`. Active input/output contracts belong to
+and overrides share one resolution contract in `internal/devicestate`.
+Input/output contracts belong to
 [PROTOCOL](PROTOCOL.md#png-contract).
 
 `Decode` validates the complete bounded file, independently checks IDAT's exact
@@ -469,8 +499,9 @@ normalization, as do APNG and Adam7.
 `Palette.Colors` supplies private copies of the canonical gray4, gray16 and
 Spectra 6 colors. `Encode` accepts indices in this order and emits deterministic
 packed rows with exact samples, no source metadata, and an exclusive output-byte
-budget. Gray4 selects depth after inspecting all final indices; gray16 and
-Spectra 6 always use 4-bit output. Internal `Target` bounds output allocation to
+budget. The default gray4 encoder uses depth 2; `gray4_native4` selects depth
+after inspecting all final indices. Gray16 and Spectra 6 always use 4-bit output.
+Internal `Target` bounds output allocation to
 4096 per axis and 4194304 pixels independently of input limits, and contains
 only effective dimensions, palette and byte budget. Device profile resolution
 is owned by `internal/devicestate`, separate from renderer-facing context v1.
@@ -526,6 +557,9 @@ Compression never changes by content or byte budget, and output
 must still pass the same exclusive limit; no samples or dithering are changed
 to make an image fit. Compatible renderer bytes retain their own compression.
 
+Processing policy belongs to the Screen so different content can choose resizing
+and dithering on the same device. Device overrides describe the effective output
+target; there is no separate Device-level dithering override.
 Internal `Policy` canonicalizes omitted fit/dither to contain/Atkinson. Its
 revision includes processing, encoder and palette semantic versions.
 `screen.ProcessingPolicy` maps the public resizeMode/dithering settings to this
@@ -534,8 +568,8 @@ policy for all sources, and Screen revisions include its semantic identity.
 durable storage and buffer release belong inside its callback. `ReadInput`
 reserves one capped 32 MiB allocation and rejects the next byte. `Process`
 starts the earlier of ten seconds and the enclosing deadline after collection;
-all work must stop before the lease returns. Runtime wiring must share the
-same admission instance across all image paths and preserve GET waiter lifetime
+all work must stop before the lease returns. Runtime wiring shares the same
+admission instance across all image paths and preserves GET waiter lifetime
 rules; merely calling `Normalize` does not acquire capacity or set a deadline.
 
 `render.ResolvedTarget` keeps the context-v1 target separate from effective PNG
@@ -634,8 +668,8 @@ The reviewed `x/image` v0.47.0
 distinguish a scale-widened `BiLinear` tent kernel from `ApproxBiLinear`'s
 four-neighbor reduction. Select classic point-sampled bilinear for both
 enlargement and reduction: exactly four neighboring samples, without widening
-the kernel or adding an antialiasing filter. This fixes the previously open
-downscaling detail; it does not silently substitute the tent-kernel algorithm.
+the kernel or adding an antialiasing filter. This keeps interpolation bounded
+and cancellable with the same sampling rule in both directions.
 
 Determine contain dimensions with integer rational arithmetic: choose the
 limiting axis by cross multiplication, set it to the target extent and round
@@ -657,7 +691,8 @@ resize premultiplied transparent colors or perform linear-light interpolation.
 Opaque channels remain exact. Fully transparent colored pixels become white.
 An 8-bit half-alpha red `(255,0,0,128)` becomes `(65535,32639,32639)`.
 
-For Lab use float64, standard sRGB decoding with breakpoint 0.04045 and
+For Lab use float64, standard [sRGB-to-Lab conversion](https://www.w3.org/TR/css-color-4/#color-conversion-code)
+with breakpoint 0.04045 and
 exponent 2.4, XYZ matrix rows `(0.4124564,0.3575761,0.1804375)`,
 `(0.2126729,0.7151522,0.0721750)` and `(0.0193339,0.1191920,0.9503041)`,
 D65 white `(0.95047,1,1.08883)`, epsilon `216/24389` and kappa `24389/27`.
@@ -676,6 +711,13 @@ Discard out-of-content destinations, without renormalization. Three float64 Lab
 error rows suffice; do not allocate a full float64 Lab image. Emit exact target
 samples/indices, never a Lab-to-RGB round trip. Resize before quantization;
 renderer rotation is never applied again.
+
+Atkinson distributes 6/8 of the error in total; its highlight/shadow detail loss
+is an accepted property of the default. Neither diffusion algorithm normalizes
+discarded or undistributed weights. No additional brightness gamma adjustment
+or D50 chromatic adaptation is applied. The Bayer allocation below adapts
+[Yliluoma's two-color principle](https://bisqwit.iki.fi/story/howto/dither/jy/)
+to Lab D65 rather than adopting its RGB matching or additional algorithms.
 
 Bayer considers every canonical pair `i <= j` and each integer allocation
 `k=0..64` of color `j`. Minimize squared distance from input Lab to
@@ -740,8 +782,8 @@ dimensions, high-entropy 32011838-byte RGBA16 input and both 16384-axis shapes.
 The load experiment uses eight real local HTTP clients and one completed Job
 file competing for the same lease; waiting clients do not send their GET before
 admission. This is an admission/pipeline prototype, not a running controller or
-Kubernetes Job acceptance test. A 384 MiB Go memory limit is used in experiments;
-the integrated controller should use the same default GC budget with the
+Kubernetes Job acceptance test. The integrated controller uses the same
+384 MiB Go memory limit as the experiments with the
 512 MiB container limit, leaving room for non-Go memory and runtime variation.
 
 Linux amd64 measurements under actual Docker `--cpus 0.5 --memory 512m
@@ -753,20 +795,21 @@ under 307 MiB. Output sizes may exceed a model budget: high entropy and Bayer
 gray16 examples exceed 750000 bytes and must fail normalization in production,
 preserving fallback, without changing dithering to fit. Probe encoding measures
 static indexed packed rows and excludes production native grayscale encoding.
-The [integrated acceptance harness](DEVELOP.md#integrated-image-acceptance) now
+The [integrated acceptance harness](DEVELOP.md#integrated-image-acceptance)
 measures production normalization, overlays, transport and real Job collection
 under the deployed controller limits; keep its candidate-specific records
-separate from these prototype findings. These timings establish feasibility, not universal
-10-second success or integrated-controller acceptance. Native arm64 and the
-complete deployment remain acceptance gates before support expansion.
+separate from these prototype findings. These timings establish feasibility,
+not universal 10-second success or integrated-controller acceptance. Native
+architecture/resource checks remain part of the software release matrix;
+physical acceptance is tracked separately in DEVELOP.
 The [raw amd64 measurements](../tools/image-investigation/measurements-linux-amd64.json)
 retain the CPU model, toolchain, binary hash and per-case outputs. The mixed
 HTTP/Job run admitted one source at a time across all nine requests and stayed
 under 334 MiB without forced GC between requests; measured cancellation return
 latencies for decode, resizing and row encoding were all below 34 ms.
-These measurements do not
-include informer caches or concurrent production image-serving traffic; the
-integrated memory test must include both before claiming the controller budget.
+These prototype measurements exclude informer caches and concurrent production
+image-serving traffic; use integrated-controller resource records when assessing
+the deployed controller budget.
 
 ### API, internal targets and migration
 
@@ -804,11 +847,11 @@ is not observation evidence: resolve the old known model afresh; do not
 retroactively mark its effective dimensions as device-reported.
 
 Keep `render.Target` as width, height, semantic palette and rotation for renderer
-query/context v1. Introduce an internal resolved target containing that value,
-effective PNG budget and an output-compatibility version. Keep provenance,
-model, firmware and telemetry outside its comparable delivery identity. Add
-processing/encoder/palette semantic versions to normalized Screen input
-revision. Thus equivalent effective capabilities share GET work; budget changes
+query/context v1. The internal resolved target contains that value,
+effective PNG budget and an output-compatibility version. Provenance,
+model, firmware and telemetry stay outside its comparable delivery identity.
+Normalized Screen input revisions include processing/encoder/palette semantic
+versions. Thus equivalent effective capabilities share GET work; budget changes
 invalidate target compatibility, while policy changes invalidate freshness and
 cycle replay. Prior-policy output may be stale fallback only after validating
 its original bytes against the current exact resolved target and budget.
@@ -841,13 +884,14 @@ replay. Validate normalized base before success and final composite before
 issuance, always with exclusive byte comparison. Optional overlay failure may
 use a validated base; required delivery-state failures preserve existing
 failure behavior. Keep the base render timestamp through normalization and
-derived images, including Job completion time. Integration tests must exercise
-old-PVC startup, in-flight upgrades, every pending-corner recovery branch and
-GC before these migration rules become active.
+derived images, including Job completion time. Integration tests cover old-PVC
+startup, in-flight upgrades, pending-corner recovery and GC; preserve this
+coverage when changing migration behavior.
 
 ## Scope of future work
 
-Additional device/firmware targets, general image conversion, target-only Job sharing,
+Additional device/firmware targets beyond the reviewed profiles, additional image
+formats, target-only Job sharing,
 advanced playlist timing/weighting, automatic creation of unknown devices,
 arbitrary Pod specifications, additional backends and multiple active controllers
 need concrete requirements and compatibility/recovery validation. These are
