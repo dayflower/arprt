@@ -22,7 +22,7 @@ Build tools and envtest binaries are installed under the ignored `bin/` director
 CI runs on pull request creation and updates, and on pushes to `main`, including
 merges. A manual `workflow_dispatch` always runs full software checks. Pushes to
 other branches and tags do not trigger this workflow; version
-tags run the separate [image release workflow](../.github/workflows/release-image.yaml).
+tags run the separate [distribution release workflow](../.github/workflows/release-image.yaml).
 The lightweight change/documentation job always runs. Changes limited to prose
 in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluster
 jobs. Changed fenced/indented examples, other paths and unavailable history run the full
@@ -144,8 +144,9 @@ Secrets/PVCs. It uses Helm's normal release operations without forced adoption.
 No keys or MACs are stored in chart fixtures or command output. Envtest has no
 kubelet or storage provisioner; it cannot verify mounted data, readiness or HTTP
 delivery. The cluster lifecycle checks below cover those boundaries. OCI
-publication and anonymous acceptance from published charts remain a separate
-distribution milestone.
+publication and anonymous acceptance are gated by the
+[distribution release workflow](#chart-release-preparation); local checks alone
+do not establish public availability.
 
 ## Helm chart checks
 
@@ -212,7 +213,8 @@ lifecycle/five-suite matrix without local chart sources or preloaded controller 
 
 ```sh
 make helm-published-smoke \
-  OCI_CHART_REPOSITORY=oci://ghcr.io/dayflower/charts CHART_VERSION=0.1.0 \
+  OCI_CHART_REPOSITORY=oci://ghcr.io/dayflower/charts \
+  CHART_VERSION=<parent-version> CRD_CHART_VERSION=<crd-version> \
   IMAGE=ghcr.io/dayflower/arprt@sha256:<published-index-digest>
 ```
 
@@ -220,8 +222,72 @@ Use the actual published repository/version/index digest; the repository above i
 an example, not an available distribution endpoint. This target uses empty Helm
 registry and Docker configurations, pulls both chart packages, and never falls
 back to local charts. Run it with the pinned Helm 4 client when accepting
-publication. Until that succeeds, local packaging/lifecycle evidence is not public-artifact
+publication. `CRD_CHART_VERSION` defaults to `CHART_VERSION` when omitted.
+With an accepted `distribution.json`, set `DISTRIBUTION_RECORD=/path/to/distribution.json`
+instead of both version variables to pull the recorded chart manifest digests.
+Until that succeeds, local packaging/lifecycle evidence is not public-artifact
 acceptance.
+
+## Local chart installation
+
+End users install the published GHCR chart using the
+[README quickstart](../README.md#published-chart-installation). Use this section
+when developing from a checkout or testing an image you built yourself. Run the
+commands from the repository root with the verified Helm client on `PATH`.
+The namespace, PVC and credential requirements in
+[OPERATIONS](OPERATIONS.md#helm-controller-state) also apply.
+
+Prepare the controller chart's locked CRD dependency:
+
+```sh
+helm dependency build ./charts/arprt --skip-refresh
+```
+
+Create the private values file described in the
+[quickstart](../README.md#published-chart-installation), then install the local chart:
+
+```sh
+helm install home ./charts/arprt \
+  --namespace arprt --create-namespace --wait \
+  --values /path/to/private-values.yaml
+```
+
+The local chart defaults to the accepted public v0.1.0 multi-platform controller
+image index. Confirm compatibility with this checkout's API and schemas before
+selecting another image. For a compatible published image, use its release's
+`image-digests.json` to select the repository and index digest. Set `image.repository` and `image.digest` in private values.
+A digest takes precedence over `image.tag`; clear it explicitly to select a tag.
+
+To build and install your own controller image, use a registry reachable by the
+cluster, replacing the synthetic repository below:
+
+```sh
+make docker-build IMAGE=registry.example.com/arprt:dev
+docker push registry.example.com/arprt:dev
+```
+
+Set these image values before installing or upgrading the local chart:
+
+```yaml
+image:
+  repository: registry.example.com/arprt
+  tag: dev
+  digest: ""
+```
+
+Configure `imagePullSecrets` for a private registry; keep credentials outside the
+repository. Use a new tag or digest for each image revision. For disposable kind
+checks, `make docker-build IMAGE=arprt:dev` followed by
+`make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true` loads the local image without
+pushing it. This wrapper owns its cluster and kubeconfig.
+
+With local sources, use `./charts/arprt` for controller upgrades/reinstalls and
+`./charts/arprt-crds` for separate CRD operations in place of the OCI references
+in [OPERATIONS](OPERATIONS.md#compatible-upgrades); omit `--version` because the
+local chart metadata selects the version. Rebuild the locked dependency after
+CRD changes. All compatibility, backup and retained-resource requirements remain
+unchanged. After installation, follow the
+[device pairing steps](../README.md#pairing-a-device).
 
 ## Local controller
 
@@ -489,7 +555,7 @@ not expand physical-device, Kubernetes or storage support.
 Docker follows [Docker's cross-compilation guidance](https://docs.docker.com/build/building/multi-platform/):
 the Go builder uses `BUILDPLATFORM` and compiles with `TARGETOS`/`TARGETARCH`;
 the runtime remains non-root scratch with CA certificates and embedded zoneinfo.
-The workflow archives each exact tested image, then its only `packages: write`
+The workflow archives each exact tested image, then its image-publishing `packages: write`
 job uploads those archives and uses Buildx to assemble a multi-platform index.
 No rebuild occurs between validation and publication. The index and its two
 platform digests are recorded; version/revision/license/source/unofficial-project
@@ -506,7 +572,9 @@ image. Keep the tag creation permission restricted to release operators;
 
 GHCR creates the first package as private, even for a public repository. In the
 [package settings](https://github.com/users/dayflower/packages/container/arprt/settings),
-set its visibility to **public**. See [GitHub's container registry guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+set its visibility to **public**. Do the same for `charts/arprt-crds` and
+`charts/arprt` after their first uploads, and grant this repository Actions
+access to both chart packages. See [GitHub's container registry guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
 This setting requires a package owner and cannot be replaced by Docker login.
 No private registry credentials are needed by consumers.
 
@@ -515,9 +583,18 @@ checks both platform digests, pulls the same version tag on both native runners,
 and reruns the complete cluster matrix with `ghcr.io/dayflower/arprt@sha256:...`.
 The clusters pull directly without preloaded controller images or pull Secrets,
 covering startup/readiness, setup, authenticated delivery, Job execution, replay,
-and operations checks through local production Helm chart packages with the
-pinned Helm 4 client. Public OCI chart retrieval is not required for image releases.
-If the initial anonymous check fails before visibility is changed, set the package public and rerun acceptance only:
+and operations checks through the exact staged chart packages with the pinned
+Helm 4 client. After chart publication, both native runners anonymously pull and
+compare both charts with those staged packages, then repeat the complete matrix
+using public chart manifest digests and the image index digest. These public
+runs exercise the chart's default image settings, fresh installs and compatible
+configuration upgrades preserving CR UIDs, identity, keys, PVCs and issued URLs.
+The temporary schema-upgrade fixture remains a separate harness check; it is
+never published. A first release has no earlier public chart version; config
+upgrades use the same published package. Cross-version acceptance must also
+follow the compatible-upgrade procedure before recommending a later transition.
+If an anonymous check fails before visibility is changed, set all three packages
+public and rerun acceptance only:
 
 ```sh
 gh workflow run release-image.yaml --ref v0.1.0 -f tag=v0.1.0 \
@@ -526,7 +603,10 @@ gh workflow run release-image.yaml --ref v0.1.0 -f tag=v0.1.0 \
 
 Take the index digest from the original publishing job summary or
 `published-image-index` artifact, not from an unverified new upload. This manual
-path validates the annotated tag again and never writes packages. Select the
+path validates the annotated tag again, reruns all software/native checks,
+recreates the expected chart contents from that commit and digest, runs the
+staged/public matrices, and never writes
+packages. Both chart versions must already have been uploaded. Select the
 matching Git tag with `--ref` so the workflow and helper paths belong to that
 release, including releases before directory reorganizations. Do not rerun
 the publisher: existing version/platform tags are rejected. An interrupted
@@ -535,19 +615,22 @@ partial version.
 
 Only after both native public acceptance jobs pass does a separate
 `contents: write` job create the GitHub release with permanent
-`image-digests.json` and an acceptance workflow link. Before that point the
+`distribution.json`, `image-digests.json`, and an acceptance workflow link. The distribution record
+includes the image version/index/platform digests, both chart versions/manifest
+digests, archive hashes and the exact bundled dependency version. Before that point the
 registry upload alone is not a completed release. Workflow artifacts retain the
 index/acceptance records for 90 days; GitHub release assets retain the final
-record. For compatible upgrades use a tested matching release checkout/image;
+record. For compatible upgrades use a tested matching release chart/image;
 existing runtime, data-format and support limits remain authoritative.
 
 ## Chart release preparation
 
-Chart source and local packages are available; OCI chart publication and
-anonymous published-chart acceptance are not yet complete. The image release
-workflow above publishes the controller image and its acceptance records only.
-It validates local production chart packages but does not upload either chart.
-Do not advertise the example OCI repository as an available installation source.
+The [distribution workflow](../.github/workflows/release-image.yaml) publishes
+the image first, then `oci://ghcr.io/<owner>/charts/arprt-crds` and
+`oci://ghcr.io/<owner>/charts/arprt`. Public distribution is complete only when
+both native anonymous chart acceptance jobs succeed and the release includes
+`distribution.json`. Until such a release exists, use the local installation
+path; the OCI namespace alone is not evidence of availability.
 
 The release inputs have distinct owners:
 
@@ -556,14 +639,17 @@ The release inputs have distinct owners:
 | Controller version and image tag | Annotated image release tag and the image workflow |
 | Image index and platform digests | Accepted release's `image-digests.json` |
 | Controller chart version and `appVersion` | `charts/arprt/Chart.yaml` |
-| Default controller image | `charts/arprt/values.yaml`; index digest takes precedence over tag |
+| Local default controller image | `charts/arprt/values.yaml`; index digest takes precedence over tag |
+| Published default controller image | Release tag/version and the validated index digest, resolved in a temporary chart copy |
 | CRD chart version and metadata | `charts/arprt-crds/Chart.yaml` |
 | Exact bundled CRD version/source | Parent `Chart.yaml` and committed `Chart.lock` |
 | Public CRD schemas | API types/markers, generated canonical YAML and synchronized chart files |
 
-Chart versions identify packages; `appVersion` describes the controller version
-and does not select the image. Keep it consistent with the default image and
-record the tested chart/image/schema combination explicitly. Changing an image
+Chart versions identify packages; the parent's `appVersion` must match the
+controller release tag without `v` and does not select the image by itself.
+The guard validates this and the exact standalone/bundled CRD version match
+before release work starts. CRD `appVersion` describes its original schema
+combination and need not change for a controller-only update. Changing an image
 tag without updating the default digest does not change the deployed image.
 Do not assume that a chart version, image version and dependency version will
 always be identical. A controller-only change need not change the CRD chart's
@@ -581,14 +667,39 @@ the image release's physical-device acceptance requirements. `make chart-package
 and parent archive containing its pinned dependency. Keep the exact archives
 exercised by the checks for distribution.
 
-Public chart distribution still requires publishing the validated image first,
-then the CRD and parent packages, without overwriting released versions. Record
-both chart versions, the pinned dependency, controller version and index/platform
-digests together. Anonymous retrieval and the published-artifact lifecycle matrix
-must pass on the release combination, including a fresh install and compatible
-upgrade, before declaring public chart distribution complete. The existing
-`helm-published-smoke` target supplies the acceptance entrypoint; publication
-automation remains a separate implementation step.
+[release-charts.py](../tools/release-charts.py) assembles distribution packages
+in a temporary copy after anonymous image validation. It resolves the parent's
+default image repository/tag/index digest to this release, keeps the committed
+lock unchanged, strictly lints and packages both charts. The checkout's local
+defaults are unchanged. The exact archives are retained as `release-charts` for
+90 days. Native amd64/arm64 jobs run chart checks, API integration and
+`make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`;
+this target does not rebuild the archives. It uses the staged image defaults
+and checks that the deployed image equals the accepted index digest. Only after these jobs pass does the
+chart publisher receive `packages: write` permission. The image publisher has
+that permission separately; validation and PR jobs cannot publish.
+
+The publisher refuses an existing parent version. For an existing CRD version,
+it downloads the package and compares every file byte-for-byte with the candidate,
+ignoring archive metadata such as timestamps/ownership. It reuses an identical package and
+rejects any content change; a changed README also requires a new CRD chart
+version. Otherwise it publishes CRDs first, then the parent including its locked
+dependency. Consumers need no local dependency source or dependency resolution.
+Release workflow concurrency serializes version checks and pushes across tags.
+Never delete/retag an existing package to bypass these guards. An interrupted
+parent upload needs a new parent version; an identical completed CRD upload can
+be reused. If image publication already completed but chart upload failed, use
+a new controller release tag as well; manual dispatch performs acceptance only.
+
+Public verification uses empty Helm/Docker configuration, compares the downloaded
+packages' complete contents with the validated archives, and records OCI manifest
+digests plus downloaded archive hashes in `distribution.json`. The subsequent
+full lifecycle/five-suite matrix pulls those chart digests with no local-source
+fallback, checks their recorded archive hashes, and normalizes Helm's digest-based
+filenames for the existing suite helpers. Both architectures must report identical distribution records before
+the announcement job creates a GitHub release. Registry uploads, local checks
+and physical acceptance each retain their distinct scope. No workflow change
+waives the annotated tag's physical-device requirements.
 
 ## Integrated image acceptance
 

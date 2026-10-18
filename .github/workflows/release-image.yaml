@@ -1,9 +1,9 @@
-name: release image
+name: release distribution
 on:
   push:
     tags: ['v*']
   # Repeat public acceptance after the first package's visibility is set to public.
-  # This path never builds, pushes or overwrites a release.
+  # This path reruns validation without pushing or overwriting packages.
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +17,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-image-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  # Serialize chart version checks and pushes across controller release tags.
+  group: release-distribution
   cancel-in-progress: false
 jobs:
   guard:
@@ -26,6 +27,8 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       revision: ${{ steps.release.outputs.revision }}
+      chart_version: ${{ steps.charts.outputs.chart_version }}
+      crd_version: ${{ steps.charts.outputs.crd_version }}
       physical_mode: ${{ steps.release.outputs.physical_mode }}
       physical_baseline: ${{ steps.release.outputs.physical_baseline }}
     steps:
@@ -38,10 +41,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: python3 tools/release-image.py guard "$RELEASE_TAG"
+      - id: charts
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: make release-chart-metadata VERSION="$RELEASE_VERSION"
 
   # Independent software checks run alongside the native build/cluster jobs.
   checks:
-    if: github.event_name == 'push'
     needs: guard
     strategy:
       fail-fast: false
@@ -72,7 +78,6 @@ jobs:
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
   validate:
-    if: github.event_name == 'push'
     needs: guard
     strategy:
       fail-fast: false
@@ -126,7 +131,6 @@ jobs:
           retention-days: 7
 
   helm:
-    if: github.event_name == 'push'
     needs: [guard, validate]
     strategy:
       fail-fast: false
@@ -219,9 +223,11 @@ jobs:
           retention-days: 90
 
   acceptance:
-    needs: [guard, publish]
+    needs: [guard, checks, validate, helm, publish]
     if: >-
       always() && needs.guard.result == 'success' &&
+      needs.checks.result == 'success' && needs.validate.result == 'success' &&
+      needs.helm.result == 'success' &&
       (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
     strategy:
       fail-fast: false
@@ -262,11 +268,9 @@ jobs:
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "ghcr.io/$REPOSITORY:$RELEASE_TAG")" = "linux/$ARCH"
           docker pull --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST"
           test "$(docker run --rm --platform "linux/$ARCH" "ghcr.io/$REPOSITORY@$INDEX_DIGEST" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
-      # No kind load: Pods pull the public index digest without imagePullSecrets.
-      - run: make helm-smoke IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST"
       - name: Record native public acceptance
         run: |
-          printf 'PASS: native linux/%s anonymous tag/digest pulls and complete Helm 4 lifecycle/smoke matrix.\n\n' "$ARCH" >> "$GITHUB_STEP_SUMMARY"
+          printf 'PASS: native linux/%s anonymous tag/digest pulls and startup.\n\n' "$ARCH" >> "$GITHUB_STEP_SUMMARY"
           cat /tmp/image-digests.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -275,9 +279,144 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  announce:
-    needs: [guard, acceptance]
+  chart_prepare:
+    needs: [guard, publish, acceptance]
     if: always() && needs.guard.result == 'success' && needs.acceptance.result == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      INDEX_DIGEST: ${{ needs.publish.outputs.digest || inputs.digest }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - name: Resolve the validated image into the distribution packages
+        run: make release-chart-prepare VERSION="$RELEASE_VERSION" CHART_OUTPUT="$PWD/dist/release-charts"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-charts
+          path: dist/release-charts/*.tgz
+          if-no-files-found: error
+          retention-days: 90
+
+  chart_validate:
+    needs: [guard, publish, chart_prepare]
+    if: always() && needs.chart_prepare.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      INDEX_DIGEST: ${{ needs.publish.outputs.digest || inputs.digest }}
+      REPOSITORY: ${{ github.repository }}
+      DOCKER_CONFIG: /tmp/arprt-anonymous-docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-charts
+          path: dist/release-charts
+      - run: make chart-check
+      - run: make integration ENVTEST_K8S_VERSION=1.36.0
+      - name: Test the exact distribution packages against the public image
+        run: make helm-release-smoke CHART_OUTPUT="$PWD/dist/release-charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" USE_CHART_IMAGE=true
+
+  chart_publish:
+    if: github.event_name == 'push'
+    needs: [guard, chart_validate]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-charts
+          path: dist/release-charts
+      - name: Authenticate Helm to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make release-chart-login
+      - name: Publish CRDs first, then the tested parent package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make release-chart-publish VERSION="$RELEASE_VERSION" CHART_OUTPUT="$PWD/dist/release-charts"
+
+  chart_acceptance:
+    needs: [guard, publish, chart_validate, chart_publish]
+    if: >-
+      always() && needs.chart_validate.result == 'success' &&
+      (needs.chart_publish.result == 'success' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      INDEX_DIGEST: ${{ needs.publish.outputs.digest || inputs.digest }}
+      REPOSITORY: ${{ github.repository }}
+      CHART_VERSION: ${{ needs.guard.outputs.chart_version }}
+      CRD_CHART_VERSION: ${{ needs.guard.outputs.crd_version }}
+      DOCKER_CONFIG: /tmp/arprt-anonymous-docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-charts
+          path: dist/release-charts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: accepted-image-digests-${{ matrix.arch }}
+          path: dist/acceptance
+      - name: Verify anonymous chart contents and record immutable references
+        run: make release-chart-verify VERSION="$RELEASE_VERSION" CHART_OUTPUT="$PWD/dist/release-charts" IMAGE_EVIDENCE=dist/acceptance/image-digests.json DISTRIBUTION_RECORD=dist/acceptance/distribution.json
+      - name: Accept fresh installs and compatible upgrades using public chart digests
+        run: make helm-published-smoke OCI_CHART_REPOSITORY="oci://ghcr.io/${REPOSITORY%/*}/charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" DISTRIBUTION_RECORD="$PWD/dist/acceptance/distribution.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accepted-distribution-${{ matrix.arch }}
+          path: dist/acceptance/distribution.json
+          if-no-files-found: error
+          retention-days: 90
+
+  announce:
+    needs: [guard, chart_acceptance]
+    if: always() && needs.guard.result == 'success' && needs.chart_acceptance.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -291,21 +430,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: accepted-image-digests-*
+          pattern: accepted-distribution-*
           path: /tmp/acceptance
       - name: Publish acceptance record as a GitHub release
         run: |
-          cmp /tmp/acceptance/accepted-image-digests-amd64/image-digests.json /tmp/acceptance/accepted-image-digests-arm64/image-digests.json
+          cmp /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/acceptance/accepted-distribution-arm64/distribution.json
           python3 - <<'PY' > /tmp/release-notes.md
           import json, os
-          evidence = json.load(open('/tmp/acceptance/accepted-image-digests-amd64/image-digests.json'))
+          from pathlib import Path
+          evidence = json.load(open('/tmp/acceptance/accepted-distribution-amd64/distribution.json'))
+          image_keys = ('image', 'tag', 'version', 'revision', 'indexDigest', 'platformDigests', 'anonymousRegistryRead')
+          Path('/tmp/image-digests.json').write_text(json.dumps({key: evidence[key] for key in image_keys}, indent=2) + '\n')
           print('ARPRT is an independent, unofficial Kubernetes controller for TRMNL BYOS. It is not affiliated with or endorsed by TRMNL.\n')
           print(f"Controller version: `{evidence['version']}`; source revision: `{evidence['revision']}`.\n")
           print(f"Image: `{evidence['image']}:{evidence['tag']}`\n")
           print(f"Multi-platform index: `{evidence['image']}@{evidence['indexDigest']}`\n")
           for platform, digest in evidence['platformDigests'].items():
               print(f'- {platform}: `{digest}`')
-          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and five-suite smoke matrix with the pinned Helm 4 client. Anonymous tag/digest pulls and the same Helm matrix using local chart packages and the published image index digest passed on both architectures.')
+          print(f"\nBundled CRD dependency: `{evidence['dependencyVersion']}`")
+          for name, chart in evidence['charts'].items():
+              print(f"\nChart `{name}` version `{chart['version']}`: `{chart['reference']}@{chart['digest']}`")
+          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and five-suite smoke matrix with the pinned Helm 4 client. Anonymous image and chart retrieval, fresh bundled/separate installs, compatible config upgrades and the full Helm matrix using the public chart/image digests passed on both architectures.')
           if os.environ['PHYSICAL_MODE'] == 'reuse':
               print(f"\nPhysical acceptance: current-revision installation/TLS/normal-display checks, with full OG corrected-gray4 and E1002 regression reused from `{os.environ['PHYSICAL_BASELINE']}`. The tag guard verified that runtime inputs have not changed.")
           else:
@@ -319,4 +464,4 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" --verify-tag --title "arprt $RELEASE_TAG" "${release_flags[@]}" \
             --notes-file /tmp/release-notes.md \
-            /tmp/acceptance/accepted-image-digests-amd64/image-digests.json
+            /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/image-digests.json
