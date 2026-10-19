@@ -701,8 +701,20 @@ indexed Spectra byte preservation across policy edits, exclusive output budgets
 and authenticated retrieval of issued images after restart. The original four
 suites retain OG regression, playlist recovery and storage/GC coverage.
 
-Its load case starts eight distinct HTTP requests and a real PVC Job using
-32 MiB, 4096-square RGBA16 inputs in plain and Adam7 layouts. It checks bounded
+Its standard load case starts two distinct HTTP requests (GET and POST) and a
+real PVC Job using 32 MiB, 4096-square RGBA16 inputs in plain and Adam7 layouts.
+This reduces routine CI contention while retaining maximum input/output sizes
+and the production resource limits. The original eight HTTP callers plus one
+Job remain available with `--stress` on `image-smoke.py`, or by setting
+`ARPRT_IMAGE_STRESS=true` on a disposable cluster/Helm smoke command. For example:
+
+```sh
+ARPRT_IMAGE_STRESS=true make disposable-cluster-smoke IMAGE=arprt:dev LOAD_IMAGE=true
+```
+
+Stress mode is optional; a standard pass does not establish nine-caller
+acceptance. The report records `load_profile` and the actual caller count.
+Both modes check bounded
 success/pending outcomes and HTTP 503 overload when the enclosing 13-second
 request deadline expires, collection completion, post-load availability and
 controller restarts. Request overload and processing failures are recorded separately; it is not successful
