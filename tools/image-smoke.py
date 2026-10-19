@@ -157,12 +157,20 @@ class Resources:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     helm_install.arguments(parser)
+    parser.add_argument(
+        "--stress",
+        action="store_true",
+        default=os.environ.get("ARPRT_IMAGE_STRESS") == "true",
+        help="use eight HTTP load callers instead of two (ARPRT_IMAGE_STRESS=true)",
+    )
     args = parser.parse_args()
+    http_callers = 8 if args.stress else 2
     namespace = "arprt-image-" + uuid.uuid4().hex[:8]
     report = {
         "architecture": platform.machine(),
         "image": args.image,
         "gray4_native4": GRAY4_NATIVE4,
+        "load_profile": "stress" if args.stress else "standard",
         "cases": [],
         "cpu_limit": "500m",
         "memory_limit_bytes": 512 << 20,
@@ -588,10 +596,11 @@ def main():
                     == expected
                 )
 
-                # Eight distinct callers retain metadata while one shared lease
-                # receives/converts/overlays/serves. Include real PVC collection.
+                # Two HTTP callers and a real PVC Job cover shared admission
+                # without nine-way contention on every CI run. Stress mode
+                # retains the original eight HTTP callers and one Job.
                 load_targets = []
-                for i in range(8):
+                for i in range(http_callers):
                     name = "load-" + str(i)
                     screen(name, "POST" if i % 2 else "GET", overlay=True)
                     patch(
@@ -657,7 +666,7 @@ def main():
                 device("load-job", "load-job")
                 session("load-job", "reterminal_e1002")
                 started = time.monotonic()
-                with ThreadPoolExecutor(max_workers=9) as executor:
+                with ThreadPoolExecutor(max_workers=http_callers + 1) as executor:
                     outcomes = list(
                         executor.map(
                             lambda item: display(item[0], item[1], allow_overload=True),
@@ -670,7 +679,9 @@ def main():
                 for i, outcome in enumerate(outcomes):
                     if outcome["status"] == 0:
                         name, model, width, height, palette, limit = (
-                            load_targets[i] if i < 8 else ("load-job", *PROFILES[2])
+                            load_targets[i]
+                            if i < len(load_targets)
+                            else ("load-job", *PROFILES[2])
                         )
                         _, headers = session(name, model)
                         inspect(
@@ -685,7 +696,7 @@ def main():
                         )
                 ready("indexed", "reterminal_e1002")
                 report["load"] = {
-                    "callers": 9,
+                    "callers": len(outcomes),
                     "input_bytes": 32 << 20,
                     "input_pixels": 16777216,
                     "seconds": round(time.monotonic() - started, 3),
