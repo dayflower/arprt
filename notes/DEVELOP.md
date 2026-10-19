@@ -643,6 +643,24 @@ Do not assume that a chart version, image version and dependency version will
 always be identical. A controller-only change need not change the CRD chart's
 version when its package is unchanged.
 
+For a stable controller release, run the shell helper directly from the checkout:
+
+```sh
+tools/bump-version.sh --dry-run patch
+tools/bump-version.sh patch
+```
+
+Choose `major`, `minor` or `patch`. The helper bumps the parent chart's top-level
+`version` and `appVersion` independently, resetting lower components for major
+and minor bumps. For example, a pair of `0.2.0` versions becomes `0.2.1` with
+`patch`; unequal chart/controller versions remain independent. It preserves
+quoting, inline comments and file permissions. CRD metadata, the dependency lock
+and accepted local image defaults retain their existing versions. The helper
+requires Bash and awk, plus diff for `--dry-run`; no Make, Helm, Python or YAML
+package is needed. Prerelease/build metadata and malformed or duplicate fields
+are rejected before replacing the file. Edit prerelease versions explicitly.
+Review and commit the resulting diff through a PR before creating a release tag.
+
 For a candidate package, regenerate schemas with `make manifests` when API
 types/markers change. Review both generated destinations and verify deterministic
 regeneration. When intentionally changing a dependency version, update the exact
