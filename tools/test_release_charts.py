@@ -1,5 +1,6 @@
 """Protect chart version ownership, immutable publication and anonymous evidence."""
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -30,6 +31,64 @@ def archive(path, files, timestamp=0):
             member.size = len(data)
             member.mtime = timestamp
             output.addfile(member, io.BytesIO(data))
+
+
+def schema_files():
+    return {
+        path.name: path.read_bytes()
+        for path in sorted((charts.ROOT / "config/crd/bases").glob("*.yaml"))
+    }
+
+
+def package_files(name, schemas):
+    prefix = (
+        "arprt-crds/files/crds/"
+        if name == "arprt-crds"
+        else "arprt/charts/arprt-crds/files/crds/"
+    )
+    return {prefix + path: data for path, data in schemas.items()}
+
+
+class BundleTests(unittest.TestCase):
+    def test_deterministic_bundle_matches_both_charts_and_has_no_helm_metadata(self):
+        schemas = schema_files()
+        with tempfile.TemporaryDirectory() as temporary:
+            archives = charts.release_archives(temporary, VERSIONS)
+            for name, path in archives.items():
+                archive(path, package_files(name, schemas))
+            bundle = charts.crd_bundle(archives)
+            self.assertEqual(bundle, b"".join(schemas.values()))
+            self.assertEqual(bundle.count(b"kind: CustomResourceDefinition\n"), 3)
+            self.assertNotIn(b"meta.helm.sh/", bundle)
+            self.assertNotIn(b"helm.sh/resource-policy", bundle)
+            digest = charts.write_bundle(temporary, bundle)
+            self.assertEqual(digest, hashlib.sha256(bundle).hexdigest())
+            self.assertEqual(
+                (Path(temporary) / "crds.yaml.sha256").read_text(),
+                digest + "  crds.yaml\n",
+            )
+
+    def test_missing_extra_and_changed_schema_in_either_chart_are_rejected(self):
+        schemas = schema_files()
+        first = next(iter(schemas))
+        for name in ("arprt", "arprt-crds"):
+            for broken in (
+                {key: value for key, value in schemas.items() if key != first},
+                {**schemas, "unexpected.yaml": b"---\nextra\n"},
+                {**schemas, first: schemas[first] + b"# changed\n"},
+            ):
+                with (
+                    self.subTest(name=name, files=tuple(broken)),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    archives = charts.release_archives(temporary, VERSIONS)
+                    for chart, path in archives.items():
+                        archive(
+                            path,
+                            package_files(chart, broken if chart == name else schemas),
+                        )
+                    with self.assertRaisesRegex(ValueError, "packaged CRDs differ"):
+                        charts.crd_bundle(archives)
 
 
 class VersionTests(unittest.TestCase):
@@ -85,6 +144,10 @@ class AssemblyTests(unittest.TestCase):
             parent = root / "charts/arprt"
             parent.mkdir(parents=True)
             (root / "charts/arprt-crds").mkdir()
+            schemas = {"example.yaml": b"---\nkind: CustomResourceDefinition\n"}
+            canonical = root / "config/crd/bases"
+            canonical.mkdir(parents=True)
+            (canonical / "example.yaml").write_bytes(schemas["example.yaml"])
             original = 'crds:\n  enabled: true\nimage:\n  repository: old\n  digest: old\nimagePullSecrets: []\nbyos:\n  publicBaseURL: ""\n'
             (parent / "values.yaml").write_text(original)
             (parent / "Chart.lock").write_text("unchanged lock")
@@ -95,6 +158,8 @@ class AssemblyTests(unittest.TestCase):
                 if args[1] == "package":
                     chart = Path(args[2])
                     packaged.append(chart.name)
+                    path = charts.release_archives(Path(args[4]), VERSIONS)[chart.name]
+                    archive(path, package_files(chart.name, schemas))
                     if chart.name == "arprt":
                         values = (chart / "values.yaml").read_text()
                         resolved = json.loads(
@@ -118,6 +183,9 @@ class AssemblyTests(unittest.TestCase):
                     "helm", "0.3.0", "example/arprt", image, directory / "output"
                 )
             self.assertEqual(packaged, ["arprt-crds", "arprt"])
+            self.assertEqual(
+                (directory / "output/crds.yaml").read_bytes(), schemas["example.yaml"]
+            )
             self.assertEqual((parent / "values.yaml").read_text(), original)
             self.assertEqual((parent / "Chart.lock").read_text(), "unchanged lock")
 
@@ -216,8 +284,13 @@ class PublicationTests(unittest.TestCase):
             for name, version in (("arprt", "0.2.0"), ("arprt-crds", "0.1.0")):
                 archive(
                     directory / f"{name}-{version}.tgz",
-                    {name + "/Chart.yaml": version.encode()},
+                    {
+                        name + "/Chart.yaml": version.encode(),
+                        **package_files(name, schema_files()),
+                    },
                 )
+            bundle = charts.crd_bundle(charts.release_archives(directory, VERSIONS))
+            digest = charts.write_bundle(directory, bundle)
             image = directory / "image.json"
             image.write_text(
                 json.dumps(
@@ -227,7 +300,9 @@ class PublicationTests(unittest.TestCase):
                     }
                 )
             )
-            output = directory / "distribution.json"
+            accepted = directory / "accepted"
+            accepted.mkdir()
+            output = accepted / "distribution.json"
             calls = []
 
             def pull(*args, env):
@@ -258,10 +333,40 @@ class PublicationTests(unittest.TestCase):
             evidence = json.loads(output.read_text())
             self.assertEqual(evidence["dependencyVersion"], "0.1.0")
             self.assertTrue(evidence["anonymousChartRead"])
+            self.assertEqual(
+                evidence["crds"],
+                {
+                    "asset": "crds.yaml",
+                    "sha256": digest,
+                    "chartVersion": "0.1.0",
+                },
+            )
             self.assertEqual([call[0][4] for call in calls], ["0.1.0", "0.2.0"])
             self.assertEqual(
                 evidence["charts"]["arprt"]["digest"], "sha256:" + "b" * 64
             )
+            self.assertEqual((accepted / "crds.yaml").read_bytes(), bundle)
+            self.assertEqual(
+                (accepted / "crds.yaml.sha256").read_text(),
+                digest + "  crds.yaml\n",
+            )
+            for asset in ("crds.yaml", "crds.yaml.sha256"):
+                with self.subTest(asset=asset):
+                    original = (directory / asset).read_bytes()
+                    (directory / asset).write_bytes(original + b"changed\n")
+                    with patch.object(charts, "run", side_effect=pull):
+                        with self.assertRaisesRegex(
+                            ValueError, "bundle or checksum differs"
+                        ):
+                            charts.verify(
+                                "helm",
+                                "example/arprt",
+                                directory,
+                                VERSIONS,
+                                image,
+                                output,
+                            )
+                    (directory / asset).write_bytes(original)
 
 
 if __name__ == "__main__":

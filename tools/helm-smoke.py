@@ -30,6 +30,11 @@ spec = importlib.util.spec_from_file_location(
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
 kubectl, wait = smoke.kubectl, smoke.wait
+spec = importlib.util.spec_from_file_location(
+    "release_charts", ROOT / "tools/release-charts.py"
+)
+release_charts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(release_charts)
 
 
 def run(*args, check=True, env=None):
@@ -170,7 +175,7 @@ def upgrade_fixture(helm, archive, directory, env):
 
 
 class Lifecycle:
-    def __init__(self, args, directory, archives, env, separate):
+    def __init__(self, args, directory, archives, env, separate, external_yaml=False):
         self.args, self.directory, self.archives, self.env = (
             args,
             directory,
@@ -178,11 +183,14 @@ class Lifecycle:
             env,
         )
         self.separate = separate
+        self.external_yaml = external_yaml
         self.namespace = "custom-space" if separate else "arprt"
         self.release = "home" if separate else "arprt"
+        if external_yaml:
+            self.namespace, self.release = "yaml-space", "external"
         self.name = self.release + "-arprt"
         self.claim = self.name + "-data"
-        self.values = directory / ("separate.json" if separate else "bundled.json")
+        self.values = directory / (self.namespace + ".json")
         self.settings = {
             "byos": {"publicBaseURL": "https://byos.example.test/arprt"},
             "image": image_values(args.image),
@@ -540,12 +548,35 @@ class Lifecycle:
         )
 
     def exercise(self):
+        mode = (
+            "YAML-managed"
+            if self.external_yaml
+            else ("separate" if self.separate else "bundled")
+        )
         print(
-            f"Checking {'separate' if self.separate else 'bundled'} release {self.release}/{self.namespace}",
+            f"Checking {mode} release {self.release}/{self.namespace}",
             flush=True,
         )
         kubectl("create", "namespace", self.namespace)
-        if self.separate:
+        if self.external_yaml:
+            bundle = release_charts.crd_bundle(self.archives)
+            record = getattr(self.args, "distribution_record", None)
+            if record:
+                require(
+                    hashlib.sha256(bundle).hexdigest()
+                    == json.loads(Path(record).read_text())["crds"]["sha256"],
+                    "YAML bundle differs from distribution record",
+                )
+            bundle_path = self.directory / "crds.yaml"
+            bundle_path.write_bytes(bundle)
+            kubectl(
+                "apply",
+                "--server-side",
+                "--field-manager=arprt-crds",
+                "-f",
+                str(bundle_path),
+            )
+        elif self.separate:
             self.helm(
                 "install",
                 "schemas",
@@ -560,6 +591,27 @@ class Lifecycle:
                 "wait", "--for=condition=Established", "crd/" + name, "--timeout=30s"
             )
         original_crds = self.crds()
+        if self.external_yaml:
+            for crd in original_crds.values():
+                annotations = crd["metadata"].get("annotations", {})
+                require(
+                    not any(
+                        key.startswith(("meta.helm.sh/", "helm.sh/"))
+                        for key in annotations
+                    )
+                    and crd["metadata"]
+                    .get("labels", {})
+                    .get("app.kubernetes.io/managed-by")
+                    != "Helm",
+                    "raw CRD bundle acquired Helm ownership metadata",
+                )
+            kubectl(
+                "apply",
+                "--server-side",
+                "--field-manager=arprt-crds",
+                "-f",
+                str(bundle_path),
+            )
         self.permissions()
         self.prepare_delivery()
         before = self.snapshot()
@@ -657,11 +709,12 @@ class Lifecycle:
                 self.crds() == original_crds,
                 "controller reinstall modified separately owned CRDs",
             )
-            self.helm("uninstall", "schemas", "--wait", "--timeout", "60s")
-            require(
-                self.snapshot() == before,
-                "independent CRD uninstall did not retain CRDs/resources",
-            )
+            if not self.external_yaml:
+                self.helm("uninstall", "schemas", "--wait", "--timeout", "60s")
+                require(
+                    self.snapshot() == before,
+                    "independent CRD uninstall did not retain CRDs/resources",
+                )
         kubectl("delete", "namespace", self.namespace, "--wait=true", "--timeout=120s")
         # Intentional schema changes are removed only inside our owned cluster,
         # before another scenario can run. Existing smoke protections stay intact.
@@ -754,6 +807,9 @@ def main():
                 )
             for separate in (False, True):
                 Lifecycle(args, directory, archives, env, separate).exercise()
+            Lifecycle(
+                args, directory, archives, env, True, external_yaml=True
+            ).exercise()
             env["ARPRT_KIND_RESOURCE_PROBE"] = "true"
             # Prepare one shared CRD owner before concurrent isolated namespaces.
             # The optional schema fixture has already been removed by Lifecycle.
