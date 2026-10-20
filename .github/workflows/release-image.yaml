@@ -297,7 +297,10 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-charts
-          path: dist/release-charts/*.tgz
+          path: |
+            dist/release-charts/*.tgz
+            dist/release-charts/crds.yaml
+            dist/release-charts/crds.yaml.sha256
           if-no-files-found: error
           retention-days: 90
 
@@ -410,7 +413,10 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: accepted-distribution-${{ matrix.arch }}
-          path: dist/acceptance/distribution.json
+          path: |
+            dist/acceptance/distribution.json
+            dist/acceptance/crds.yaml
+            dist/acceptance/crds.yaml.sha256
           if-no-files-found: error
           retention-days: 90
 
@@ -433,6 +439,9 @@ jobs:
       - name: Publish acceptance record as a GitHub release
         run: |
           cmp /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/acceptance/accepted-distribution-arm64/distribution.json
+          cmp /tmp/acceptance/accepted-distribution-amd64/crds.yaml /tmp/acceptance/accepted-distribution-arm64/crds.yaml
+          cmp /tmp/acceptance/accepted-distribution-amd64/crds.yaml.sha256 /tmp/acceptance/accepted-distribution-arm64/crds.yaml.sha256
+          (cd /tmp/acceptance/accepted-distribution-amd64 && sha256sum --check crds.yaml.sha256)
           python3 - <<'PY' > /tmp/release-notes.md
           import json, os
           from pathlib import Path
@@ -448,7 +457,9 @@ jobs:
           print(f"\nBundled CRD dependency: `{evidence['dependencyVersion']}`")
           for name, chart in evidence['charts'].items():
               print(f"\nChart `{name}` version `{chart['version']}`: `{chart['reference']}@{chart['digest']}`")
-          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and five-suite smoke matrix with the pinned Helm 4 client. Anonymous image and chart retrieval, fresh bundled/separate installs, compatible config upgrades and the full Helm matrix using the public chart/image digests passed on both architectures.')
+          crds_url = f"https://github.com/{os.environ['GH_REPO']}/releases/download/{evidence['tag']}/crds.yaml"
+          print(f"\n[CRD YAML]({crds_url}) and [SHA-256 checksum]({crds_url}.sha256) match CRD chart `{evidence['crds']['chartVersion']}`. For YAML-managed CRDs, keep `crds.enabled: false` from the controller's first install. See the README for installation instructions.")
+          print('\nBoth native architectures passed verify, Kubernetes 1.36.0 envtest, Docker build and the complete Helm lifecycle and five-suite smoke matrix with the pinned Helm 4 client. Anonymous image and chart retrieval, fresh bundled/separate/YAML-managed installs, compatible config upgrades and the full Helm matrix using the public chart/image digests passed on both architectures.')
           print('\nPhysical-device checks are not required for publication and are not attested by this workflow. See the documented observations for hardware evidence.')
           print('Architecture publication does not expand device or storage support.')
           print(f"\n[Acceptance workflow](https://github.com/{os.environ['GH_REPO']}/actions/runs/{os.environ['GITHUB_RUN_ID']})")
@@ -459,4 +470,6 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" --verify-tag --title "arprt $RELEASE_TAG" "${release_flags[@]}" \
             --notes-file /tmp/release-notes.md \
-            /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/image-digests.json
+            /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/image-digests.json \
+            /tmp/acceptance/accepted-distribution-amd64/crds.yaml \
+            /tmp/acceptance/accepted-distribution-amd64/crds.yaml.sha256

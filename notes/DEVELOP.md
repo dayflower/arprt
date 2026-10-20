@@ -678,8 +678,11 @@ exercised by the checks for distribution.
 in a temporary copy after anonymous image validation. It resolves the parent's
 default image repository/tag/index digest to this release, keeps the committed
 lock unchanged, strictly lints and packages both charts. The checkout's local
-defaults are unchanged. The exact archives are retained as `release-charts` for
-90 days. Native amd64/arm64 jobs run chart checks, API integration and
+defaults are unchanged. Preparation also concatenates the sorted generated files
+under `config/crd/bases/` into `crds.yaml`, without adding Helm ownership metadata,
+and writes `crds.yaml.sha256`. It rejects missing, extra or different schema bytes
+in either the standalone or embedded CRD chart. The exact archives and YAML assets
+are retained as `release-charts` for 90 days. Native amd64/arm64 jobs run chart checks, API integration and
 `make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`;
 this target does not rebuild the archives. It uses the staged image defaults
 and checks that the deployed image equals the accepted index digest. Only after these jobs pass does the
@@ -700,12 +703,20 @@ a new controller release tag as well; manual dispatch performs acceptance only.
 
 Public verification uses empty Helm/Docker configuration, compares the downloaded
 packages' complete contents with the validated archives, and records OCI manifest
-digests plus downloaded archive hashes in `distribution.json`. The subsequent
-full lifecycle/five-suite matrix pulls those chart digests with no local-source
+digests plus downloaded archive hashes in `distribution.json`. It regenerates the
+bundle from the checked source after comparing both public chart copies, checks
+the staged YAML and checksum, and records the bundle SHA-256 and CRD chart version
+in `distribution.json`. The subsequent full lifecycle/five-suite matrix pulls
+those chart digests with no local-source
 fallback, checks their recorded archive hashes, and normalizes Helm's digest-based
-filenames for the existing suite helpers. Both architectures must report identical distribution records before
-the announcement job creates a GitHub release. Registry uploads and software
-acceptance do not attest physical-device behavior.
+filenames for the existing suite helpers. The lifecycle matrix also applies the
+raw YAML with server-side apply, installs the controller with `crds.enabled: false`,
+and checks that upgrades, uninstall and reinstall preserve externally managed
+CRDs and application state. Both architectures must report identical distribution
+records, YAML and checksum files before the announcement job creates a GitHub
+release with `crds.yaml` and `crds.yaml.sha256` assets at
+`releases/download/<controller-tag>/`. Older releases may not provide these assets.
+Registry uploads and software acceptance do not attest physical-device behavior.
 Release notes describe the completed software checks and explicitly state that
 the workflow does not attest physical-device checks.
 

@@ -143,6 +143,33 @@ transfer CRD ownership. See
 [CRD lifecycle operations](notes/OPERATIONS.md#helm-managed-crds) and
 [compatible upgrades](notes/OPERATIONS.md#compatible-upgrades).
 
+### YAML-managed CRDs
+
+For a fresh installation with CRDs managed by `kubectl` or GitOps, use a release
+that provides `crds.yaml` and `crds.yaml.sha256` assets. The bundle contains all
+three CRDs, matches that release's CRD chart schemas, and has no Helm ownership
+metadata. Download both assets from the same controller tag:
+
+```sh
+tag='<controller-release-tag>'
+base="https://github.com/dayflower/arprt/releases/download/$tag"
+curl --fail --location --output crds.yaml "$base/crds.yaml"
+curl --fail --location --output crds.yaml.sha256 "$base/crds.yaml.sha256"
+sha256sum --check crds.yaml.sha256
+kubectl apply --server-side --field-manager=arprt-crds -f crds.yaml
+kubectl wait --for=condition=Established --timeout=60s \
+  crd/arprtdevices.arprt.dayflower.github.io \
+  crd/arprtplaylists.arprt.dayflower.github.io \
+  crd/arprtscreens.arprt.dayflower.github.io
+```
+
+Set `crds.enabled: false` in the controller's private values before its first
+installation, then use the quickstart's Helm command with the chart version from
+the same release. Keep this setting for upgrades and reinstalls. Apply compatible
+schema updates separately before upgrading the controller; see
+[YAML CRD operations](notes/OPERATIONS.md#yaml-managed-crds). Moving existing
+Helm-owned CRDs to this mode is outside the tested installation path.
+
 ## Security and support boundary
 
 The historically verified physical baseline is

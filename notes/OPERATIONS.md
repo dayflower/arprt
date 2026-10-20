@@ -324,8 +324,8 @@ The [CRD-only chart](../charts/arprt-crds/README.md) uses ordinary Helm template
 so compatible upgrades update the generated schemas. With the controller chart's
 default `crds.enabled: true`, these CRDs belong to the parent release, including
 its upgrade and rollback. With separate management, the CRD release owns schemas;
-controller operations use `crds.enabled: false` and do not change them. All CRDs carry
-`helm.sh/resource-policy: keep`: uninstall and operations that remove a CRD
+controller operations use `crds.enabled: false` and do not change them.
+Helm-rendered CRDs carry `helm.sh/resource-policy: keep`: uninstall and operations that remove a CRD
 from the release retain the CRD and its custom resources. See Helm's
 [resource retention guidance](https://helm.sh/docs/howto/charts_tips_and_tricks/#tell-helm-not-to-uninstall-a-resource).
 Retention does not block schema changes, establish safe downgrade, or substitute
@@ -390,6 +390,25 @@ backup or a guarantee of safe rollback. Do not delete the namespace: Helm's
 `keep` annotation does not protect resources from namespace deletion, direct
 Kubernetes deletion or storage loss.
 
+### YAML-managed CRDs
+
+On a fresh cluster, the release's `crds.yaml` asset can be applied by `kubectl`
+or GitOps before installing the controller with `crds.enabled: false`. See the
+[download and checksum procedure](../README.md#yaml-managed-crds). These schemas
+match both CRD chart copies but contain no Helm ownership or retention annotations.
+The YAML manager owns schema updates; controller install, upgrade, uninstall and
+reinstall leave these CRDs unchanged. Deleting CRDs through the YAML manager
+still deletes their custom resources across all namespaces. Configure GitOps
+pruning accordingly and preserve backups.
+
+For a compatible schema update, download and verify the target controller tag's
+bundle and apply it with the same field manager (`arprt-crds` in the example)
+before upgrading the controller. The intermediate schema must remain compatible
+with the running controller. Controller-only upgrades need no schema operation
+when the installed schema is already compatible. Preserve `crds.enabled: false`
+on every controller operation. Ownership transfers from existing Helm releases
+are outside the tested path; applying the bundle does not perform a migration.
+
 ### Compatible upgrades
 
 Review the target release's API and internal-record compatibility, chart defaults
@@ -419,8 +438,8 @@ If it cannot, use the release's migration procedure. Controller-only upgrades
 need no CRD operation when the installed schema is already compatible.
 
 Upgrade the controller with the complete private values file, retaining
-`crds.enabled: false` for separate management. For bundled CRDs, this one parent
-operation updates both schemas and controller:
+`crds.enabled: false` for separate or YAML management. For bundled CRDs, this one
+parent operation updates both schemas and controller:
 
 ```sh
 helm upgrade home oci://ghcr.io/dayflower/charts/arprt \
