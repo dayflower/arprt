@@ -4,8 +4,8 @@ description: >-
   ARPRT, an independent, unofficial Kubernetes controller for TRMNL BYOS.
   Not affiliated with or endorsed by TRMNL.
 type: application
-version: 0.2.1
-appVersion: "0.2.1"
+version: 0.2.2
+appVersion: "0.2.2"
 kubeVersion: ">=1.36.0 <1.37.0"
 home: https://github.com/dayflower/arprt
 sources:
