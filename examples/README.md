@@ -13,12 +13,12 @@ repository root; the guides use namespace `arprt` unless stated otherwise.
 | Normalize general RGB or preserve indexed Spectra output | [HTTP palette](renderers/http/palette/) | Python 3 or the supplied Deployment; [palette guide](../notes/RENDERERS.md#rgb-and-indexed-spectra-example) |
 | Render current device observations through HTTP POST | [HTTP device status](renderers/http/device-status/) | Python 3 or the supplied Deployment; [POST guide](../notes/RENDERERS.md#http-post-example) |
 | Render with an existing container image | [Job gray bands](renderers/job/gray-bands/) | Job scheduling and the controller's RWO PVC; [Job guide](../notes/RENDERERS.md#job-example-and-container-requirements) |
-| Build a photo-rendering container | [Job Picsum](renderers/job/picsum/), [E1002 color Screen](renderers/job/picsum/screen-spectra6.yaml) | A built/pushed renderer image, Job/PVC support and HTTPS egress; [Picsum guide](../notes/RENDERERS.md#picsum-photo-job-example) |
+| Display random photographs | [External Picsum renderer and Screens](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md) | A cluster-accessible renderer image, Job/PVC support and HTTPS egress; see [distribution status](../notes/RENDERERS.md#picsum-job-renderer) for published image availability |
 | Expose BYOS through an existing TLS Gateway | [Envoy Gateway](networking/envoy-gateway/README.md) | Gateway API, an existing Envoy Gateway, DNS and certificate |
 
-`custom-resources/` illustrates API configuration patterns. Each renderer example
-keeps its implementation, image inputs, deployment resources and corresponding
-Screen manifests together. `networking/` contains external routing integrations.
+`custom-resources/` illustrates API configuration patterns. Each bundled renderer
+example keeps its implementation, image inputs, deployment resources and
+corresponding Screen manifests together. `networking/` contains external routing integrations.
 Detailed renderer contracts and execution instructions belong in
 [RENDERERS](../notes/RENDERERS.md); configuration and credentials belong in
 [OPERATIONS](../notes/OPERATIONS.md).

@@ -39,7 +39,7 @@ accepting the historical color-count heuristic. The
 [`gray4_native4` build flag](DEVELOP.md#temporary-gray4-encoding-switch) retains
 four-bit intermediate-gray output for corrected-firmware acceptance. Confirm
 the startup encoder identity before restoring a Screen temporarily changed to
-[`--palette bw`](RENDERERS.md#picsum-photo-job-example) back to `--palette gray4`:
+[`--palette bw`](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md#compatibility-and-limits) back to `--palette gray4`:
 `png-v3-gray4-2bit` is the default; `png-v3-gray4-native4` requires corrected
 firmware. Software checks do not establish physical four-bit acceptance.
 Issued URLs retain their original bytes across the mode change.

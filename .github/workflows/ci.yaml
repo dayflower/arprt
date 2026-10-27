@@ -93,15 +93,6 @@ jobs:
         with:
           name: image-benchmark-${{ matrix.runner }}
           path: dist/acceptance/image-benchmark.json
-      - name: Build and check the Picsum renderer without external photo requests
-        run: |
-          docker build -t picsum-renderer:ci examples/renderers/job/picsum
-          docker run --rm --network=none --read-only --cap-drop=ALL \
-            --security-opt=no-new-privileges \
-            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-            --mount type=bind,src="$PWD/examples/renderers/job/picsum/test_renderer.py",dst=/app/test_renderer.py,readonly \
-            --entrypoint python3 picsum-renderer:ci \
-            -m unittest -v test_renderer
 
   helm:
     needs: changes
