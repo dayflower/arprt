@@ -38,8 +38,8 @@ See [Device profiles and overrides](OPERATIONS.md#display-overrides); all source
 types receive the same effective renderer target. Model/firmware and value
 provenance do not fragment equivalent GET capabilities.
 Compatible PNGs retain their original bytes and renderer-authored dithering.
-The gray-bands and device-status examples and Picsum's gray4/bw modes keep their
-OG scope. Their two-bit intermediate-gray output passes through by default. The
+The bundled gray-bands and device-status examples keep their OG scope. Their
+two-bit intermediate-gray output passes through by default. The
 [`gray4_native4` build](DEVELOP.md#temporary-gray4-encoding-switch) converts it
 exactly to native four-bit gray4 before delivery.
 
@@ -292,113 +292,17 @@ Controller deadlines/concurrency and operator diagnostics are in
 [OPERATIONS](OPERATIONS.md#runtime-configuration); durable recovery, publication
 and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
-## Picsum photo Job example
+## Picsum Job renderer
 
-The [Picsum renderer](../examples/renderers/job/picsum/renderer.py) downloads a
-random photo from [Lorem Picsum](https://picsum.photos/). Both example Screens
-refresh every 10 minutes and support all four rotations. The OG mode converts
-to gray4 with Floyd-Steinberg dithering, falling back to undithered quantization
-if needed to fit the PNG size limit. RGB mode delegates palette conversion to
-the controller for E1002 color photographs. A failed download or conversion
-leaves compatible prior output available through the controller's usual
-fallback behavior.
+The [Picsum renderer](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md)
+is maintained in `arprt-renderers`. Its README owns photo-rendering options,
+local execution, OG gray4 and Spectra 6 RGB Screen examples, and image usage.
+[Picsum 0.1.0](https://github.com/dayflower/arprt-renderers/releases/tag/picsum/v0.1.0)
+publishes `ghcr.io/dayflower/arprt-renderer-picsum:0.1.0` for Linux amd64 and arm64,
+independently versioned from ARPRT. Prefer the release's immutable image digest
+when pinning the image. Jobs require image-pull access, Job/PVC support and
+outbound HTTPS to Picsum and its image CDN, as described in the renderer README.
 
-When Picsum returns a photo ID, the renderer logs both the ID and its image URL
-as `https://picsum.photos/id/<id>/<width>/<height>`. The dimensions are the
-requested source size, so rotations 90 and 270 use `480/800`. Local input and
-responses without a photo ID have no image URL in the log.
-
-The renderer's `--palette` argument selects `gray4` (the default), `bw` (black
-and white with dithering), or `rgb` (full-color input for controller
-normalization). To select black and white in the OG Screen resource, set:
-
-```yaml
-spec:
-  source:
-    job:
-      renderer:
-        args: ["--palette", "bw"]
-```
-
-This is a fragment to merge into the existing Screen. Both modes still produce
-the required 2-bit gray4 PNG and accept the same gray4 Render Context; `bw` only
-uses its black and white samples. The reviewed OG firmware can select
-black-and-white refresh for two-color images, but actual refresh behavior depends
-on its display state. This option does not guarantee a partial update on every
-delivery.
-
-For E1002, use the
-[Spectra 6 Screen](../examples/renderers/job/picsum/screen-spectra6.yaml), which
-selects `args: ["--palette", "rgb"]`. RGB mode accepts an 800 × 480 target with
-semantic palette `gray4` or `spectra6`, preserves photograph colors, and returns
-an opaque eight-bit RGB PNG. It intentionally does not support other profile
-dimensions. The target palette remains `spectra6`; `rgb` is a renderer CLI
-option, not a Device palette. The controller applies the Screen's configured
-dithering (Atkinson by default), converts to the six canonical colors, and adds
-overlays. It enforces the Device's final PNG budget; the RGB source itself can
-exceed that budget within the general input limits. Set the explicit 90000-byte
-override when required by the installed firmware, as described in
-[OPERATIONS](OPERATIONS.md#display-overrides). If a detailed photograph cannot
-fit, the controller preserves compatible previous output rather than changing
-the requested dithering or content to fit.
-
-The [OG Screen](../examples/renderers/job/picsum/screen.yaml) and Spectra 6 Screen enable timestamp, battery and
-Wi-Fi overlays with clockwise corner cycling: top-right, bottom-right,
-bottom-left, top-left. Corners advance on new deliveries, independently of photo
-generation. The timestamp is the photo's generation time; battery/Wi-Fi use
-current display telemetry. Device polling remains separately configured.
-
-This example needs the controller's Job/PVC support and outbound HTTPS access
-to `picsum.photos` and its image CDN (`fastly.picsum.photos`). Requests include
-only dimensions and a random cache-busting value; no device data is sent.
-Pillow is installed during the image build, so Jobs need no package downloads.
-There is no prebuilt image for this example. Build and push it to a registry
-accessible to your cluster, replacing the synthetic registry below:
-
-```sh
-picsum_image=registry.example.com/picsum-renderer:v1
-docker build -t "$picsum_image" examples/renderers/job/picsum
-docker push "$picsum_image"
-```
-
-Set `spec.source.job.renderer.image` in `examples/renderers/job/picsum/screen.yaml` to that
-image reference (prefer its pushed digest), then install and assign it:
-
-```sh
-kubectl -n arprt apply --validate=strict -f examples/renderers/job/picsum/screen.yaml
-kubectl -n arprt patch arprtdevice living-room --type=merge \
-  -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum"}}}'
-```
-
-For E1002, set the renderer image in `screen-spectra6.yaml` to the same newly
-built image, then use:
-
-```sh
-kubectl -n arprt apply --validate=strict -f examples/renderers/job/picsum/screen-spectra6.yaml
-kubectl -n arprt patch arprtdevice e1002 --type=merge \
-  -p '{"spec":{"playlistRef":null,"screenRef":{"name":"picsum-spectra6"}}}'
-```
-
-For standalone rendering, install the pinned
-[Python dependency](../examples/renderers/job/picsum/requirements.txt) in a virtual
-environment, then use the shared Context fixture:
-
-```sh
-python3 -m venv /tmp/arprt-picsum-venv
-/tmp/arprt-picsum-venv/bin/pip install -r examples/renderers/job/picsum/requirements.txt
-/tmp/arprt-picsum-venv/bin/python examples/renderers/job/picsum/renderer.py \
-  --context testdata/render-context/render-context-v1.json --output /tmp/picsum.png
-/tmp/arprt-picsum-venv/bin/python examples/renderers/job/picsum/renderer.py \
-  --context testdata/render-context/render-context-spectra6.json \
-  --palette rgb --output /tmp/picsum-rgb.png
-```
-
-Append `--input /path/to/photo.jpg` to render a local image without network
-access. This also works with other Pillow-supported image formats. The renderer
-draws only the photo; controller overlays are added at delivery time.
-
-Run its conversion/download-boundary tests without external photo requests:
-
-```sh
-/tmp/arprt-picsum-venv/bin/python -m unittest discover -s examples/renderers/job/picsum -v
-```
+ARPRT remains authoritative for the [Job container requirements](#job-example-and-container-requirements),
+[Render Context](PROTOCOL.md#render-context-v1), [PNG contract](PROTOCOL.md#png-contract)
+and [controller rendering/fallback behavior](DESIGN.md#rendering-and-assignment).

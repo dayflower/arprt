@@ -28,9 +28,9 @@ in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluste
 jobs. Changed fenced/indented examples, other paths and unavailable history run the full
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
-Docker builds run in the native image/renderer jobs and Helm matrix; `contracts`
-checks Go. The image/renderer jobs also build the Picsum example image and run its offline conversion
-and download-boundary tests on each native architecture.
+Controller Docker builds run in the native `cluster` and `helm` jobs; `contracts`
+checks Go. Picsum renderer development, image builds and tests are maintained in
+[arprt-renderers](https://github.com/dayflower/arprt-renderers).
 A new run cancels any older in-progress run of the same workflow for the same
 pull request or branch.
 
