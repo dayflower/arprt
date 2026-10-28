@@ -297,11 +297,11 @@ and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 The [Picsum renderer](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md)
 is maintained in `arprt-renderers`. Its README owns photo-rendering options,
 local execution, OG gray4 and Spectra 6 RGB Screen examples, and image usage.
-See [renderer releases](https://github.com/dayflower/arprt-renderers/releases)
-for independently versioned images and their digests. The initial `0.1.0` image
-is not yet published; until publication, follow that README to build/push your
-own image. Jobs require a cluster-accessible image, Job/PVC support and outbound
-HTTPS to Picsum and its image CDN, as described there.
+[Picsum 0.1.0](https://github.com/dayflower/arprt-renderers/releases/tag/picsum/v0.1.0)
+publishes `ghcr.io/dayflower/arprt-renderer-picsum:0.1.0` for Linux amd64 and arm64,
+independently versioned from ARPRT. Prefer the release's immutable image digest
+when pinning the image. Jobs require image-pull access, Job/PVC support and
+outbound HTTPS to Picsum and its image CDN, as described in the renderer README.
 
 ARPRT remains authoritative for the [Job container requirements](#job-example-and-container-requirements),
 [Render Context](PROTOCOL.md#render-context-v1), [PNG contract](PROTOCOL.md#png-contract)
