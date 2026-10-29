@@ -391,6 +391,146 @@ memory/latency budget. Admission tests also check contention, cancellation and
 slot retention. Re-run inside the deployment CPU/memory limits
 with a 384 MiB Go memory limit before drawing resource conclusions.
 
+## Delayed display transport probe
+
+The [listener tests](../internal/byos/listener_test.go) use actual TCP sockets
+and real elapsed time to deliver HTTP 200 / JSON 202 after 10 and 13 seconds,
+and reject a write after 16 seconds with the restored 15-second write timeout.
+They also exercise ordinary authentication and pending responses, client
+disconnect cancellation and the current 13-second application deadline.
+These tests run in `make test`; the timed listener cases
+alone need at least 16 seconds per build variant. They establish local listener
+behavior, not device acceptance.
+
+The isolated [byos-delay harness](../tools/byos-delay/main.go) uses the production
+listener with its 15-second write timeout. It delays only the configured exact
+display path, sends no headers before the delay and defaults to a synthetic
+HTTP 200 / JSON 202 response. It has no pairing or authentication in this mode;
+it is a transport probe, not a BYOS server. Start it locally:
+
+```sh
+go run ./tools/byos-delay -delay=10s
+```
+
+In another terminal:
+
+```sh
+curl --max-time 20 --write-out '\nhttp=%{http_code} first_byte=%{time_starttransfer} total=%{time_total}\n' \
+  http://127.0.0.1:8081/arprt/devices/arprt/delay-probe/api/display
+```
+
+Use separate harness instances with `-delay=10s` and `-delay=12s` for delivery
+below the 15-second write limit. The default delay is 10 seconds. Delays of 16
+or 25 seconds remain available only as negative probes; the restored production
+listener cannot deliver a response written after its 15-second deadline. They
+do not reproduce the former 30-second listener's successful long responses.
+A shorter client `--max-time` can exercise cancellation, but does not emulate
+firmware retries or TLS. The harness limits active requests to 16 and bounds
+delay plus upstream work to 28 seconds, independently of the socket deadline,
+so negative probes can observe a device's disconnect before attempting a write.
+That probe-only bound is not a production request or on-demand Job budget:
+ordinary BYOS requests retain the 13-second context. Client disconnect and
+process shutdown also cancel the probe work.
+Its logs contain elapsed delays and cancellation, without request headers,
+device identifiers or upstream addresses. A finished delay log does not prove
+delivery; record the client result and proxy timings as well.
+
+For actual TLS/proxy/prefix and device checks, use an isolated route and a
+disposable BYOS controller containing only the intended test device. Run the
+harness with `-listen=0.0.0.0:8081` only inside that isolated environment and
+`-upstream=http://127.0.0.1:8080` (replace with its private controller origin).
+Set `-display-path` to the exact incoming path after any prefix stripping; the
+upstream receives that same path. Configure the disposable controller's
+`publicBaseURL` and prefix handling to match the actual external device URL.
+Route that external URL through the usual TLS proxy to the harness. In upstream
+mode, setup, image downloads and other paths pass through without delay, and
+the controller handles real authentication and JSON/image generation. The
+synthetic response mode cannot validate authentication or image display.
+
+For a short observation session, upstream mode also accepts
+`-refresh-seconds=5`: it changes only `refresh_rate` in successful display JSON
+on the exact probe path. Setup, pending, authentication errors and image bytes
+are unchanged. This allows repeated device polls without changing the
+controller's global configuration or other devices. Remove the probe and
+observe another normal successful poll to restore the controller's original
+refresh interval on the device. Keep this override confined to the test device.
+
+Before observing the device, prepare a valid cached image on the disposable
+controller so renderer execution does not obscure the transport delay. Compare
+no delay and the revised 10/13-second boundaries, including wrong-token rejection
+and ordinary authenticated image fetches. If disconnection occurs, locate it
+using private device/proxy/harness timings and count actual display retries; record whether
+the proxy buffers responses or terminates a request first. Inspect the existing
+proxy timeout before overriding it, and report the original and extended-timeout
+results separately. Prepare each delay in a separate Pod/Service, then switch
+only the isolated route's backend so in-flight requests can finish. Exclude
+rollout/shutdown interruptions from timing evidence. Do not advance the
+device's display turn with synthetic requests during observation. Restore the
+original device URL and temporary routing/settings afterward, including on
+failure or interruption.
+
+Keep source revision/image, model, exact firmware/distribution, transport band,
+proxy configuration, date, elapsed times and retry counts privately, excluding
+credentials and real identities from repository fixtures. Separate source review,
+direct HTTP tests, local TLS tests and actual device observations. The reviewed
+Wi-Fi sources have a 15-second read timeout; see
+[PROTOCOL](PROTOCOL.md#transport-deadlines). Neither the listener limit nor
+the harness establishes that an installed device can wait 25 seconds. The
+observation below rejects that wait on the tested OG; other installed firmware,
+models and additional external prefixes remain unconfirmed. The revised
+10-second render / 13-second request design still needs end-to-end acceptance
+with real Jobs and finalization.
+
+### Delayed display transport observations
+
+On 2026-10-29 (JST), the existing TRMNL OG reporting firmware `1.8.17` was tested
+through its actual TLS/Envoy Gateway device path on native Linux amd64 /
+microk8s Kubernetes 1.36.2. The reported version alone does not establish the
+installed binary's commit/hash or distribution. The path had no extra external
+prefix beyond the canonical device path. The worktree delay harness used the
+experimental 30-second listener configuration; it forwarded to the existing
+controller without changing its image, assignment, credentials or PVC. Private
+evidence retains source/image details and timings without adding real identities or hostnames to
+repository fixtures.
+
+| Evidence | Result |
+| --- | --- |
+| Experimental 30-second listener, synthetic HTTP display response | 16- and 25-second delays delivered; a write after 31 seconds failed. This configuration was subsequently reverted. |
+| Actual TLS/Gateway path, synthetic 25-second response, original proxy timeout | HTTP 504 after about 15.08 seconds; Gateway logged `response_timeout` / `UT`. |
+| Same synthetic probe, only its temporary route extended to 35 seconds | HTTP 200 / JSON 202 received after about 25.03 seconds. |
+| Actual OG, 14-second injected delay, temporary 35-second Gateway timeout | HTTP 200 after 14.260 seconds, followed by a successful authenticated image fetch. |
+| Actual OG, 16-second delay, same extended Gateway timeout | Three attempts ended in client disconnect after 15.003–15.021 seconds. |
+| Actual OG, 25-second delay, same extended Gateway timeout | Two further attempts ended in client disconnect after 14.964–15.037 seconds. |
+
+The five consecutive failed attempts started about 17.4–17.5 seconds apart,
+leaving about 2.4–2.5 seconds after each disconnect before the next start. These
+are observed request intervals including firmware/connection work, not an exact
+measurement of its configured 2000 ms retry sleep. Gateway logs identified
+`downstream_remote_disconnect` / `DC`, with no response bytes, and the harness
+canceled its delay before forwarding to the controller. The batch crossed from
+the 16-second backend to the already-running 25-second backend; it does not
+independently establish five attempts per delay. A separate rollout-interrupted
+request was excluded. Physical communication and server/image-fetch evidence
+are distinct from visual panel acceptance.
+
+The original Gateway limit and the device read timeout are independent barriers.
+Extending the Gateway alone did not make this OG wait 25 seconds, and a
+15-second candidate budget leaves no assured margin for the rest of a display
+request. The experimental listener extension was reverted to 15 seconds, and
+the revised on-demand budgets and finalization reserve are described in
+[PROTOCOL](PROTOCOL.md#transport-deadlines). Those future limits still need
+cold/warm Job, finalization and response-delivery acceptance; they are not
+delivery guarantees or implemented on-demand APIs. The observations do not
+expand model, firmware or long-wait support claims.
+
+The temporary routes, Deployments and Services were removed afterward. Snapshot
+comparison confirmed the original route, controller, ConfigMap, Device and
+Screen configuration/UIDs and the credential Secret/PVC UIDs were retained.
+The normal path then delivered another display response and authenticated image
+fetch with HTTP 200, and the observer confirmed the ordinary image returned.
+The original controller refresh interval remained 300 seconds; the temporary
+five-second override ended with the normal successful response.
+
 ## Selecting checks
 
 Start with focused tests for changed behavior, then run the applicable matrix.

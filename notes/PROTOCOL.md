@@ -155,6 +155,71 @@ and contain at most 31 ASCII characters. Firmware caches by filename and truncat
 longer names. Persist collision-checked short names; keep full digests in URLs
 and internal metadata.
 
+## Transport deadlines
+
+The BYOS listener has a fixed 15-second HTTP write timeout. Header reading
+remains bounded to 3 seconds, request reading to 5 seconds, idle connections to
+30 seconds and graceful shutdown to 15 seconds. These limits serve different
+purposes and are configured independently.
+
+The current application request context still expires after 13 seconds, and
+HTTP renderer execution still has its independent 10-second limit. The socket
+write timeout does not cancel handler work: handlers and shared rendering must
+continue to obey their own context deadlines and cancellation. On-demand Jobs
+are not implemented. See the [isolated delay probe](DEVELOP.md#delayed-display-transport-probe)
+for transport-only verification.
+
+In pinned OG `v1.8.17` (`9acd348270a493ca5f1c627ac91a9469543267ae`),
+[display fetching](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/api-client/display.cpp)
+does not override `readTimeoutSeconds`. The
+[transport defaults](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/include/services/http_retry_request.h)
+and [implementation](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/services/http_retry_request.cpp)
+set Wi-Fi connect/read timeouts to 15000 ms, with at most five total attempts
+and 2000 ms between attempts. The
+[retry predicate](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/lib/trmnl/src/http_utils.cpp)
+retries transport errors, HTTP 408 and 5xx, rather than deterministic 4xx
+responses. Multiple attempts do not extend a single attempt's read timeout.
+The TRMNL X 5 GHz modem path uses at least 60000 ms; that distinct transport is
+not evidence for OG Wi-Fi behavior or physical acceptance.
+
+The pinned Seeed common E1001/E1002/E1003 distribution
+(`8d97d8912987c07529287629f7e73039bb0e6384`) likewise sets 15000 ms connect/read
+timeouts in
+[display fetching](https://github.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/blob/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/src/api-client/display.cpp).
+That function and its
+[HTTP helper](https://github.com/Seeed-Projects/OSHW-reTerminal-Series-E-D/blob/8d97d8912987c07529287629f7e73039bb0e6384/examples/official/TRMNL/lib/trmnl/include/http_client.h)
+do not implement the OG five-attempt loop. This source review does not identify
+an installed Web Flasher binary merely from its version string.
+
+The response's `image_url_timeout: 10` applies to the later image download:
+OG [image fetching](https://github.com/usetrmnl/trmnl-firmware/blob/9acd348270a493ca5f1c627ac91a9469543267ae/src/bl.cpp#L1509)
+sets `readTimeoutSeconds` from that field only after receiving the display JSON.
+It cannot extend the preceding display request. A silent 25-second display
+response exceeds the reviewed Wi-Fi read timeout. The
+[2026-10-29 OG transport observation](DEVELOP.md#delayed-display-transport-observations)
+confirmed delivery with a 14-second injected delay, but client disconnects near
+15 seconds with both 16- and 25-second delays, even after extending only the
+probe's Gateway timeout. The existing Gateway also independently timed out at
+15 seconds under its original settings. This OG does not accept 25-second
+display waiting, and the experimental 30-second listener timeout was reverted
+to 15 seconds.
+
+The revised on-demand design stops rendering and successful base-image storage
+by 10 seconds from request admission, within the existing 13-second application
+deadline. The remaining nominal 3 seconds are reserved for compatible fallback
+selection, overlays, revalidation, issuance, turn persistence and response
+preparation. The nominal 2 seconds between application and transport deadlines
+provide delivery headroom, not more rendering time. Authentication, assignment
+and gate/slot waiting consume the same budgets. Candidates, retries and joining
+requests cannot reset them. A shorter parent deadline wins at every stage.
+The proposed candidate timeout defaults to 5 seconds (integer range 1–10), and
+the proposed Skip playlist budget defaults to 10 seconds (integer range 1–10).
+These are future execution limits, not implemented API fields or evidence that
+cold/warm Jobs and finalization finish within them. Storage/CPU/network delays
+can consume the margins; the 14-second probe success does not establish a safe
+14-second rendering budget. Keep ordinary HTTP renderer execution at 10 seconds
+and scheduled Job behavior unchanged.
+
 ## HTTP renderer contract
 
 GET receives target query parameters and `Accept: image/png` only. POST receives
