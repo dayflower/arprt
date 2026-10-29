@@ -11,6 +11,7 @@ import (
 
 	"github.com/dayflower/arprt/internal/artifact"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -32,11 +33,20 @@ func (c uncertainCreateClient) Create(ctx context.Context, obj client.Object, op
 
 type deleteErrorClient struct {
 	client.Client
-	err error
+	err           error
+	afterTerminal func() bool
 }
 
 func (c deleteErrorClient) Delete(context.Context, client.Object, ...client.DeleteOption) error {
 	return c.err
+}
+
+func (c deleteErrorClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	// A missing Job needs only Pod observation, not an unsafe name-only Delete.
+	if _, ok := list.(*corev1.PodList); ok && (c.afterTerminal == nil || c.afterTerminal()) {
+		return c.err
+	}
+	return c.Client.List(ctx, list, opts...)
 }
 
 func TestCreatedJobBeforeSubmittedSaveRecoversSameAttempt(t *testing.T) {
@@ -113,7 +123,8 @@ func TestTerminalReasonSurvivesInterruptedCancellation(t *testing.T) {
 	}
 	c := r.Client
 	injected := errors.New("injected cancellation failure")
-	r.Client = deleteErrorClient{Client: c, err: injected}
+	r.Client = deleteErrorClient{Client: c, err: injected, afterTerminal: func() bool { st := load(t, r, d); return st.Active != nil && st.Active.TerminalReason != "" }}
+	r.Reader = r.Client
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)}); !errors.Is(err, injected) {
 		t.Fatal("cancellation interruption not exercised", err)
 	}
@@ -152,5 +163,36 @@ func TestTerminalReasonSurvivesInterruptedCancellation(t *testing.T) {
 	next := load(t, restarted, d)
 	if next.Active == nil || next.Active.ID == st.Active.ID || next.Active.Sequence != st.Sequence+1 {
 		t.Fatal("retry did not allocate a new attempt", next)
+	}
+}
+
+func TestCancellationDoesNotDeleteConflictingJobOwner(t *testing.T) {
+	r, d, _, _ := fixture(t)
+	step(t, r, d)
+	st := load(t, r, d)
+	var job batchv1.Job
+	key := client.ObjectKey{Namespace: d.Namespace, Name: "arprt-render-" + st.Active.ID}
+	if err := r.Client.Get(t.Context(), key, &job); err != nil {
+		t.Fatal(err)
+	}
+	job.OwnerReferences[0].UID = "foreign-device-uid"
+	if err := r.Client.Update(t.Context(), &job); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Client.Get(t.Context(), client.ObjectKeyFromObject(d), d); err != nil {
+		t.Fatal(err)
+	}
+	d.Spec.Rotation = 90
+	if err := r.Client.Update(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)}); err == nil {
+		t.Fatal("conflicting owner accepted during cancellation")
+	}
+	if err := r.Client.Get(t.Context(), key, &job); err != nil {
+		t.Fatal("foreign Job deleted", err)
+	}
+	if st := load(t, r, d); st.Active == nil || st.Active.TerminalReason != "ObsoleteAttempt" {
+		t.Fatal("terminal decision lost", st)
 	}
 }

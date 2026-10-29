@@ -563,6 +563,19 @@ testing unknown fields: structural CRDs otherwise prune them before CEL runs.
 See Kubernetes [field validation](https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation)
 and [CRD pruning](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/).
 
+The internal request-triggered Job foundation is covered by
+`internal/jobrender/execution_test.go`: shared waiters and immutable snapshots,
+absolute render/candidate budgets including slot/storage waiting, cancellation,
+late completion, stopping-Pod capacity/GC protection, mode changes and restart.
+Existing scheduler tests retain legacy-record, interval, backoff, processing and
+publication-recovery coverage. `TestJobExecutionWatchCancellationAndRecovery`
+uses the same internal policy hook with a real envtest API server to exercise
+status/watch publication, foreground deletion and restart. It emulates Pod
+termination and explicitly clears foreground-deletion finalizers because envtest
+has no kubelet or garbage collector. This is not acceptance of real on-demand
+container startup, PVC mounts or end-to-end BYOS delivery; the public API and
+display integration remain separate work.
+
 For documentation-only edits, verify local links/anchors, obsolete references
 and `git diff --check`. No software matrix is required for prose-only changes.
 `python3 tools/check-docs.py` checks tracked local Markdown links/anchors and

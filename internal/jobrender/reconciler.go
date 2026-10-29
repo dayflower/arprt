@@ -42,10 +42,16 @@ type Reconciler struct {
 	Config     Config
 	Recorder   events.EventRecorder
 	Now        func() time.Time
+	// TriggerFor is an internal policy hook. Nil preserves scheduled execution.
+	TriggerFor func(*api.ArprtScreen) Trigger
 	// mu covers complete reconciliation and maintenance operations so cleanup
 	// cannot remove runs or artifacts between preparation, publication and
 	// durable bookkeeping.
-	mu sync.Mutex
+	mu        operationMutex
+	flights   map[string]*execution
+	lifecycle context.Context
+	workers   sync.WaitGroup
+	stopping  bool
 }
 
 func (r *Reconciler) now() time.Time {
@@ -97,15 +103,24 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return &d, s, &state{Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: resolved.Target, Output: resolved.Output}, Revision: revision}, nil
+	trigger := Scheduled
+	if r.TriggerFor != nil {
+		trigger = r.TriggerFor(s)
+	}
+	if !trigger.valid() {
+		return nil, nil, nil, errors.New("invalid Job execution trigger")
+	}
+	return &d, s, &state{Trigger: trigger, Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: resolved.Target, Output: resolved.Output}, Revision: revision}, nil
 }
 
 func same(a, b *state) bool {
-	return a != nil && b != nil && a.DeviceUID == b.DeviceUID && a.Unit == b.Unit && a.ScreenGeneration == b.ScreenGeneration && a.Revision == b.Revision
+	return a != nil && b != nil && a.Trigger == b.Trigger && a.DeviceUID == b.DeviceUID && a.Unit == b.Unit && a.ScreenGeneration == b.ScreenGeneration && a.Revision == b.Revision
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.mu.Lock()
+	if err := r.mu.LockContext(ctx); err != nil {
+		return ctrl.Result{}, err
+	}
 	defer r.mu.Unlock()
 	// Process eligible and previously scheduled pairs, including removals.
 	names := map[string]bool{}
@@ -166,7 +181,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return result, nil
 }
 
-func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screenName string) (ctrl.Result, error) {
+func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screenName string) (result ctrl.Result, err error) {
 	d, s, wanted, err := r.desired(ctx, req.NamespacedName, screenName)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -175,6 +190,17 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	defer func() {
+		// A watch or cleanup reconciliation may outlive the HTTP execution it
+		// observes. Its cancellation belongs to that execution, while the worker
+		// still receives the error through its own cancelled request context.
+		if err == nil || ctx.Err() != nil || st == nil || st.Trigger != OnDemand {
+			return
+		}
+		if f := r.flight(st); f != nil && f.ctx.Err() != nil && errors.Is(err, f.ctx.Err()) {
+			result, err = ctrl.Result{}, nil
+		}
+	}()
 	if !same(st, wanted) {
 		if st != nil && st.Active != nil {
 			// A compatibility or definition change is terminal even if cancellation
@@ -210,11 +236,17 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 					if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
 						return ctrl.Result{}, err
 					}
+					if wanted.Trigger == OnDemand {
+						return ctrl.Result{}, artifact.ErrCapacity
+					}
 					return ctrl.Result{RequeueAfter: time.Minute}, nil
 				}
 			}
 		}
 		wanted.Due = r.now()
+		if wanted.Trigger == OnDemand {
+			wanted.Due = time.Time{}
+		}
 		if st != nil && st.DeviceUID == wanted.DeviceUID {
 			wanted.Sequence = st.Sequence
 		}
@@ -237,7 +269,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 			}
 			wanted.Sequence = max(wanted.Sequence, sequence)
 		}
-		if old.Fresh(wanted.Unit, wanted.Revision) && old.ScreenGeneration == wanted.ScreenGeneration {
+		if wanted.Trigger == Scheduled && old.Fresh(wanted.Unit, wanted.Revision) && old.ScreenGeneration == wanted.ScreenGeneration {
 			interval, _ := screen.EffectiveInterval(s.Spec)
 			wanted.Due = old.RenderedAt.Add(interval)
 		}
@@ -249,27 +281,25 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	if st.Active != nil {
 		return r.advance(ctx, d, s, st)
 	}
-	if remaining := st.Due.Sub(r.now()); remaining > 0 {
+	if st.Trigger == OnDemand {
+		if f := r.flight(st); f == nil || f.attempted || f.waiters.Load() == 0 || f.ctx.Err() != nil {
+			return ctrl.Result{}, nil
+		}
+	}
+	if remaining := st.Due.Sub(r.now()); st.Trigger == Scheduled && remaining > 0 {
 		return ctrl.Result{RequeueAfter: remaining}, nil
 	}
 	// Do not allocate durable attempts/run directories while the global queue is full.
-	var jobs batchv1.JobList
-	if err := r.Reader.List(ctx, &jobs, client.InNamespace(r.Config.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
+	active, err := r.activeSlots(ctx)
+	if err != nil {
 		return ctrl.Result{}, err
-	}
-	active := 0
-	for i := range jobs.Items {
-		complete, failed := terminal(&jobs.Items[i])
-		if !complete && !failed {
-			active++
-		}
 	}
 	observe.Jobs.Set(float64(active))
 	if active >= r.Config.MaxActive {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	result, err := r.prepareAttempt(ctx, d, s, st)
+	result, err = r.prepareAttempt(ctx, d, s, st)
 	if err != nil || st.Active == nil {
 		return result, err
 	}
@@ -298,7 +328,17 @@ func (r *Reconciler) pods(ctx context.Context, st *state) ([]corev1.Pod, error) 
 
 func (r *Reconciler) cancel(ctx context.Context, st *state) (bool, error) {
 	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Namespace: st.Namespace, Name: "arprt-render-" + st.Active.ID}}
-	err := r.Client.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground))
+	err := r.Reader.Get(ctx, client.ObjectKeyFromObject(job), job)
+	if err == nil {
+		if err := validateJobOwner(st, job); err != nil {
+			return false, err
+		}
+		options := []client.DeleteOption{client.PropagationPolicy(metav1.DeletePropagationForeground)}
+		if job.UID != "" {
+			options = append(options, client.Preconditions{UID: &job.UID})
+		}
+		err = r.Client.Delete(ctx, job, options...)
+	}
 	if err != nil && !apierrors.IsNotFound(err) {
 		return false, err
 	}
@@ -322,6 +362,32 @@ func (r *Reconciler) cancel(ctx context.Context, st *state) (bool, error) {
 
 func (r *Reconciler) advance(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
 	a := st.Active
+	if a.Trigger == OnDemand {
+		// A durable publication wins a crash between Publish and clearing Active.
+		f := r.flight(st)
+		if a.TerminalReason == "" && (f == nil || f.id != a.ID) {
+			m, err := r.published(ctx, st)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if m.AttemptID == a.ID {
+				return r.complete(ctx, d, s, st, m)
+			}
+		}
+		if a.TerminalReason == "" {
+			switch {
+			case f == nil || f.id != a.ID:
+				a.TerminalReason = "RequestLost"
+			case !r.now().Before(a.Deadline):
+				a.TerminalReason = "JobTimedOut"
+			case f.ctx.Err() != nil:
+				a.TerminalReason = "RequestCancelled"
+			}
+		}
+		if a.TerminalReason == "" {
+			ctx = f.ctx
+		}
+	}
 	if a.TerminalReason != "" {
 		return r.failed(ctx, d, s, st, a.TerminalReason)
 	}
@@ -351,7 +417,7 @@ func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.Arpr
 			return ctrl.Result{}, err
 		}
 		complete, failed := terminal(&job)
-		if err != nil || (!complete && !failed) {
+		if st.Trigger == OnDemand || err != nil || (!complete && !failed) {
 			done, err := r.cancel(ctx, st)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -368,6 +434,17 @@ func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.Arpr
 		observe.CollectionFailures.Inc()
 	}
 	st.Active = nil
+	if st.Trigger == OnDemand {
+		st.Reason = reason
+		st.Due = time.Time{}
+		if err := r.Store.save(st); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.report(ctx, d, s, false, reason); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 	st.Failures = min(st.Failures+1, 7)
 	st.Reason = reason
 	delay := min(5*time.Second*time.Duration(1<<uint(st.Failures-1)), 5*time.Minute)
@@ -450,6 +527,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *Reconciler) NeedLeaderElection() bool { return false }
 func (r *Reconciler) Start(ctx context.Context) error {
+	defer r.stopExecutions()
+	r.mu.Lock()
+	r.lifecycle = ctx
+	for _, f := range r.flights {
+		if f.stop == nil {
+			f.stop = context.AfterFunc(ctx, f.cancel)
+		}
+	}
+	r.mu.Unlock()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -469,7 +555,9 @@ func (r *Reconciler) Start(ctx context.Context) error {
 }
 
 func (r *Reconciler) maintenance(ctx context.Context) error {
-	r.mu.Lock()
+	if err := r.mu.LockContext(ctx); err != nil {
+		return err
+	}
 	defer r.mu.Unlock()
 	active := map[string]bool{}
 	queued := 0
@@ -486,15 +574,21 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 			}
 			return nil
 		}
-		if st.Active == nil && !st.Due.After(r.now()) {
+		if st.Trigger == Scheduled && st.Active == nil && !st.Due.After(r.now()) {
 			queued++
 		}
-		_, _, desired, err := r.desired(ctx, client.ObjectKey{Namespace: st.Namespace, Name: st.DeviceName}, st.ScreenName)
+		d, s, desired, err := r.desired(ctx, client.ObjectKey{Namespace: st.Namespace, Name: st.DeviceName}, st.ScreenName)
 		if err != nil {
 			return err
 		}
 		if !same(st, desired) {
 			if st.Active != nil {
+				if st.Active.TerminalReason == "" {
+					st.Active.TerminalReason = "ObsoleteAttempt"
+					if err := r.Store.save(st); err != nil {
+						return err
+					}
+				}
 				done, err := r.cancel(ctx, st)
 				if err != nil {
 					return err
@@ -508,7 +602,14 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 				return err
 			}
 		} else if st.Active != nil {
-			active[st.Active.ID] = true
+			if st.Trigger == OnDemand && r.flight(st) == nil {
+				if _, err := r.advance(ctx, d, s, st); err != nil {
+					return err
+				}
+			}
+			if st.Active != nil {
+				active[st.Active.ID] = true
+			}
 		}
 		return nil
 	})
@@ -516,15 +617,25 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		return err
 	}
 	observe.Queue.Set(float64(queued))
+	// Jobs can disappear before their Pods. Keep every remaining run mounted by
+	// a managed Pod visible to GC, even without a scheduler or Job record.
+	var pods corev1.PodList
+	if err := r.Reader.List(ctx, &pods, client.InNamespace(r.Config.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
+		return err
+	}
+	for _, pod := range pods.Items {
+		id := strings.TrimPrefix(pod.Labels["batch.kubernetes.io/job-name"], "arprt-render-")
+		if validID(id) {
+			active[id] = true
+		}
+	}
 	var jobs batchv1.JobList
 	if err = r.Reader.List(ctx, &jobs, client.InNamespace(r.Config.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
 		return err
 	}
-	running := 0
-	for i := range jobs.Items {
-		if complete, failed := terminal(&jobs.Items[i]); !complete && !failed {
-			running++
-		}
+	running, err := r.activeSlots(ctx)
+	if err != nil {
+		return err
 	}
 	observe.Jobs.Set(float64(running))
 	for i := range jobs.Items {

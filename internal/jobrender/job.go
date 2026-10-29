@@ -94,6 +94,10 @@ func normalize(source api.JobSource) (api.JobSource, error) {
 
 func (c Config) job(st *state) *batchv1.Job {
 	a := st.Active
+	deadlineSeconds := c.DeadlineSeconds
+	if a.Trigger == OnDemand {
+		deadlineSeconds = min(deadlineSeconds, max(int64(1), int64((a.Deadline.Sub(a.StartedAt)+time.Second-1)/time.Second)))
+	}
 	src := a.Source
 	renderer := src.Renderer
 	labels := map[string]string{managedLabel: "true", deviceLabel: hash([]byte(st.DeviceUID))[:32]}
@@ -118,7 +122,7 @@ func (c Config) job(st *state) *batchv1.Job {
 		}
 	}
 	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
-		BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(c.DeadlineSeconds), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
+		BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(deadlineSeconds), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false),
 			SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), FSGroup: ptr.To(int64(1000)), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 			Affinity:        &corev1.Affinity{PodAffinity: &corev1.PodAffinity{RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "arprt"}}, Namespaces: []string{st.Namespace}, TopologyKey: "kubernetes.io/hostname"}}}},

@@ -28,6 +28,8 @@ type attempt struct {
 	Source         api.JobSource `json:"source"`
 	TerminalReason string        `json:"terminalReason,omitempty"`
 	Submitted      bool          `json:"submitted,omitempty"`
+	Trigger        Trigger       `json:"trigger,omitempty"`
+	Deadline       time.Time     `json:"deadline,omitzero"`
 }
 
 type state struct {
@@ -46,6 +48,7 @@ type state struct {
 	Failures         int           `json:"failures"`
 	Reason           string        `json:"reason,omitempty"`
 	Active           *attempt      `json:"active,omitempty"`
+	Trigger          Trigger       `json:"trigger,omitempty"`
 }
 
 type Store struct{ Root string }
@@ -214,6 +217,9 @@ func syncDirectory(path string) error {
 }
 
 func (s *Store) collectInput(ctx context.Context, a *attempt) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	snapshotRoot, err := os.OpenRoot(s.run(a.ID))
 	if err != nil {
 		return nil, err
@@ -236,6 +242,9 @@ func (s *Store) collectInput(ctx context.Context, a *attempt) ([]byte, error) {
 
 	// Root-relative opening rejects links outside the writable output subtree.
 	// O_NONBLOCK prevents a FIFO from stalling the controller's work queue.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	root, err := os.OpenRoot(filepath.Join(s.run(a.ID), "output"))
 	if err != nil {
 		return nil, err
@@ -344,6 +353,9 @@ func readStateFile(path string) ([]byte, error) {
 	return b, nil
 }
 func validateState(st *state) error {
+	if !st.Trigger.valid() {
+		return errors.New("invalid scheduler trigger")
+	}
 	if (st.Version != 0 && st.Version != 2) || (st.Version == 0 && !st.Unit.Output.IsZero()) || (st.Version == 2 && st.Unit.Output.IsZero()) {
 		return errors.New("unknown scheduler compatibility version")
 	}
@@ -351,6 +363,9 @@ func validateState(st *state) error {
 		return errors.New("invalid scheduler record")
 	}
 	if st.Active != nil {
+		if !st.Active.Trigger.valid() || st.Active.Trigger != st.Trigger || (st.Trigger == OnDemand && (st.Active.Deadline.IsZero() || !st.Active.Deadline.After(st.Active.StartedAt))) {
+			return errors.New("invalid scheduler execution deadline or trigger")
+		}
 		if !validID(st.Active.ID) || st.Active.Sequence == 0 || st.Active.StartedAt.IsZero() {
 			return errors.New("invalid scheduler attempt")
 		}
