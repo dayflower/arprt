@@ -123,6 +123,7 @@ func TestObsoleteAttemptCannotReviveAfterInterruptedCancellation(t *testing.T) {
 		c := r.Client
 		injected := errors.New("interrupted cancellation")
 		r.Client = deleteErrorClient{Client: c, err: injected}
+		r.Reader = r.Client
 		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)}); !errors.Is(err, injected) {
 			t.Fatal("cancellation not reached", err)
 		}
@@ -143,6 +144,7 @@ func TestObsoleteAttemptCannotReviveAfterInterruptedCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.Client = c
+		r.Reader = c
 		step(t, r, d)
 		recovered := load(t, r, d)
 		if recovered.Active != nil || recovered.Reason != "ObsoleteAttempt" || recovered.Sequence != st.Sequence {

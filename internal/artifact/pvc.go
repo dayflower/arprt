@@ -118,7 +118,21 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	if err := ctx.Err(); err != nil {
 		return Metadata{}, err
 	}
-	if err := writeJSON(filepath.Join(s.root, "latest", key+".json"), m); err != nil {
+	encoded, err := json.Marshal(m)
+	if err != nil {
+		return Metadata{}, err
+	}
+	// Preparing and syncing the pointer may itself consume the remaining render
+	// budget. Recheck immediately before the atomic publication transition.
+	if err := atomicWriteChecked(filepath.Join(s.root, "latest", key+".json"), encoded, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}); err != nil {
 		return Metadata{}, err
 	}
 	return m, nil
@@ -413,6 +427,10 @@ func WriteJSONAtomic(path string, v any) error { return writeJSON(path, v) }
 func WriteAtomic(path string, b []byte) error { return atomicWrite(path, b) }
 
 func atomicWrite(path string, b []byte) error {
+	return atomicWriteChecked(path, b, nil)
+}
+
+func atomicWriteChecked(path string, b []byte, check func() error) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".pending-")
 	if err != nil {
@@ -429,6 +447,11 @@ func atomicWrite(path string, b []byte) error {
 	}
 	if err := f.Close(); err != nil {
 		return err
+	}
+	if check != nil {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	if err := os.Rename(f.Name(), path); err != nil {
 		return err

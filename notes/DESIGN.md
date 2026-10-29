@@ -228,10 +228,55 @@ never returns setup success or discloses the key.
 Each eligible device/screen pair owns due time, retry state, monotonic sequence
 and at most one active attempt. Preparation persists the context, its digest,
 source snapshot and attempt record **before** the Kubernetes Job is created.
-Attempt IDs determine Job identity. Restart can recreate prepared work, adopt
-existing work or collect completed work without duplicating an active pair.
+Attempt IDs determine Job identity. Restart can recreate prepared scheduled work,
+adopt existing scheduled work or collect completed scheduled work without
+duplicating an active pair.
 Publication precedes clearing the active record so interrupted bookkeeping can
 replay publication idempotently.
+
+`jobrender.Reconciler.Execute` provides an internal request-triggered execution
+interface over the same preparation, observation, collection and publication
+transitions. It is not connected to the public Screen API or BYOS display
+handler yet; all normally configured Jobs remain scheduled. The internal policy
+hook defaults to scheduled execution. Pair and attempt records add an optional
+trigger and, for request-triggered attempts, an absolute deadline. Omitted fields
+retain scheduled semantics and do not change old IDs, context digests, sequences,
+due times or backoff. A policy change terminalizes and stops old work before a
+new execution is allowed.
+
+The internal caller supplies the admission timestamp, absolute render cutoff,
+expected UID/target/revision and current observation allowlist. Freeze context
+bytes before slot waiting. The candidate deadline is the earliest of that
+cutoff, admission plus 10 seconds, candidate start plus its 5-second default
+(integer 1–10 seconds), the configured Job safety limit and the parent deadline.
+Slot waiting, preparation, Kubernetes startup, image admission, collection,
+processing and publication all consume this same budget. Kubernetes
+`activeDeadlineSeconds` is an additional stop mechanism. Publication rechecks
+cancellation after preparing/fsyncing the latest pointer, immediately before
+atomic rename; synchronous filesystem operations still depend on filesystem
+progress and cannot guarantee transport delivery under a stalled disk.
+
+Concurrent identical candidates share the first immutable context, attempt and
+deadline. Each waiter keeps its own cancellation/cutoff; a join cannot extend
+the shared execution. No reconciliation/maintenance lock or image lease is held
+across Kubernetes/slot polling or waiter suspension. Collection and publication
+remain serialized through the reconciler, so watch events, maintenance and the
+request worker cannot collect twice. Operation-lock admission respects the
+caller's cutoff, and manager shutdown cancels and drains execution workers.
+The surrounding display flow retains
+responsibility for authentication, assignment compatibility, fallback, issuance
+and its separate 13-second application deadline.
+
+When the last waiter leaves or the deadline expires, persist a terminal reason
+and stop the Job independently of the HTTP waiter. Do not wait for Pod deletion
+in the finalization reserve. Stopping Jobs and remaining Pods consume the shared
+global execution budget and prevent pair replacement; GC protects their run
+directories even if their Job has disappeared. Request-triggered work schedules
+no periodic retry or backoff. On restart, uncommitted work with no live waiters
+becomes terminal and is collected, without creating a replacement. A matching
+already-durable publication survives interrupted active-record cleanup; terminal
+attempts cannot regain success from late notifications or output files. Storage
+and API errors remain infrastructure errors instead of candidate failures.
 
 Recover active work before starting queued pairs; older due work is preferred.
 The global concurrency budget bounds active Jobs/run directories, not the number

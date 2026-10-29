@@ -28,6 +28,10 @@ import (
 // prepareAttempt leaves Active nil when work must wait or fails. On success,
 // context, sequence and Active are durable before advance can submit a Job.
 func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
+	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
+		f.attempted = true
+		st.Reason = ""
+	}
 	source, err := normalize(*s.Spec.Source.Job)
 	if err != nil {
 		return r.failed(ctx, d, s, st, "InvalidJobPaths")
@@ -40,11 +44,29 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
+		b = f.snapshot
+	}
 	var id [16]byte
 	if _, err = rand.Read(id[:]); err != nil {
 		return ctrl.Result{}, err
 	}
 	a := &attempt{ID: hex.EncodeToString(id[:]), Sequence: st.Sequence + 1, StartedAt: r.now(), ContextDigest: hash(b), Source: source}
+	if st.Trigger == OnDemand {
+		f := r.flight(st)
+		if f == nil {
+			return ctrl.Result{}, context.Canceled
+		}
+		if err := f.ctx.Err(); err != nil {
+			return ctrl.Result{}, err
+		}
+		a.Trigger = OnDemand
+		a.StartedAt = f.started
+		a.Deadline, _ = f.ctx.Deadline()
+		if !r.now().Before(a.Deadline) {
+			return ctrl.Result{}, context.DeadlineExceeded
+		}
+	}
 	candidate := *st
 	candidate.Active = a
 	encoded, err := json.Marshal(candidate)
@@ -59,10 +81,19 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *
 			if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
 				return ctrl.Result{}, err
 			}
+			if st.Trigger == OnDemand {
+				return ctrl.Result{}, artifact.ErrCapacity
+			}
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err = r.Store.prepare(a, b); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return ctrl.Result{}, err
 	}
 	st.Sequence = a.Sequence
@@ -70,6 +101,9 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *
 	// Both context and attempt are durable before the first Kubernetes write.
 	if err = r.Store.save(st); err != nil {
 		return ctrl.Result{}, err
+	}
+	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
+		f.id = a.ID
 	}
 	return ctrl.Result{}, nil
 }
@@ -96,22 +130,18 @@ func (r *Reconciler) submitPrepared(ctx context.Context, d *api.ArprtDevice, s *
 	if len(entries) > 0 {
 		return r.failed(ctx, d, s, st, "JobLost")
 	}
-	var jobs batchv1.JobList
-	if err := r.Reader.List(ctx, &jobs, client.InNamespace(st.Namespace), client.MatchingLabels{managedLabel: "true"}); err != nil {
+	active, err := r.activeSlots(ctx)
+	if err != nil {
 		return ctrl.Result{}, err
-	}
-	active := 0
-	for i := range jobs.Items {
-		complete, failed := terminal(&jobs.Items[i])
-		if !complete && !failed {
-			active++
-		}
 	}
 	if active >= r.Config.MaxActive {
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 	if r.now().Sub(a.StartedAt) > time.Duration(r.Config.DeadlineSeconds+120)*time.Second {
 		return r.failed(ctx, d, s, st, "JobTimedOut")
+	}
+	if err := ctx.Err(); err != nil {
+		return ctrl.Result{}, err
 	}
 	if err := r.Client.Create(ctx, r.Config.job(st)); err != nil && !apierrors.IsAlreadyExists(err) {
 		if apierrors.IsInvalid(err) || apierrors.IsForbidden(err) {
@@ -132,15 +162,22 @@ func (r *Reconciler) submitPrepared(ctx context.Context, d *api.ArprtDevice, s *
 // recoverSubmission verifies ownership before acknowledging a create whose
 // Submitted write may have been interrupted.
 func (r *Reconciler) recoverSubmission(st *state, job *batchv1.Job) error {
-	owner := metav1.GetControllerOf(job)
-	if owner == nil || string(owner.UID) != st.DeviceUID || job.Labels[managedLabel] != "true" || job.Labels[deviceLabel] != hash([]byte(st.DeviceUID))[:32] {
-		return errors.New("render Job identity conflict")
+	if err := validateJobOwner(st, job); err != nil {
+		return err
 	}
 	if !st.Active.Submitted {
 		st.Active.Submitted = true
 		if err := r.Store.save(st); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateJobOwner(st *state, job *batchv1.Job) error {
+	owner := metav1.GetControllerOf(job)
+	if owner == nil || owner.APIVersion != api.GroupVersion.String() || owner.Kind != "ArprtDevice" || owner.Name != st.DeviceName || string(owner.UID) != st.DeviceUID || job.Labels[managedLabel] != "true" || job.Labels[deviceLabel] != hash([]byte(st.DeviceUID))[:32] {
+		return errors.New("render Job identity conflict")
 	}
 	return nil
 }
@@ -159,13 +196,7 @@ func (r *Reconciler) observeJob(ctx context.Context, d *api.ArprtDevice, s *api.
 	}
 	if !complete {
 		if r.now().Sub(a.StartedAt) > time.Duration(r.Config.DeadlineSeconds+120)*time.Second {
-			done, err := r.cancel(ctx, st)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if done {
-				return r.failed(ctx, d, s, st, "JobTimedOut")
-			}
+			return r.failed(ctx, d, s, st, "JobTimedOut")
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
@@ -204,6 +235,13 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 			}
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			var filesystemError *os.PathError
+			if st.Trigger == OnDemand && errors.As(err, &filesystemError) && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 			result, err = r.failed(ctx, d, s, st, "CollectionFailed")
 			return err
 		}
@@ -213,6 +251,10 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 			return err
 		}
 		if !same(st, current) {
+			if st.Trigger == OnDemand {
+				st.Active.TerminalReason = "ObsoleteAttempt"
+				return r.Store.save(st)
+			}
 			result = ctrl.Result{RequeueAfter: time.Millisecond}
 			return nil
 		}
@@ -226,6 +268,15 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 // recover the same attempt and publication metadata.
 func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job, b []byte) (ctrl.Result, error) {
 	a := st.Active
+	if a.TerminalReason != "" {
+		return ctrl.Result{}, &ExecutionError{Reason: a.TerminalReason}
+	}
+	if err := ctx.Err(); err != nil {
+		return ctrl.Result{}, err
+	}
+	if a.Trigger == OnDemand && !r.now().Before(a.Deadline) {
+		return ctrl.Result{}, context.DeadlineExceeded
+	}
 	renderedAt := r.now()
 	if job.Status.CompletionTime != nil {
 		renderedAt = job.Status.CompletionTime.Time
@@ -236,6 +287,9 @@ func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s
 			if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
 				return ctrl.Result{}, err
 			}
+			if st.Trigger == OnDemand {
+				return ctrl.Result{}, err
+			}
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		if errors.Is(err, artifact.ErrObsolete) {
@@ -243,19 +297,32 @@ func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s
 		}
 		return ctrl.Result{}, err
 	}
-	observe.Render("Job", a.StartedAt, nil)
+	return r.complete(ctx, d, s, st, m)
+}
+
+func (r *Reconciler) complete(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, m artifact.Metadata) (ctrl.Result, error) {
+	observe.Render("Job", st.Active.StartedAt, nil)
 	interval, _ := screen.EffectiveInterval(s.Spec)
 	st.Due = m.RenderedAt.Add(interval)
+	if st.Trigger == OnDemand {
+		st.Due = time.Time{}
+		if f := r.flight(st); f != nil && f.id == m.AttemptID {
+			f.metadata = m
+		}
+	}
 	st.Failures = 0
 	st.Reason = ""
 	st.Active = nil
-	if err = r.Store.save(st); err != nil {
+	if err := r.Store.save(st); err != nil {
 		return ctrl.Result{}, err
 	}
-	if err = r.report(ctx, d, s, true, "ImageReady"); err != nil {
+	if err := r.report(ctx, d, s, true, "ImageReady"); err != nil {
 		return ctrl.Result{}, err
 	}
 	// Finished Jobs and logs remain for an hour after durable bookkeeping.
 	// No Kubernetes TTL may delete their output before collection can recover.
+	if st.Trigger == OnDemand {
+		return ctrl.Result{}, nil
+	}
 	return ctrl.Result{RequeueAfter: max(time.Millisecond, st.Due.Sub(r.now()))}, nil
 }
