@@ -241,7 +241,13 @@ Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
 are drawn afterwards. Generated gray4 temporarily uses native two-bit PNG;
 the opt-in four-bit build assumes corrected firmware expansion and has not been
 physically accepted. The historical OG / 1.8.17 baseline does not validate it.
-GET freshness and Job scheduling use `refreshInterval`; POST forbids it. Device
+GET freshness and Scheduled Job execution use `refreshInterval`; POST and
+OnDemand Jobs forbid it. Job `executionMode` defaults to `Scheduled`; opt-in
+`OnDemand` renders on each independent single-screen display with current
+observations, sharing concurrent requests. Its `timeout` defaults to `5s`
+(integer `1s`–`10s`), within a fixed 10-second render budget and 13-second
+application deadline. Real cold/warm Job and device acceptance remain pending;
+see the [OnDemand example and limits](notes/RENDERERS.md#job-example-and-container-requirements). Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending. Firmware can retain the previous image
 on a normal timer wake, but may show its Friendly ID screen after a manual or

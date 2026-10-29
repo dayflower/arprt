@@ -49,6 +49,8 @@ type state struct {
 	Reason           string        `json:"reason,omitempty"`
 	Active           *attempt      `json:"active,omitempty"`
 	Trigger          Trigger       `json:"trigger,omitempty"`
+	DeviceGeneration int64         `json:"deviceGeneration,omitempty"`
+	Assignment       string        `json:"assignment,omitempty"`
 }
 
 type Store struct{ Root string }

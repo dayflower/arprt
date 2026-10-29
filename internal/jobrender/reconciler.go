@@ -42,7 +42,7 @@ type Reconciler struct {
 	Config     Config
 	Recorder   events.EventRecorder
 	Now        func() time.Time
-	// TriggerFor is an internal policy hook. Nil preserves scheduled execution.
+	// TriggerFor overrides the public execution policy in lifecycle tests.
 	TriggerFor func(*api.ArprtScreen) Trigger
 	// mu covers complete reconciliation and maintenance operations so cleanup
 	// cannot remove runs or artifacts between preparation, publication and
@@ -104,17 +104,25 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 		return nil, nil, nil, err
 	}
 	trigger := Scheduled
+	if screen.IsOnDemand(s.Spec) {
+		trigger = OnDemand
+	}
 	if r.TriggerFor != nil {
 		trigger = r.TriggerFor(s)
 	}
 	if !trigger.valid() {
 		return nil, nil, nil, errors.New("invalid Job execution trigger")
 	}
-	return &d, s, &state{Trigger: trigger, Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: resolved.Target, Output: resolved.Output}, Revision: revision}, nil
+	wanted := &state{Trigger: trigger, Namespace: d.Namespace, DeviceName: d.Name, DeviceUID: string(d.UID), ScreenName: s.Name, ScreenGeneration: s.Generation, Unit: artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: resolved.Target, Output: resolved.Output}, Revision: revision}
+	if trigger == OnDemand {
+		wanted.DeviceGeneration = d.Generation
+		wanted.Assignment = eligible.Fingerprint
+	}
+	return &d, s, wanted, nil
 }
 
 func same(a, b *state) bool {
-	return a != nil && b != nil && a.Trigger == b.Trigger && a.DeviceUID == b.DeviceUID && a.Unit == b.Unit && a.ScreenGeneration == b.ScreenGeneration && a.Revision == b.Revision
+	return a != nil && b != nil && a.Trigger == b.Trigger && a.DeviceUID == b.DeviceUID && a.Unit == b.Unit && a.ScreenGeneration == b.ScreenGeneration && a.Revision == b.Revision && a.DeviceGeneration == b.DeviceGeneration && a.Assignment == b.Assignment
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

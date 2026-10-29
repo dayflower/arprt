@@ -24,7 +24,10 @@ import (
 
 var imageName = regexp.MustCompile(`^[a-f0-9]{64}\.png$`)
 
+type admissionTimeKey struct{}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	startedAt := time.Now()
 	select {
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
@@ -35,7 +38,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	ctx, cancel := context.WithTimeout(r.Context(), 13*time.Second)
+	ctx, cancel := context.WithDeadline(context.WithValue(r.Context(), admissionTimeKey{}, startedAt), startedAt.Add(13*time.Second))
 	defer cancel()
 	r = r.WithContext(ctx)
 	name, endpoint, ok := s.route(r)
@@ -131,15 +134,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case endpoint == "api/setup":
 		s.setup(w, r, &d, id)
 	case endpoint == "api/display":
-		key := sha256.Sum256([]byte(d.UID))
-		gate := s.gates[int(key[0])%len(s.gates)]
-		select {
-		case gate <- struct{}{}:
-			defer func() { <-gate }()
-		case <-ctx.Done():
-			reply(w, 503, 503)
-			return
-		}
 		s.display(w, r, &d, Observe(h))
 	case endpoint == "api/log":
 		// Parse one bounded JSON value and discard it without logging arbitrary data.

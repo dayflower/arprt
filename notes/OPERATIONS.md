@@ -210,9 +210,23 @@ Job mode requires the whole filesystem RWO claim mounted at the artifact root;
 subtree mounts, RWOP, RWX and block volumes are rejected. Renderers run on the
 controller's node. Keep one active replica and Recreate rollout. For HTTP-only
 local execution, see [DEVELOP](DEVELOP.md#local-controller); Job screens then
-report `JobSchedulingDisabled`. Job `backoffLimit` is zero; controller retries
+report `JobSchedulingDisabled`. Job `backoffLimit` is zero; Scheduled retries
 use new attempts with exponential backoff from 5s to 5m, slowing after persistent
 failure as described below.
+
+`source.job.executionMode: OnDemand` starts only on authenticated displays;
+omit `refreshInterval`. `timeout` defaults internally to `5s` and admits integer
+`1s`–`10s`. The candidate timeout includes global slot waiting, startup,
+collection and successful base-image storage. Admission plus 10s caps rendering;
+the existing 13s application and 15s listener limits remain unchanged. A shorter
+`--job-deadline-seconds` safety limit wins. Scheduled and OnDemand share
+`--job-concurrency`, including stopping Jobs/Pods. One disconnected waiter leaves
+shared single-screen work alive; no remaining waiters stop it. Cleanup does not
+delay the HTTP response. Timed-out, disconnected or obsolete work cannot publish
+late output. OnDemand schedules no periodic retries; the next display is the
+next trigger. Restart stops uncommitted work without recreating it, preserving
+durable successes and issued URLs. Mode changes stop the old execution first.
+Real container startup and physical delivery still require separate acceptance.
 
 Overlay timestamps use embedded IANA zoneinfo, including in the scratch image,
 and do not consult `TZ` or host local time. Set
@@ -304,7 +318,7 @@ after the last display response. Jobs and run directories retain their diagnosti
 hour and active attempts are never removed. Detailed bookkeeping/collection
 protection is described in
 [DESIGN](DESIGN.md#storage-topology-retention-and-failure-handling). Seven consecutive
-Job failures slow further retries to at least the screen interval and five
+Scheduled Job failures slow further retries to at least the screen interval and five
 minutes; success clears the counter. No manual reset is needed after recovery.
 
 Each device can select at most 64 screens, so `D` devices can require `64 × D`

@@ -15,6 +15,7 @@ the controller's namespace; the guides use `arprt`.
 | [playlist.yaml](playlist.yaml) | Order the `photo`, `device-status` and `weather` Screens |
 | [screens.yaml](screens.yaml) | Illustrate HTTP GET, POST and Job configuration; replace placeholder renderer endpoints, image and ConfigMap references |
 | [screen-overlay.yaml](screen-overlay.yaml) | Configure timestamp, battery and Wi-Fi overlays; supply the referenced HTTP renderer |
+| [screen-ondemand.yaml](screen-ondemand.yaml) | Run a Job on display requests; create the gray-bands image ConfigMap and enable Job/PVC support as described in the [Job guide](../../notes/RENDERERS.md#job-example-and-container-requirements) |
 
 The Device manifests are alternatives for the same `living-room` resource, not
 a set to apply together. Choose the identity mode before creating the Device;

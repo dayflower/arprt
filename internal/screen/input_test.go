@@ -45,12 +45,42 @@ func TestDefaultsAndRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	job.Source.Job.ContextPath, job.Source.Job.ImagePath, job.RefreshInterval = "/arprt/context.json", "/arprt/output.png", "1800s"
+	job.Source.Job.ExecutionMode = "Scheduled"
 	b, err = InputRevision(job)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a != b {
 		t.Fatal("equivalent Job defaults produce different revisions")
+	}
+}
+
+func TestOnDemandDefaultsAndRevision(t *testing.T) {
+	spec := api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{ExecutionMode: "OnDemand", Renderer: api.RendererContainer{Image: "renderer:v1"}}}}
+	if interval, err := EffectiveInterval(spec); err != nil || interval != 0 {
+		t.Fatal("OnDemand has a scheduling interval", interval, err)
+	}
+	if timeout, err := JobTimeout(spec); err != nil || timeout != 5*time.Second {
+		t.Fatal("incorrect candidate default", timeout, err)
+	}
+	omitted, err := InputRevision(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Source.Job.Timeout = "5s"
+	explicit, err := InputRevision(spec)
+	if err != nil || explicit != omitted {
+		t.Fatal("explicit default changes revision", err)
+	}
+	spec.Source.Job.Timeout = "10s"
+	changed, err := InputRevision(spec)
+	if err != nil || changed == omitted {
+		t.Fatal("timeout edit retains old revision", err)
+	}
+	spec.Source.Job.ExecutionMode, spec.Source.Job.Timeout = "Scheduled", ""
+	scheduled, err := InputRevision(spec)
+	if err != nil || scheduled == omitted || scheduled == changed {
+		t.Fatal("mode switch retains on-demand revision", err)
 	}
 }
 

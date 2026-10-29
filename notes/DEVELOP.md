@@ -518,9 +518,9 @@ Extending the Gateway alone did not make this OG wait 25 seconds, and a
 15-second candidate budget leaves no assured margin for the rest of a display
 request. The experimental listener extension was reverted to 15 seconds, and
 the revised on-demand budgets and finalization reserve are described in
-[PROTOCOL](PROTOCOL.md#transport-deadlines). Those future limits still need
-cold/warm Job, finalization and response-delivery acceptance; they are not
-delivery guarantees or implemented on-demand APIs. The observations do not
+[PROTOCOL](PROTOCOL.md#transport-deadlines). The implemented software limits still need
+real cold/warm Job, finalization and response-delivery acceptance; they are not
+delivery guarantees. The observations do not
 expand model, firmware or long-wait support claims.
 
 The temporary routes, Deployments and Services were removed afterward. Snapshot
@@ -569,12 +569,19 @@ absolute render/candidate budgets including slot/storage waiting, cancellation,
 late completion, stopping-Pod capacity/GC protection, mode changes and restart.
 Existing scheduler tests retain legacy-record, interval, backoff, processing and
 publication-recovery coverage. `TestJobExecutionWatchCancellationAndRecovery`
-uses the same internal policy hook with a real envtest API server to exercise
+uses public OnDemand Screens with a real envtest API server to exercise
 status/watch publication, foreground deletion and restart. It emulates Pod
 termination and explicitly clears foreground-deletion finalizers because envtest
-has no kubelet or garbage collector. This is not acceptance of real on-demand
-container startup, PVC mounts or end-to-end BYOS delivery; the public API and
-display integration remain separate work.
+has no kubelet or garbage collector. Its display subscenario exercises the
+authenticated BYOS route, current-observation Context, completed Job publication,
+issuance, independent regeneration and filename reuse. API tests cover integer
+1–10s admission, conditional omissions, explicit defaults and existing-CR updates.
+`internal/byos/ondemand_test.go` covers shared single-screen waiters, independent
+cancellation, immutable observations, compatible stale fallback, infrastructure
+errors, authorization/UID/configuration gates and the 10s render/finalization
+boundary. This is not acceptance of real container startup, PVC mounts or
+physical-device delivery. Skip playlist support and its acceptance remain
+separate work.
 
 For documentation-only edits, verify local links/anchors, obsolete references
 and `git diff --check`. No software matrix is required for prose-only changes.

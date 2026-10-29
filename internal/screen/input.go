@@ -12,7 +12,7 @@ import (
 
 // EffectiveInterval resolves conditional defaults without defaulting POST.
 func EffectiveInterval(spec api.ArprtScreenSpec) (time.Duration, error) {
-	if spec.Source.HTTP != nil && spec.Source.HTTP.Method == "POST" {
+	if spec.Source.HTTP != nil && spec.Source.HTTP.Method == "POST" || IsOnDemand(spec) {
 		return 0, nil
 	}
 	if spec.RefreshInterval != "" {
@@ -43,6 +43,12 @@ func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 		s.Source.HTTP.Method = "GET"
 	}
 	if s.Source.Job != nil {
+		// Keep the pre-OnDemand scheduled serialization byte-for-byte stable.
+		if !IsOnDemand(*s) {
+			s.Source.Job.ExecutionMode = ""
+		} else if s.Source.Job.Timeout == "" {
+			s.Source.Job.Timeout = "5s"
+		}
 		if s.Source.Job.ContextPath == "" {
 			s.Source.Job.ContextPath = "/arprt/context.json"
 		}
@@ -69,6 +75,22 @@ func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 	}
 	digest := sha256.Sum256(b)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+// IsOnDemand resolves the opt-in Job execution policy.
+func IsOnDemand(spec api.ArprtScreenSpec) bool {
+	return spec.Source.Job != nil && spec.Source.Job.ExecutionMode == "OnDemand"
+}
+
+// JobTimeout resolves the conditional request timeout; admission validates it.
+func JobTimeout(spec api.ArprtScreenSpec) (time.Duration, error) {
+	if !IsOnDemand(spec) {
+		return 0, nil
+	}
+	if spec.Source.Job.Timeout == "" {
+		return 5 * time.Second, nil
+	}
+	return time.ParseDuration(spec.Source.Job.Timeout)
 }
 
 // EffectiveOverlay canonicalizes display defaults without changing old Screens'

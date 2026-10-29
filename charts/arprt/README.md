@@ -116,9 +116,9 @@ including IANA zone availability and existing PVC topology. Defaults follow
 | `persistence.size` | `1Gi` | Chart-created PVC capacity |
 | `storage.maxBytes` | `805306368` | Managed-byte admission limit |
 | `storage.minFreeBytes` | `67108864` | Free-space reserve |
-| `jobs.enabled` | `true` | Schedule renderer Jobs |
+| `jobs.enabled` | `true` | Enable Scheduled and OnDemand renderer Jobs |
 | `jobs.concurrency` | `4` | Active Job limit |
-| `jobs.deadlineSeconds` | `120` | Job execution deadline |
+| `jobs.deadlineSeconds` | `120` | Job safety deadline; shorter OnDemand request/candidate limits also apply |
 | `credentials.authSecrets` | `[]` | Explicit `name`/`create` objects; named `get`/`patch` permission |
 | `credentials.identitySecrets` | `[]` | External names; `get` permission only |
 | `resources` | 50m/64Mi requests, 500m/512Mi limits | Controller resources; `GOMEMLIMIT=384MiB` bounds the Go GC budget |
