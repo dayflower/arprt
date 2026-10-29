@@ -318,10 +318,20 @@ See [playlist](examples/custom-resources/playlist.yaml),
 Playlists contain 1–64 distinct names; discovery uses the first 64 screens.
 Missing playlist entries are skipped. No eligible screens means pending.
 
-Cycling advances after a successful image response, including compatible stale
-output. A screen with no valid image holds its turn. Early polls within the
-configured device-refresh window replay the same image, including across restart;
-POST renders on a new turn. A single `screenRef` retains per-request POST rendering.
+Playlist `failurePolicy` defaults to `Hold`. Hold and discovery advance after a
+successful image response, including compatible stale output; a screen with no
+valid image holds its turn. Set `failurePolicy: Skip` to try each candidate at
+most once until a fresh image succeeds, without stale fallback. Skip-only
+`renderTimeout` defaults to `10s` (integer `1s`–`10s`) for all candidates from
+request admission. All failures or budget expiry return pending and preserve
+the last successful turn; the next new turn starts after the successful Screen.
+See the [mixed Skip example](examples/custom-resources/playlist-skip.yaml).
+
+Early polls within the configured device-refresh window replay the same image,
+including across restart;
+POST and OnDemand render on a new turn. Equivalent concurrent Skip requests
+share exploration and one turn; replay starts no Job. A single `screenRef`
+retains per-request POST/OnDemand rendering.
 Membership/order changes reset to the first eligible screen. See
 [assignment and replay](notes/DESIGN.md#rendering-and-assignment) for full semantics.
 

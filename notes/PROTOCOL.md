@@ -129,7 +129,7 @@ JSON `status: 0`, `image_url`, `filename`, integer `refresh_rate` seconds,
 | Invalid/mismatched request identity; setup explicitly disabled | 403 / 403 | No key disclosure or accepted telemetry |
 | Missing/wrong token or invalid stored key | 401 / 401 | No accepted telemetry or image |
 | Duplicate identity, unavailable identity/credential storage or incomplete registration | 503 / 503 | Retry without claiming success |
-| Missing assignment, unresolved target, initial pending, or failed render with no compatible image | 200 / 202 | No image URL/filename; firmware handles pending as described below |
+| Missing assignment, unresolved target, initial pending, failed render with no permitted fallback, or Skip exhaustion | 200 / 202 | No image URL/filename; firmware handles pending as described below |
 | Successful render or compatible stale fallback | 200 / 0 | Serve an issued immutable image |
 
 Pending is **HTTP 200 with JSON 202**, since firmware's Wi-Fi transport rejects
@@ -211,12 +211,20 @@ selection, overlays, revalidation, issuance, turn persistence and response
 preparation. The nominal 2 seconds between application and transport deadlines
 provide delivery headroom, not more rendering time. Authentication, assignment
 and gate/slot waiting consume the same budgets. Candidates, retries and joining
-requests cannot reset them. A shorter parent deadline wins at every stage.
+requests cannot reset them. Each request obeys its shorter parent deadline;
+a shared Skip operation retains its original admission-based bounds while other
+waiters remain.
 The Screen Job candidate timeout defaults internally to 5 seconds (integer range
-1–10). Single-screen rendering and OnDemand in existing playlist/discovery use
+1–10). Single-screen rendering and OnDemand in Hold/discovery use
 the fixed 10-second overall budget; recorded turns replay without another Job.
-Skip playlists remain future work. These software bounds are not evidence that
-real cold/warm Jobs and finalization finish within them. Storage/CPU/network delays
+Skip playlists instead use `spec.renderTimeout`, an integer 1–10 seconds with
+an internal 10-second default, shared by all candidates from admission. Skip
+returns HTTP 200 / JSON 202 without an image URL/filename when all candidates
+fail or its render budget expires, and does not advance the successful turn.
+Compatible stale output is limited to Hold/discovery and single-screen fallback.
+Recorded Skip turns replay the same image and filename without rendering.
+These software bounds are not evidence that real cold/warm Jobs and finalization
+finish within them. Storage/CPU/network delays
 can consume the margins; the 14-second probe success does not establish a safe
 14-second rendering budget. Keep ordinary HTTP renderer execution at 10 seconds
 and scheduled Job behavior unchanged.

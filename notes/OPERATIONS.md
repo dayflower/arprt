@@ -228,6 +228,16 @@ next trigger. Restart stops uncommitted work without recreating it, preserving
 durable successes and issued URLs. Mode changes stop the old execution first.
 Real container startup and physical delivery still require separate acceptance.
 
+Playlist `failurePolicy` defaults to `Hold`; `Skip` opts into finite candidate
+exploration without stale fallback. Skip-only `renderTimeout` defaults internally
+to `10s` and accepts integer `1s`–`10s`. Authentication and all candidate attempts
+consume that same admission-based budget. All failures or expiry return pending
+without advancing the successful turn. Storage, authorization, issuance and turn
+recording faults terminate the operation instead of trying another Screen.
+Concurrent equivalent Skip requests share exploration and one durable turn;
+individual disconnects do not stop remaining waiters. Policy/budget edits
+invalidate replay. See [selection semantics](DESIGN.md#skip-playlists).
+
 Overlay timestamps use embedded IANA zoneinfo, including in the scratch image,
 and do not consult `TZ` or host local time. Set
 `display.overlayTimeZone: Asia/Tokyo` in private Helm values and run
@@ -258,6 +268,11 @@ HTTP/JSON status, display behavior and backoff.
 Use [strict field validation](DEVELOP.md#selecting-checks) when applying resources.
 
 ## Monitoring
+
+`arprt_playlist_attempts_total` diagnoses Skip exploration with fixed outcomes
+`success`, `skipped`, `budget_exhausted` and `joined`. It contains no device,
+Screen, URL or credential labels. Screen/Job Conditions retain render failures;
+Playlist `Ready` continues to validate references rather than aggregate execution.
 
 The supplied Deployment exposes Prometheus metrics on container port 8082.
 It has no public metrics Service or Gateway route. For release `home`, use

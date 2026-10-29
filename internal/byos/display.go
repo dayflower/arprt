@@ -40,6 +40,10 @@ type selectedDelivery struct {
 	replay        *api.ScreenCycleStatus
 	reporting     renderReporting
 	compatibility string
+	skip          bool
+	renderTimeout time.Duration
+	candidates    []*api.ArprtScreen
+	setRevision   string
 }
 
 func (s selectedDelivery) resolvedTarget() render.ResolvedTarget {
@@ -119,6 +123,34 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		return
 	}
 
+	if selected.skip && selected.replay == nil {
+		headers, _ := Headers(r.Header)
+		flight, leave, err := s.joinSkip(ctx, d, o, observed.seen, selected, headers["access-token"], gate)
+		if err != nil {
+			s.displayError(w, err)
+			return
+		}
+		defer leave()
+		<-gate
+		held = false
+		select {
+		case <-ctx.Done():
+			s.displayError(w, ctx.Err())
+			return
+		case <-flight.done:
+		}
+		if flight.err != nil {
+			s.displayError(w, flight.err)
+			return
+		}
+		if err := s.validateIssuance(ctx, d, flight.selected, headers["access-token"]); err != nil {
+			s.displayError(w, err)
+			return
+		}
+		writeDisplayResponse(w, flight.response)
+		return
+	}
+
 	var image deliveryImage
 	if screen.IsOnDemand(selected.screen.Spec) && selected.replay == nil {
 		flight, leave, joinErr := s.joinDemand(ctx, d, o, selected)
@@ -148,10 +180,38 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		reply(w, 503, 503)
 		return
 	}
+	headers, _ := Headers(r.Header)
+	response, err := s.finishDisplay(ctx, d, o, observed.seen, selected, image, corner, headers["access-token"])
+	if err != nil {
+		s.displayError(w, err)
+		return
+	}
+	writeDisplayResponse(w, response)
+}
+
+func writeDisplayResponse(w http.ResponseWriter, response DisplayResponse) {
+	if response.Status == 202 {
+		reply(w, 200, 202)
+		return
+	}
+	jsonResponse(w, 200, response)
+}
+
+func (s *Server) displayError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errDisplayPending):
+		reply(w, 200, 202)
+	case errors.Is(err, errDisplayUnauthorized):
+		reply(w, 401, 401)
+	default:
+		s.identityError(w, err)
+	}
+}
+
+func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observation, seen metav1.Time, selected selectedDelivery, image deliveryImage, corner artifact.CornerRecord, token string) (DisplayResponse, error) {
 	image, release, err := s.overlayImage(ctx, d, o, selected, image, corner)
 	if err != nil {
-		reply(w, 503, 503)
-		return
+		return DisplayResponse{}, err
 	}
 	defer release()
 	var proposed *api.ScreenCycleStatus
@@ -160,36 +220,24 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		if image.advanceCorner {
 			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
 			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
-				reply(w, 503, 503)
-				return
+				return DisplayResponse{}, err
 			}
 			corner.Pending = &pending
 		}
 	}
-	headers, _ := Headers(r.Header)
-	if err := s.validateIssuance(ctx, d, selected, headers["access-token"]); err != nil {
-		switch {
-		case errors.Is(err, errDisplayPending):
-			reply(w, 200, 202)
-		case errors.Is(err, errDisplayUnauthorized):
-			reply(w, 401, 401)
-		default:
-			s.identityError(w, err)
-		}
-		return
+	if err := s.validateIssuance(ctx, d, selected, token); err != nil {
+		return DisplayResponse{}, err
 	}
 
 	// Screen reporting remains best effort, before issuance, even for pending
 	// HTTP output. Job and replay preserve the separately owned render outcome.
 	result := s.imageOutcome(ctx, d, selected, image)
 	if result.state == deliveryPending {
-		s.outcome(ctx, d, observed.seen, result)
-		reply(w, 200, 202)
-		return
+		s.outcome(ctx, d, seen, result)
+		return DisplayResponse{Status: 202}, nil
 	}
 	if err := s.Repository.Issue(ctx, string(d.UID), image.issued.ImageDigest, time.Now()); err != nil {
-		reply(w, 503, 503)
-		return
+		return DisplayResponse{}, err
 	}
 	if result.state == deliveryStale {
 		result.reason, result.message = "StaleImageAvailable", "Renderer failed; serving the previous compatible image"
@@ -199,19 +247,17 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 	}
 	if selected.cycling && selected.replay == nil {
 		if err := s.persistCycle(ctx, d, proposed); err != nil {
-			reply(w, 503, 503)
-			return
+			return DisplayResponse{}, err
 		}
 	}
 	if image.advanceCorner {
 		if err := s.Repository.ResolveCorner(ctx, corner, true); err != nil {
-			reply(w, 503, 503)
-			return
+			return DisplayResponse{}, err
 		}
 	}
 	// Issuance and any new cycle turn must be durable before acknowledgement.
-	s.outcome(ctx, d, observed.seen, result)
-	jsonResponse(w, 200, DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10})
+	s.outcome(ctx, d, seen, result)
+	return DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10}, nil
 }
 
 func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolved render.ResolvedTarget) (selectedDelivery, error) {
@@ -232,7 +278,7 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolve
 	if err != nil {
 		return selectedDelivery{}, err
 	}
-	if replay && d.Status.ScreenCycle.CompatibilityFingerprint != compatibility {
+	if replay && !eligible.Skip && d.Status.ScreenCycle.CompatibilityFingerprint != compatibility {
 		replay = false
 	}
 	if replay && d.Status.ScreenCycle.InputRevision != revision {
@@ -241,9 +287,19 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolve
 	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
 		return selectedDelivery{}, errUnsupportedScreen
 	}
-	selected := selectedDelivery{compatibility: compatibility, screen: assigned, target: resolved.Target, output: resolved.Output, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
+	selected := selectedDelivery{skip: eligible.Skip, renderTimeout: eligible.RenderTimeout, candidates: eligible.Candidates(assigned), compatibility: compatibility, screen: assigned, target: resolved.Target, output: resolved.Output, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
 	if assigned.Spec.Source.Job != nil {
 		selected.reporting = reportJob
+	}
+	if selected.skip {
+		selected.setRevision, err = eligible.Revision()
+		if err != nil {
+			return selectedDelivery{}, err
+		}
+		selected.compatibility = skipCompatibility(selected.compatibility, selected.setRevision)
+		if replay && d.Status.ScreenCycle.CompatibilityFingerprint != selected.compatibility {
+			replay = false
+		}
 	}
 	if replay {
 		selected.replay = d.Status.ScreenCycle.DeepCopy()
@@ -306,17 +362,44 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.ArprtDevice, selec
 	// network call. Never issue an image selected for a superseded assignment.
 	var current api.ArprtDevice
 	var currentScreen api.ArprtScreen
-	if s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current) != nil || current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || devicestate.Resolved(&current) != selected.resolvedTarget() {
+	if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
+		if apierrors.IsNotFound(err) {
+			return errDisplayPending
+		}
+		return err
+	}
+	if current.UID != d.UID || !reflect.DeepEqual(current.Spec, d.Spec) || current.Generation != d.Generation || !current.DeletionTimestamp.IsZero() || devicestate.Resolved(&current) != selected.resolvedTarget() {
 		return errDisplayPending
 	}
-	if s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen) != nil || currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
+	if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(assigned), &currentScreen); err != nil {
+		if apierrors.IsNotFound(err) {
+			return errDisplayPending
+		}
+		return err
+	}
+	if currentScreen.UID != assigned.UID || currentScreen.Generation != assigned.Generation || !reflect.DeepEqual(currentScreen.Spec, assigned.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
 		return errDisplayPending
 	}
 	// Membership alone misses playlist order and other assignment edits that
 	// invalidate the selected turn, including replay.
 	currentSet, err := (assignment.Explicit{Reader: s.Reader}).Eligible(ctx, &current)
-	if err != nil || currentSet.Fingerprint != selected.fingerprint {
+	if err != nil {
+		if apierrors.IsNotFound(err) || errors.Is(err, assignment.ErrEmpty) {
+			return errDisplayPending
+		}
+		return err
+	}
+	if currentSet.Fingerprint != selected.fingerprint {
 		return errDisplayPending
+	}
+	if selected.skip {
+		revision, err := currentSet.Revision()
+		if err != nil {
+			return err
+		}
+		if revision != selected.setRevision {
+			return errDisplayPending
+		}
 	}
 	// Secret contents do not change device generation. Re-resolve identity and
 	// credentials after rendering, before issuing an immutable image.

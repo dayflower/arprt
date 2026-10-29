@@ -10,6 +10,7 @@ import (
 	"github.com/dayflower/arprt/internal/screen"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -54,12 +55,20 @@ func verifyOnDemandAPI(t *testing.T, c client.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"Scheduled", "OnDemand", "Scheduled"} {
-		s.Spec.Source.Job.ExecutionMode = mode
-		s.Spec.Source.Job.Timeout = ""
-		if err := c.Update(ctx, s); err != nil {
+	setMode := func(mode, timeout string) {
+		t.Helper()
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(s), s); err != nil {
+				return err
+			}
+			s.Spec.Source.Job.ExecutionMode, s.Spec.Source.Job.Timeout = mode, timeout
+			return c.Update(ctx, s)
+		}); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, mode := range []string{"Scheduled", "OnDemand", "Scheduled"} {
+		setMode(mode, "")
 		if s.UID != oldUID || s.Spec.Source.Job.Timeout != "" {
 			t.Fatal("upgrade replaced resource or invented timeout")
 		}
@@ -71,10 +80,7 @@ func verifyOnDemandAPI(t *testing.T, c client.Client) {
 			t.Fatal("explicit Scheduled changed legacy revision")
 		}
 		if mode == "OnDemand" {
-			s.Spec.Source.Job.Timeout = "5s"
-			if err := c.Update(ctx, s); err != nil {
-				t.Fatal(err)
-			}
+			setMode(mode, "5s")
 			explicit, err := screen.InputRevision(s.Spec)
 			if err != nil || explicit != revision {
 				t.Fatal("explicit timeout default changes revision", err)

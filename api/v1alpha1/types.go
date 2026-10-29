@@ -174,7 +174,15 @@ type ArprtScreenList struct {
 }
 
 // ArprtPlaylistSpec defines a bounded, explicitly ordered screen cycle.
+// +kubebuilder:validation:XValidation:rule="!has(self.renderTimeout) || (has(self.failurePolicy) && self.failurePolicy == 'Skip')",message="renderTimeout is only supported for Skip playlists"
 type ArprtPlaylistSpec struct {
+	// FailurePolicy omitted selects Hold, preserving stale fallback and turn holding.
+	// +kubebuilder:validation:Enum=Hold;Skip
+	FailurePolicy string `json:"failurePolicy,omitempty"`
+	// RenderTimeout bounds all candidates from request admission. Skip defaults to 10s.
+	// +kubebuilder:validation:Pattern=`^([1-9]|10)s$`
+	// +kubebuilder:validation:MaxLength=3
+	RenderTimeout string `json:"renderTimeout,omitempty"`
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
