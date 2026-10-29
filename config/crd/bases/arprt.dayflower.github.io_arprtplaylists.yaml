@@ -41,6 +41,19 @@ spec:
             description: ArprtPlaylistSpec defines a bounded, explicitly ordered screen
               cycle.
             properties:
+              failurePolicy:
+                description: FailurePolicy omitted selects Hold, preserving stale
+                  fallback and turn holding.
+                enum:
+                - Hold
+                - Skip
+                type: string
+              renderTimeout:
+                description: RenderTimeout bounds all candidates from request admission.
+                  Skip defaults to 10s.
+                maxLength: 3
+                pattern: ^([1-9]|10)s$
+                type: string
               screens:
                 items:
                   description: LocalReference always refers to a resource in the object's
@@ -65,6 +78,10 @@ spec:
             required:
             - screens
             type: object
+            x-kubernetes-validations:
+            - message: renderTimeout is only supported for Skip playlists
+              rule: '!has(self.renderTimeout) || (has(self.failurePolicy) && self.failurePolicy
+                == ''Skip'')'
           status:
             properties:
               conditions:

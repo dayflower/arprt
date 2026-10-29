@@ -182,3 +182,9 @@ acceptance from published charts are gated by the
 Image-processing resource acceptance uses the actual default controller limits;
 see [integrated image acceptance](../../notes/DEVELOP.md#integrated-image-acceptance)
 for native benchmark records, kernel peak/OOM checks and hardware evidence.
+
+Playlist `failurePolicy: Skip` and its optional integer `renderTimeout: 1s`–`10s`
+(default `10s`) are CR fields, independent of Helm Job safety limits. Apply the
+updated CRD chart before using them, following the existing upgrade procedure.
+See the [mixed playlist example](../../examples/custom-resources/playlist-skip.yaml)
+and [selection contract](../../notes/DESIGN.md#skip-playlists).

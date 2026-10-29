@@ -19,6 +19,7 @@ import (
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -108,7 +109,7 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 		if !current {
 			return artifact.Metadata{}, artifact.ErrObsolete
 		}
-		return artifact.Metadata{}, errors.New("render concurrency wait timed out")
+		return artifact.Metadata{}, &CandidateError{Err: errors.New("render concurrency wait timed out")}
 	}
 	var result artifact.Metadata
 	err = imageprocessing.RuntimeAdmission.Do(work, func(work context.Context) error {
@@ -146,22 +147,40 @@ func (p *POST) Image(ctx context.Context, s *api.ArprtScreen, d *api.ArprtDevice
 			return artifact.ErrObsolete
 		}
 		if renderErr != nil {
-			return renderErr
+			return &CandidateError{Err: renderErr}
 		}
 		// Re-read both desired state and observed target without informer delay.
 		// Pair-owned publication requires assignment membership; BYOS separately
 		// checks the complete assignment fingerprint before issuing the image.
 		var currentScreen api.ArprtScreen
 		var currentDevice api.ArprtDevice
-		if p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen) != nil || currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
+		if err := p.Reader.Get(work, client.ObjectKeyFromObject(s), &currentScreen); err != nil {
+			if apierrors.IsNotFound(err) {
+				result = artifact.Metadata{}
+				return artifact.ErrObsolete
+			}
+			return err
+		}
+		if currentScreen.UID != s.UID || currentScreen.Generation != s.Generation || !reflect.DeepEqual(currentScreen.Spec, s.Spec) || !currentScreen.DeletionTimestamp.IsZero() {
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}
-		if p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice) != nil || currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || devicestate.Resolved(&currentDevice) != u.ResolvedTarget() {
+		if err := p.Reader.Get(work, client.ObjectKeyFromObject(d), &currentDevice); err != nil {
+			if apierrors.IsNotFound(err) {
+				result = artifact.Metadata{}
+				return artifact.ErrObsolete
+			}
+			return err
+		}
+		if currentDevice.UID != d.UID || currentDevice.Generation != d.Generation || !reflect.DeepEqual(currentDevice.Spec, d.Spec) || !currentDevice.DeletionTimestamp.IsZero() || devicestate.Resolved(&currentDevice) != u.ResolvedTarget() {
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}
-		if eligible, err := (assignment.Explicit{Reader: p.Reader}).Contains(work, &currentDevice, s); err != nil || !eligible {
+		eligible, err := (assignment.Explicit{Reader: p.Reader}).Contains(work, &currentDevice, s)
+		if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
+			return err
+		}
+		if err != nil || !eligible {
 			result = artifact.Metadata{}
 			return artifact.ErrObsolete
 		}

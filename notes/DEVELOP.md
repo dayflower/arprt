@@ -580,8 +580,20 @@ issuance, independent regeneration and filename reuse. API tests cover integer
 cancellation, immutable observations, compatible stale fallback, infrastructure
 errors, authorization/UID/configuration gates and the 10s render/finalization
 boundary. This is not acceptance of real container startup, PVC mounts or
-physical-device delivery. Skip playlist support and its acceptance remain
-separate work.
+physical-device delivery.
+
+`internal/byos/skip_test.go` covers bounded traversal, wraparound, all-failed
+turn retention, one-entry behavior, mixed-source freshness, shared issuance and
+turns, independent/all-waiter cancellation, restart replay, policy edits,
+authentication/configuration barriers and admission-based HTTP/Job cutoffs.
+It exercises default 5s and explicit 10s first candidates under the default 10s
+playlist budget. Playlist envtest admission rejects invalid enums/combinations,
+fractions and out-of-range values including 11s/15s/25s; omitted/explicit defaults
+and existing-CR updates remain compatible. The Job watch suite also exercises
+failed A followed by completed B, concurrent display requests and restart replay
+against real API status/watch updates. Real-container/Helm/physical Skip
+acceptance remains a separate step; these tests do not establish Pod startup or
+end-to-end delivery within the budgets.
 
 For documentation-only edits, verify local links/anchors, obsolete references
 and `git diff --check`. No software matrix is required for prose-only changes.

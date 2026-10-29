@@ -97,3 +97,67 @@ func TestDiscoveryFanoutBound(t *testing.T) {
 		t.Fatal(set, err)
 	}
 }
+
+func TestPlaylistPolicyDefaultsAndCandidateSnapshot(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = api.AddToScheme(scheme)
+	sc := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "screen", UID: "screen"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: "http://renderer.example.test"}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "a", Name: "playlist", UID: "playlist"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: "screen"}, {Name: "missing"}}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sc, p).Build()
+	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: "a", UID: "device"}, Spec: api.ArprtDeviceSpec{PlaylistRef: &api.LocalReference{Name: "playlist"}}}
+	resolver := Explicit{Reader: c}
+	read := func() Set {
+		t.Helper()
+		set, err := resolver.Eligible(t.Context(), d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	omitted := read()
+	p.Spec.FailurePolicy = "Hold"
+	if err := c.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if explicit := read(); explicit.Fingerprint != omitted.Fingerprint || explicit.Skip {
+		t.Fatal("Hold changed legacy selection")
+	}
+	p.Spec.FailurePolicy = "Skip"
+	if err := c.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	skip := read()
+	if !skip.Skip || skip.RenderTimeout != 10*time.Second || skip.Fingerprint == omitted.Fingerprint {
+		t.Fatal(skip)
+	}
+	p.Spec.RenderTimeout = "10s"
+	if err := c.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if explicit := read(); explicit.Fingerprint != skip.Fingerprint {
+		t.Fatal("explicit default changed fingerprint")
+	}
+	before, err := skip.Revision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.Spec.Source.HTTP.URL = "http://other.example.test"
+	if err := c.Update(t.Context(), sc); err != nil {
+		t.Fatal(err)
+	}
+	changed := read()
+	after, err := changed.Revision()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after || changed.Fingerprint != skip.Fingerprint {
+		t.Fatal("definitions must invalidate replay without resetting order")
+	}
+	p.Spec.RenderTimeout = "1s"
+	if err := c.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if read().Fingerprint == skip.Fingerprint {
+		t.Fatal("budget edit did not invalidate replay")
+	}
+}

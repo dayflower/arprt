@@ -20,6 +20,7 @@ import (
 
 func verifyPlaylistAPI(t *testing.T, c client.Client) {
 	ctx := context.Background()
+	verifySkipPlaylistAPI(t, c)
 	for _, test := range []struct {
 		name string
 		refs []api.LocalReference
@@ -112,4 +113,50 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		_ = c.Get(ctx, client.ObjectKeyFromObject(d), d)
 		return reason(d.Status.Conditions, controller.ConditionAssignmentReady) == "NoEligibleScreens"
 	})
+}
+
+func verifySkipPlaylistAPI(t *testing.T, c client.Client) {
+	t.Helper()
+	ctx := t.Context()
+	for i, test := range []struct {
+		policy, timeout string
+		valid           bool
+	}{
+		{"", "", true}, {"Hold", "", true}, {"Skip", "", true}, {"Skip", "1s", true}, {"Skip", "10s", true},
+		{"Skip", "0s", false}, {"Skip", "-1s", false}, {"Skip", "1.5s", false}, {"Skip", "01s", false},
+		{"Skip", "11s", false}, {"Skip", "15s", false}, {"Skip", "25s", false}, {"Skip", "1m", false},
+		{"Hold", "10s", false}, {"", "10s", false}, {"Unknown", "", false},
+	} {
+		p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: fmt.Sprintf("policy-%d", i)}, Spec: api.ArprtPlaylistSpec{FailurePolicy: test.policy, RenderTimeout: test.timeout, Screens: []api.LocalReference{{Name: "screen"}}}}
+		err := c.Create(ctx, p)
+		if test.valid {
+			if err != nil {
+				t.Fatal(test, err)
+			}
+			if p.Spec.RenderTimeout != test.timeout {
+				t.Fatal("admission inserted an unconditional timeout", p.Spec)
+			}
+			// Existing CRs can switch policy while preserving UID and omitted defaults.
+			uid := p.UID
+			setPolicy := func(policy string) {
+				t.Helper()
+				if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					if err := c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+						return err
+					}
+					p.Spec.FailurePolicy, p.Spec.RenderTimeout = policy, ""
+					return c.Update(ctx, p)
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setPolicy("Skip")
+			setPolicy("Hold")
+			if p.UID != uid || p.Spec.RenderTimeout != "" {
+				t.Fatal(p.UID, p.Spec)
+			}
+		} else if !apierrors.IsInvalid(err) {
+			t.Fatal("invalid playlist accepted", test, err)
+		}
+	}
 }

@@ -230,5 +230,6 @@ func TestJobExecutionWatchCancellationAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool { return c.List(ctx, &jobs, client.InNamespace(s.Namespace)) == nil && len(jobs.Items) == 1 })
+	verifySkipDisplay(t, c, r, root)
 	verifyOnDemandDisplay(t, c, r, root)
 }

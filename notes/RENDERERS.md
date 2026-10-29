@@ -271,8 +271,15 @@ uses the same image ConfigMap as the example below. Apply it and assign
 `job-bands-ondemand` through `spec.screenRef`. Each independent display attempts
 generation, even with a previous image; failure can serve compatible stale
 output or HTTP 200 / JSON 202 when none exists. Image downloads never start Jobs.
-Existing playlist/discovery retain replay, stale fallback and turn holding;
-Skip policy is not available yet.
+Default Hold playlists and discovery retain replay, stale fallback and turn
+holding. Opt-in [Skip playlists](../README.md#playlists-and-automatic-discovery)
+try the next candidate after a rendering failure and never serve stale output.
+The [mixed Skip example](../examples/custom-resources/playlist-skip.yaml) combines
+GET, POST, Scheduled and OnDemand Jobs. Its default `renderTimeout: 10s` covers
+all candidates from request admission; integer `1s`–`10s` is allowed only with
+Skip. A 5s candidate timeout leaves only the remaining overall time for the next
+candidate. Scheduled Jobs are read without starting or waiting for execution.
+Replay returns the recorded turn without rendering for every source.
 
 Install the [existing-image Job examples](../examples/renderers/job/gray-bands/screens.yaml):
 

@@ -13,6 +13,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/devicestate"
+	"github.com/dayflower/arprt/internal/screen"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,10 +31,12 @@ type Resolver interface {
 type Explicit struct{ Reader client.Reader }
 
 type Set struct {
-	Screens     []*api.ArprtScreen
-	Fingerprint string
-	Cycling     bool
-	Missing     int
+	Screens       []*api.ArprtScreen
+	Fingerprint   string
+	Cycling       bool
+	Missing       int
+	Skip          bool
+	RenderTimeout time.Duration
 }
 
 func (r Explicit) Eligible(ctx context.Context, d *api.ArprtDevice) (Set, error) {
@@ -54,6 +57,26 @@ func (r Explicit) Eligible(ctx context.Context, d *api.ArprtDevice) (Set, error)
 		}
 		identity = "playlist/" + string(p.UID)
 		refs = p.Spec.Screens
+		set.Skip = p.Spec.FailurePolicy == "Skip"
+		if set.Skip {
+			set.RenderTimeout = 10 * time.Second
+			if p.Spec.RenderTimeout != "" {
+				var err error
+				set.RenderTimeout, err = time.ParseDuration(p.Spec.RenderTimeout)
+				if err != nil || set.RenderTimeout < time.Second || set.RenderTimeout > 10*time.Second || set.RenderTimeout%time.Second != 0 {
+					return set, errors.New("invalid playlist render timeout")
+				}
+			}
+		}
+		// Preserve the legacy fingerprint for omitted/explicit Hold. Policy and
+		// effective timeout changes invalidate Skip replay and shared exploration.
+		if set.Skip {
+			refsIdentity, err := json.Marshal(refs)
+			if err != nil {
+				return set, err
+			}
+			identity += "/Skip/" + set.RenderTimeout.String() + "/" + string(refsIdentity)
+		}
 	default:
 		var list api.ArprtScreenList
 		if err := r.Reader.List(ctx, &list, client.InNamespace(d.Namespace)); err != nil {
@@ -140,4 +163,33 @@ func (r Explicit) Contains(ctx context.Context, d *api.ArprtDevice, s *api.Arprt
 		}
 	}
 	return false, nil
+}
+
+// Candidates returns a finite traversal beginning at the selected turn.
+func (set Set) Candidates(first *api.ArprtScreen) []*api.ArprtScreen {
+	for i, s := range set.Screens {
+		if s.UID == first.UID {
+			return append(append([]*api.ArprtScreen{}, set.Screens[i:]...), set.Screens[:i]...)
+		}
+	}
+	return nil
+}
+
+// Revision binds the complete candidate definitions without changing the
+// membership fingerprint used to choose the next turn.
+func (set Set) Revision() (string, error) {
+	ids := []string{set.Fingerprint}
+	for _, s := range set.Screens {
+		r, err := screen.InputRevision(s.Spec)
+		if err != nil {
+			return "", err
+		}
+		ids = append(ids, string(s.UID), strconv.FormatInt(s.Generation, 10), r)
+	}
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:]), nil
 }

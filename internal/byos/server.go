@@ -36,6 +36,7 @@ type Server struct {
 	Recorder events.EventRecorder
 	demandMu sync.Mutex
 	demands  map[string]*demandFlight
+	skips    map[string]*skipFlight
 }
 
 func NewServer(c Config, reader client.Reader, writer client.Client, repo artifact.Repository) (*Server, error) {

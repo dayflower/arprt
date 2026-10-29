@@ -1,0 +1,14 @@
+# Apply the HTTP/Scheduled examples in screens.yaml and the OnDemand example
+# in screen-ondemand.yaml after preparing their renderer prerequisites.
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtPlaylist
+metadata:
+  name: mixed-skip
+spec:
+  failurePolicy: Skip
+  renderTimeout: 10s
+  screens:
+    - name: job-bands-ondemand
+    - name: photo
+    - name: device-status
+    - name: weather

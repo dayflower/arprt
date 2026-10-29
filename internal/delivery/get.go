@@ -15,8 +15,16 @@ import (
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// CandidateError identifies renderer/PNG failures eligible for playlist Skip.
+// Repository, authorization and publication failures retain their original errors.
+type CandidateError struct{ Err error }
+
+func (e *CandidateError) Error() string { return e.Err.Error() }
+func (e *CandidateError) Unwrap() error { return e.Err }
 
 type flight struct {
 	done chan struct{}
@@ -40,6 +48,12 @@ func NewGET(repo artifact.Repository, reader client.Reader) *GET {
 // Image returns eligible old output with a nonnil render error after a failed
 // refresh. Joining callers wait independently; one disconnect cannot cancel all.
 func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.ResolvedTarget) (artifact.Metadata, error) {
+	return g.ImageBefore(ctx, s, target, time.Time{})
+}
+
+// ImageBefore bounds a newly started shared render by an absolute playlist
+// cutoff. Joining callers cannot extend the original flight or cancel peers.
+func (g *GET) ImageBefore(ctx context.Context, s *api.ArprtScreen, target render.ResolvedTarget, deadline time.Time) (artifact.Metadata, error) {
 	if err := target.Validate(); err != nil {
 		return artifact.Metadata{}, err
 	}
@@ -51,13 +65,20 @@ func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Resol
 		g.flights[unit] = f
 		snapshot := s.DeepCopy()
 		go func() {
-			work, cancel := context.WithTimeout(g.Context, render.HTTPTimeout)
+			cutoff := time.Now().Add(render.HTTPTimeout)
+			if !deadline.IsZero() && deadline.Before(cutoff) {
+				cutoff = deadline
+			}
+			work, cancel := context.WithDeadline(g.Context, cutoff)
 			defer cancel()
 			f.err = imageprocessing.RuntimeAdmission.Do(work, func(ctx context.Context) error {
 				var err error
 				f.meta, err = g.image(ctx, snapshot, unit)
 				return err
 			})
+			if work.Err() != nil && errors.Is(f.err, work.Err()) {
+				f.err = &CandidateError{Err: f.err}
+			}
 			g.mu.Lock()
 			delete(g.flights, unit)
 			close(f.done)
@@ -77,7 +98,7 @@ func (g *GET) Image(ctx context.Context, s *api.ArprtScreen, target render.Resol
 		return artifact.Metadata{}, err
 	}
 	if joined && f.err == nil && (f.meta.InputRevision != revision || f.meta.ScreenGeneration != s.Generation) {
-		return g.Image(ctx, s, target)
+		return g.ImageBefore(ctx, s, target, deadline)
 	}
 	return f.meta, f.err
 }
@@ -103,7 +124,7 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 		observe.HTTPActive.Inc()
 		defer func() { <-g.slots; observe.HTTPActive.Dec() }()
 	case <-ctx.Done():
-		return old, errors.New("render concurrency wait timed out")
+		return old, &CandidateError{Err: errors.New("render concurrency wait timed out")}
 	}
 	if s.Spec.Source.HTTP == nil || (s.Spec.Source.HTTP.Method != "" && s.Spec.Source.HTTP.Method != "GET") {
 		return artifact.Metadata{}, errors.New("only HTTP GET is supported")
@@ -114,7 +135,7 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 	}
 	out, err := g.NewExecutor(s.Spec.Source.HTTP.URL).Execute(ctx, render.Request{Target: u.Target, Output: u.Output, Policy: policy})
 	if err != nil {
-		return old, err
+		return old, &CandidateError{Err: err}
 	}
 	renderedAt := out.RenderedAt
 	if renderedAt.IsZero() {
@@ -124,14 +145,17 @@ func (g *GET) image(ctx context.Context, s *api.ArprtScreen, u artifact.Unit) (a
 		return u.ResolvedTarget().ValidateOutput(work, out.PNG)
 	})
 	if err != nil {
-		return old, err
+		return old, &CandidateError{Err: err}
 	}
 	// Re-read desired state directly before publication, without informer delay.
 	// GET artifacts are shared by screen/target, so publication is independent
 	// of any one device's current assignment.
 	var current api.ArprtScreen
 	if err := g.Reader.Get(ctx, client.ObjectKeyFromObject(s), &current); err != nil {
-		return artifact.Metadata{}, artifact.ErrObsolete
+		if apierrors.IsNotFound(err) {
+			return artifact.Metadata{}, artifact.ErrObsolete
+		}
+		return artifact.Metadata{}, err
 	}
 	currentRevision, err := screen.InputRevision(current.Spec)
 	if err != nil || current.UID != s.UID || current.Generation != s.Generation || currentRevision != revision || !current.DeletionTimestamp.IsZero() {

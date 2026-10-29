@@ -66,12 +66,13 @@ rotation and processing revision. A missing fingerprint denotes a legacy turn.
 With `screenRef`, one existing screen is selected. With `playlistRef`, missing
 or deleting entries are skipped while remaining order is preserved. With neither,
 discovery selects the first 64 nondeleting screens sorted by name. A missing
-playlist or empty eligible set returns initial pending. Selection does not skip
-a screen merely because its renderer currently has no image.
+playlist or empty eligible set returns initial pending. The default playlist
+`failurePolicy: Hold` and discovery do not skip a screen merely because its
+renderer currently has no image.
 
 Playlist/discovery uses `status.screenCycle` to persist the successful turn,
-target, revision, image digest/filename and serving time. A compatible stale
-image counts as success; without a compatible image the selected turn holds.
+target, revision, image digest/filename and serving time. Under Hold/discovery,
+a compatible stale image counts as success; without one the selected turn holds.
 Issuance and the new turn are durable before the response is acknowledged.
 
 BYOS has no verified unique display-request ID. During `device-refresh-seconds`
@@ -88,6 +89,57 @@ membership/order; changed targets cannot reuse incompatible output.
 All eligible Scheduled Job pairs are scheduled independently of the current turn, bounded
 by the global concurrency limit; work can remain queued before its first image.
 Removing eligibility cancels work and stops future attempts.
+
+### Skip playlists
+
+Opt-in `spec.failurePolicy: Skip` visits each eligible candidate at most once,
+starting at the normal next position and wrapping at the end. It stops at the
+first fresh success, records only that position, and starts the next new turn
+at its successor. No success or an exhausted budget returns pending without
+changing the last successful turn. A one-entry playlist follows the same rules.
+Failed candidates never supply stale output. Skip is not inferred from source
+mode, and adding OnDemand entries never implicitly selects Skip.
+
+| Source | Usable output in a new Skip turn |
+| --- | --- |
+| HTTP GET | Current-definition, exact-target cache within its refresh interval, or a successful refresh |
+| HTTP POST | A successful render in this shared display operation |
+| Scheduled Job | Current-definition, exact-target completed output within its refresh interval; no start or wait |
+| OnDemand Job | Successful execution, validation and base publication within this operation's candidate cutoff |
+
+`renderTimeout` is Skip-only, defaults internally to `10s` and accepts integer
+`1s`–`10s`. No unconditional admission default is inserted for Hold. The absolute
+cutoff starts at request admission, before authentication, assignment and gate
+waiting; all candidates share it. An OnDemand candidate retains its default 5s
+limit, capped by the remaining overall budget and configured Job safety limit.
+A 5s first timeout leaves less than 5s for another candidate; an explicit 10s
+candidate can consume the whole default budget. HTTP POST and newly started GET
+flights also use the remaining cutoff. GET joins retain the original flight's
+independent lifetime: an expired waiter neither cancels peers nor issues late
+output. Finalization uses only the remaining 13s application lifetime.
+
+Skip requests with matching device UID/spec/generation, resolved target,
+assignment and complete candidate revisions share exploration, overlays,
+issuance and turn persistence. Individual cancellations leave other waiters
+running; the last departure cancels unfinished work. Each response obeys its
+own shorter parent deadline without shortening another waiter's operation.
+Shared work retains the original admission-based bounds; joins extend neither.
+The first authenticated observation snapshot is retained for rendering; each
+waiter still records its observations and checks current authorization before
+responding. Rendering waits outside the device gate; shared finalization uses
+the gate and existing durable corner/turn transaction. A recorded turn replays
+its exact issued image and filename after restart without another candidate.
+Uncommitted execution is stopped by the existing Job recovery path.
+
+Policy and effective timeout participate in assignment/replay compatibility;
+omitted/explicit Hold and omitted/explicit Skip `10s` normalize alike. Candidate
+definitions additionally invalidate replay and exploration without resetting
+membership/order selection. Recheck the whole snapshot between candidates and
+before issuance. UID/target/assignment changes abort for reevaluation; credential
+changes retain authentication failures. Renderer/PNG failures and unavailable
+Job output may skip; disabling Job execution makes Job candidates unavailable.
+Repository, API, issuance and turn-persistence failures retain their failure
+response. Skipping never hides a storage failure.
 
 ## Publication, fallback and authorization
 
@@ -277,8 +329,8 @@ disconnects, ends when all waiters leave, and retains the first snapshot through
 finalization. Its identity includes device UID/spec/generation, screen
 UID/generation/revision, resolved target and assignment. Every response observes
 its own telemetry and revalidates current authorization before issuance.
-Hold/discovery retain their serialized turn/replay and stale-image rules;
-Skip playlists and shared cycling transitions are separate future work.
+Hold/discovery retain their serialized turn/replay and stale-image rules.
+Skip shares the complete turn as described above.
 
 Each independent single-screen request tries a new Job even with an existing
 image. Candidate failure permits the same pair's compatible stale output;

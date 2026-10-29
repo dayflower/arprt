@@ -12,6 +12,7 @@ the controller's namespace; the guides use `arprt`.
 | [device-secret.yaml](device-secret.yaml) | Read hardware identity from an external `living-room-identity` Secret; grant named identity read permission through Helm values |
 | [device-discovery.yaml](device-discovery.yaml) | Discover eligible Screens in name order |
 | [device-playlist.yaml](device-playlist.yaml) | Assign the `living-room` Playlist |
+| [playlist-skip.yaml](playlist-skip.yaml) | Try fresh mixed-source candidates within one shared budget; prepare the referenced Screen examples and assign `mixed-skip` through `playlistRef` |
 | [playlist.yaml](playlist.yaml) | Order the `photo`, `device-status` and `weather` Screens |
 | [screens.yaml](screens.yaml) | Illustrate HTTP GET, POST and Job configuration; replace placeholder renderer endpoints, image and ConfigMap references |
 | [screen-overlay.yaml](screen-overlay.yaml) | Configure timestamp, battery and Wi-Fi overlays; supply the referenced HTTP renderer |

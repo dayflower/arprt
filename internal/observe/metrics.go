@@ -9,6 +9,7 @@ import (
 )
 
 var (
+	PlaylistAttempts   = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "arprt_playlist_attempts_total", Help: "Skip playlist exploration by bounded outcome."}, []string{"outcome"})
 	Renders            = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "arprt_render_duration_seconds", Help: "Completed render attempts, including failures.", Buckets: prometheus.DefBuckets}, []string{"transport", "outcome"})
 	HTTPActive         = prometheus.NewGauge(prometheus.GaugeOpts{Name: "arprt_http_render_active", Help: "HTTP renderer execution slots in use."})
 	Requests           = prometheus.NewCounterVec(prometheus.CounterOpts{Name: "arprt_requests_total", Help: "BYOS requests by bounded route and HTTP result."}, []string{"route", "result"})
@@ -28,7 +29,7 @@ var (
 )
 
 func init() {
-	metrics.Registry.MustRegister(Renders, HTTPActive, Requests, Rejected, StorageErrors, OverlayFallbacks, CollectionFailures, StorageBytes, StorageFree, StorageLimit, Queue, Jobs, Devices, LastSeenAge, ArtifactAge, Maintenance)
+	metrics.Registry.MustRegister(PlaylistAttempts, Renders, HTTPActive, Requests, Rejected, StorageErrors, OverlayFallbacks, CollectionFailures, StorageBytes, StorageFree, StorageLimit, Queue, Jobs, Devices, LastSeenAge, ArtifactAge, Maintenance)
 }
 
 func Render(transport string, started time.Time, err error) {
