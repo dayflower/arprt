@@ -181,7 +181,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return result, nil
 }
 
-func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screenName string) (ctrl.Result, error) {
+func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screenName string) (result ctrl.Result, err error) {
 	d, s, wanted, err := r.desired(ctx, req.NamespacedName, screenName)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -190,6 +190,17 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	defer func() {
+		// A watch or cleanup reconciliation may outlive the HTTP execution it
+		// observes. Its cancellation belongs to that execution, while the worker
+		// still receives the error through its own cancelled request context.
+		if err == nil || ctx.Err() != nil || st == nil || st.Trigger != OnDemand {
+			return
+		}
+		if f := r.flight(st); f != nil && f.ctx.Err() != nil && errors.Is(err, f.ctx.Err()) {
+			result, err = ctrl.Result{}, nil
+		}
+	}()
 	if !same(st, wanted) {
 		if st != nil && st.Active != nil {
 			// A compatibility or definition change is terminal even if cancellation
@@ -271,7 +282,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 		return r.advance(ctx, d, s, st)
 	}
 	if st.Trigger == OnDemand {
-		if f := r.flight(st); f == nil || f.attempted {
+		if f := r.flight(st); f == nil || f.attempted || f.waiters.Load() == 0 || f.ctx.Err() != nil {
 			return ctrl.Result{}, nil
 		}
 	}
@@ -288,7 +299,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	result, err := r.prepareAttempt(ctx, d, s, st)
+	result, err = r.prepareAttempt(ctx, d, s, st)
 	if err != nil || st.Active == nil {
 		return result, err
 	}

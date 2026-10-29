@@ -495,6 +495,60 @@ func TestExecutionModeSwitchWaitsForOldPod(t *testing.T) {
 	}
 }
 
+type cancelOnSlotReader struct {
+	client.Reader
+	cancel context.CancelFunc
+}
+
+func (r cancelOnSlotReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*batchv1.JobList); ok {
+		r.cancel()
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+func TestReconcileRetiredExecutionAfterOldPodDisappears(t *testing.T) {
+	for _, boundary := range []string{"cancelled", "no-waiters", "slot-observation"} {
+		t.Run(boundary, func(t *testing.T) {
+			r, d, _ := demandFixture(t)
+			r.TriggerFor = nil
+			step(t, r, d)
+			old := load(t, r, d)
+			r.TriggerFor = func(*api.ArprtScreen) Trigger { return OnDemand }
+			_, _, wanted, err := r.desired(t.Context(), client.ObjectKeyFromObject(d), old.ScreenName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			work, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			f := &execution{wanted: wanted, ctx: work, cancel: cancel, started: time.Now()}
+			f.waiters.Store(1)
+			r.flights = map[string]*execution{pairKey(d.Namespace, d.Name, old.ScreenName): f}
+			switch boundary {
+			case "cancelled":
+				cancel()
+			case "no-waiters":
+				f.waiters.Store(0)
+			case "slot-observation":
+				r.Reader = cancelOnSlotReader{Reader: r.Reader, cancel: cancel}
+			}
+			// The waiter has returned, but its worker has not removed the flight
+			// yet. A watch can now observe that the old Pod is gone and finish the
+			// mode transition. It must neither start new work nor report the old
+			// request's cancellation as an infrastructure failure.
+			step(t, r, d)
+			current := load(t, r, d)
+			if current.Trigger != OnDemand || current.Active != nil || current.Sequence != old.Sequence {
+				t.Fatal("retired execution allocated an attempt", current)
+			}
+			var jobs batchv1.JobList
+			if err := r.Client.List(t.Context(), &jobs); err != nil || len(jobs.Items) != 0 {
+				t.Fatal("retired execution created a Job", jobs, err)
+			}
+		})
+	}
+}
+
 func TestExecutionShortSafetyLimitWins(t *testing.T) {
 	r, d, req := demandFixture(t)
 	r.Config.DeadlineSeconds = 1
