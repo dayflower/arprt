@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 import helm_install
+import ondemand_smoke
 import overlay_checks
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -423,6 +424,9 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 kubectl("-n", namespace, "delete", "arprtscreen", "b-post")
                 if display(base) != {"status": 202}:
                     raise RuntimeError("empty discovery did not return pending")
+            ondemand_smoke.playlist(
+                namespace, apply, headers, token, forwarded, directory, wait
+            )
             account = "system:serviceaccount:" + namespace + ":arprt-arprt"
             for ns, allowed in [(namespace, True), ("default", False)]:
                 result = kubectl(

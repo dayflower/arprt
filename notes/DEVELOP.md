@@ -567,6 +567,9 @@ The internal request-triggered Job foundation is covered by
 `internal/jobrender/execution_test.go`: shared waiters and immutable snapshots,
 absolute render/candidate budgets including slot/storage waiting, cancellation,
 late completion, stopping-Pod capacity/GC protection, mode changes and restart.
+Interruption during an API read must persist `RequestCancelled`/`JobTimedOut`
+instead of the generic execution-failure reason, including when cancellation
+arrives after the worker's initial context check.
 Existing scheduler tests retain legacy-record, interval, backoff, processing and
 publication-recovery coverage. `TestJobExecutionWatchCancellationAndRecovery`
 uses public OnDemand Screens with a real envtest API server to exercise
@@ -591,8 +594,8 @@ playlist budget. Playlist envtest admission rejects invalid enums/combinations,
 fractions and out-of-range values including 11s/15s/25s; omitted/explicit defaults
 and existing-CR updates remain compatible. The Job watch suite also exercises
 failed A followed by completed B, concurrent display requests and restart replay
-against real API status/watch updates. Real-container/Helm/physical Skip
-acceptance remains a separate step; these tests do not establish Pod startup or
+against real API status/watch updates. Real-container/Helm and physical evidence
+are collected separately below; envtest does not establish Pod startup or
 end-to-end delivery within the budgets.
 
 For documentation-only edits, verify local links/anchors, obsolete references
@@ -660,6 +663,59 @@ condition as well as Job completion; Job completion alone can precede output
 collection and durable publication. Operations checks add corruption, capacity pressure,
 redaction, composite/base separation, old composite URL retention, HTTP-only GC and installation of the supplied examples.
 These scripts do not configure public ingress or a physical device.
+
+### On-demand Job acceptance
+
+The Job and Playlist suites also run
+[ondemand_smoke.py](../tools/ondemand_smoke.py) in their existing isolated
+namespaces. The Job suite uses one global execution slot and checks 24 concurrent
+authenticated display requests, independent regeneration with identical filename
+reuse, image GET without execution, renderer failure/missing/malformed output,
+compatible fallback, independent/all-waiter disconnects, an unavailable executable
+in a cached image and a separate cold-image pull.
+A renderer that ignores SIGTERM writes a real PNG after its deadline; the suite
+checks that this output never becomes a published success.
+A cold start may correctly return JSON 202 within the budget; that is a measured
+timeout outcome, not successful cold-start acceptance.
+
+A test-only Pod finalizer holds deletion while another display waits. The suite
+checks same-pair exclusion and global capacity, observes a successful maintenance
+pass while the stopping context and issued image remain readable, then removes
+only its own finalizer in a `finally` block. Controller restart must terminate
+request-dependent work without an autonomous retry. A production-chart config
+upgrade must preserve CR/PVC UIDs, authentication and the previously issued URL.
+The existing Scheduled scenarios retain their recovery and publication checks.
+
+The Playlist suite checks failed A, successful B, next C, wraparound, shared
+requests, replay across restart, mixed GET/POST/Scheduled/OnDemand turns, stale
+rejection, one-entry/all-failed pending and unchanged successful turns on failure.
+A default 5s first timeout must leave enough of the 10s budget for a fast warm
+second candidate; an explicit longer first timeout must respect the remaining
+overall budget. These checks intentionally fail when the disposable environment
+cannot complete the required successful scenarios in time. Do not increase
+production deadlines to make smoke pass.
+
+Display timings are reported separately from render success. The harness allows
+750ms of local delivery/scheduling overhead above the 13s application deadline;
+this allowance does not extend the Controller's 10s render or 13s request limit.
+The shared resource sampler reports kubelet memory during the 24-request burst;
+the kind wrapper also checks the Controller cgroup's peak, 500m CPU/512Mi memory
+limits and zero OOM events. These finite software scenarios do not establish
+production throughput, every cold image's startup time or physical delivery.
+Run the full `make helm-smoke IMAGE=arprt:dev LOAD_IMAGE=true` matrix after Docker
+build; select an empty `CHART_OUTPUT` directory if older package versions remain.
+
+For physical acceptance, retain the 15s listener and actual Gateway settings.
+Record candidate source/image, model, exact firmware and distribution, time and
+actual display/image request durations privately. Prepare single OnDemand,
+failed-A/successful-B Skip, all-failed JSON 202 and budget-exhausting delayed-output
+sessions. Observe real polls and replay without synthetic display requests using
+the physical identity. Distinguish cold pulls from warm execution and timer wake
+from manual wake; confirm the panel separately from HTTP/PNG metadata. Save and
+restore assignments, polling settings and any temporary renderer/proxy changes
+on success, failure or interruption. Existing normal authentication, downloads,
+overlays and issued-URL retention still need their applicable regression checks.
+Unobserved hardware sessions remain incomplete and do not create a release gate.
 
 ## Controller image releases
 

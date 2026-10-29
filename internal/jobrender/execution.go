@@ -241,6 +241,19 @@ func minTime(values ...time.Time) time.Time {
 	return result
 }
 
+func (r *Reconciler) executionFailureReason(ctx context.Context, deadline time.Time) string {
+	// The last waiter can cancel at the same instant as the deadline timer.
+	// Match reconciliation's absolute-deadline precedence in either ordering.
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || !r.now().Before(deadline):
+		return "JobTimedOut"
+	case ctx.Err() != nil:
+		return "RequestCancelled"
+	default:
+		return "ExecutionFailed"
+	}
+}
+
 func (r *Reconciler) runExecution(key string, f *execution) {
 	defer r.workers.Done()
 	ticker := time.NewTicker(25 * time.Millisecond)
@@ -256,10 +269,7 @@ func (r *Reconciler) runExecution(key string, f *execution) {
 		st, err := r.Store.load(f.wanted.Namespace, f.wanted.DeviceName, f.wanted.ScreenName)
 		if err == nil && f.ctx.Err() != nil {
 			if f.metadata.AttemptID == "" && st != nil && st.Active != nil && st.Active.ID == f.id && st.Active.TerminalReason == "" {
-				st.Active.TerminalReason = "RequestCancelled"
-				if errors.Is(f.ctx.Err(), context.DeadlineExceeded) {
-					st.Active.TerminalReason = "JobTimedOut"
-				}
+				st.Active.TerminalReason = r.executionFailureReason(f.ctx, st.Active.Deadline)
 				err = r.Store.save(st)
 			}
 			if err == nil {
@@ -301,7 +311,9 @@ func (r *Reconciler) runExecution(key string, f *execution) {
 			// Persist cancellation/error before allowing a later request to
 			// replace this flight. Cleanup runs independently of its waiters.
 			if err != nil && f.metadata.AttemptID == "" && st != nil && st.Active != nil && st.Active.ID == f.id && st.Active.TerminalReason == "" {
-				st.Active.TerminalReason = "ExecutionFailed"
+				// Cancellation can arrive inside reconciliation's API/storage
+				// work, after the check at the start of this iteration.
+				st.Active.TerminalReason = r.executionFailureReason(f.ctx, st.Active.Deadline)
 				if saveErr := r.Store.save(st); saveErr != nil {
 					err = saveErr
 				}

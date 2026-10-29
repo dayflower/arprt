@@ -264,7 +264,9 @@ includes execution-slot waiting, Pod startup, collection and successful image
 storage. Rendering stops at 10 seconds from request admission; authentication
 and device-gate waiting reduce the remaining time. A shorter controller Job
 deadline also wins. Use a renderer/image whose startup and work fit the budget.
-Cold/warm container and physical-device acceptance remain pending.
+Use the [real-container acceptance checks](DEVELOP.md#on-demand-job-acceptance)
+to measure cold pulls and warm execution separately. A successful software run
+does not establish delivery through a particular proxy or physical panel.
 
 The [single-screen OnDemand example](../examples/custom-resources/screen-ondemand.yaml)
 uses the same image ConfigMap as the example below. Apply it and assign

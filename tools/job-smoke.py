@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 
 import helm_install
+import ondemand_smoke
 import overlay_checks
 from image_checks import GRAY4_FIXTURE
 
@@ -39,7 +40,7 @@ def main():
         directory = Path(temporary)
         installation = helm_install.Installation(args, namespace, directory)
         try:
-            installation.settings["jobs"] = {"deadlineSeconds": 30}
+            installation.settings["jobs"] = {"deadlineSeconds": 30, "concurrency": 1}
             installation.install()
 
             def apply(obj):
@@ -568,6 +569,16 @@ def main():
                 )
                 if (result.stdout.strip() == "yes") != allowed:
                     raise RuntimeError("RBAC scope mismatch")
+            ondemand_smoke.single(
+                namespace,
+                apply,
+                headers,
+                read,
+                forwarded,
+                directory,
+                wait,
+                installation,
+            )
             print(
                 "PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, display overlays/base separation, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC"
             )
