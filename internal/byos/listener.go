@@ -24,7 +24,23 @@ func (l *Listener) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: l.Handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10, BaseContext: func(net.Listener) context.Context { return ctx }}
+	return l.serve(ctx, listener)
+}
+
+func (l *Listener) httpServer(ctx context.Context) *http.Server {
+	return &http.Server{
+		Handler:           l.Handler,
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
+	}
+}
+
+func (l *Listener) serve(ctx context.Context, listener net.Listener) error {
+	srv := l.httpServer(ctx)
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(listener) }()
 	select {
