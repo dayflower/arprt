@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"sync"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
@@ -11,6 +12,7 @@ import (
 	"github.com/dayflower/arprt/internal/credentials"
 	"github.com/dayflower/arprt/internal/delivery"
 	"github.com/dayflower/arprt/internal/deviceidentity"
+	"github.com/dayflower/arprt/internal/jobrender"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,12 +25,17 @@ type Server struct {
 	Repository artifact.Repository
 	GET        *delivery.GET
 	POST       *delivery.POST
-	Identity   *deviceidentity.Service
-	location   *time.Location
-	base       *url.URL
-	gates      [64]chan struct{}
-	slots      chan struct{}
-	Recorder   events.EventRecorder
+	Jobs       interface {
+		Execute(context.Context, jobrender.ExecutionRequest) (artifact.Metadata, error)
+	}
+	Identity *deviceidentity.Service
+	location *time.Location
+	base     *url.URL
+	gates    [64]chan struct{}
+	slots    chan struct{}
+	Recorder events.EventRecorder
+	demandMu sync.Mutex
+	demands  map[string]*demandFlight
 }
 
 func NewServer(c Config, reader client.Reader, writer client.Client, repo artifact.Repository) (*Server, error) {

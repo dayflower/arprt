@@ -165,8 +165,8 @@ purposes and are configured independently.
 The current application request context still expires after 13 seconds, and
 HTTP renderer execution still has its independent 10-second limit. The socket
 write timeout does not cancel handler work: handlers and shared rendering must
-continue to obey their own context deadlines and cancellation. On-demand Jobs
-are not implemented. See the [isolated delay probe](DEVELOP.md#delayed-display-transport-probe)
+continue to obey their own context deadlines and cancellation. OnDemand Job
+display execution shares these deadlines. See the [isolated delay probe](DEVELOP.md#delayed-display-transport-probe)
 for transport-only verification.
 
 In pinned OG `v1.8.17` (`9acd348270a493ca5f1c627ac91a9469543267ae`),
@@ -204,7 +204,7 @@ probe's Gateway timeout. The existing Gateway also independently timed out at
 display waiting, and the experimental 30-second listener timeout was reverted
 to 15 seconds.
 
-The revised on-demand design stops rendering and successful base-image storage
+OnDemand execution stops rendering and successful base-image storage
 by 10 seconds from request admission, within the existing 13-second application
 deadline. The remaining nominal 3 seconds are reserved for compatible fallback
 selection, overlays, revalidation, issuance, turn persistence and response
@@ -212,10 +212,11 @@ preparation. The nominal 2 seconds between application and transport deadlines
 provide delivery headroom, not more rendering time. Authentication, assignment
 and gate/slot waiting consume the same budgets. Candidates, retries and joining
 requests cannot reset them. A shorter parent deadline wins at every stage.
-The proposed candidate timeout defaults to 5 seconds (integer range 1–10), and
-the proposed Skip playlist budget defaults to 10 seconds (integer range 1–10).
-These are future execution limits, not implemented API fields or evidence that
-cold/warm Jobs and finalization finish within them. Storage/CPU/network delays
+The Screen Job candidate timeout defaults internally to 5 seconds (integer range
+1–10). Single-screen rendering and OnDemand in existing playlist/discovery use
+the fixed 10-second overall budget; recorded turns replay without another Job.
+Skip playlists remain future work. These software bounds are not evidence that
+real cold/warm Jobs and finalization finish within them. Storage/CPU/network delays
 can consume the margins; the 14-second probe success does not establish a safe
 14-second rendering budget. Keep ordinary HTTP renderer execution at 10 seconds
 and scheduled Job behavior unchanged.
@@ -271,8 +272,8 @@ Renderers apply clockwise content rotation themselves. For example, an
 800 × 480 target with `90`/`270` uses a logical 480 × 800 canvas, rotated into
 the required physical 800 × 480 PNG. Width/height always describe the final PNG.
 
-POST overlays current authenticated observations on valid known state without
-waiting for informer propagation. Job snapshots are copied at scheduling and
+POST and OnDemand Job overlay current authenticated observations on valid known
+state without waiting for informer propagation. Scheduled Job snapshots are copied at scheduling and
 cannot change in flight; their telemetry may be older at display time. GET has
 no context. Optional fields may be added within v1; renderers ignore unknown
 fields. Removing fields or changing semantics requires a new context version.

@@ -2,6 +2,7 @@ package byos
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"net/http"
 	"reflect"
@@ -64,6 +65,27 @@ func (image deliveryImage) state() deliveryState {
 
 func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDevice, o Observation) {
 	ctx := r.Context()
+	key := sha256.Sum256([]byte(d.UID))
+	gate := s.gates[int(key[0])%len(s.gates)]
+	held := false
+	lock := func() bool {
+		select {
+		case gate <- struct{}{}:
+			held = true
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	if !lock() {
+		reply(w, 503, 503)
+		return
+	}
+	defer func() {
+		if held {
+			<-gate
+		}
+	}()
 	corner, err := s.recoverCorner(ctx, d)
 	if err != nil {
 		reply(w, 503, 503)
@@ -97,7 +119,31 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		return
 	}
 
-	image, err := s.obtainImage(ctx, d, o, selected)
+	var image deliveryImage
+	if screen.IsOnDemand(selected.screen.Spec) && selected.replay == nil {
+		flight, leave, joinErr := s.joinDemand(ctx, d, o, selected)
+		if joinErr != nil {
+			reply(w, 503, 503)
+			return
+		}
+		defer leave()
+		// Single-screen waiters observe/authenticate independently. Existing
+		// Hold/discovery turns retain their serialized transition semantics.
+		if !selected.cycling {
+			<-gate
+			held = false
+		}
+		image, err = s.waitDemand(ctx, d, selected, flight)
+		if !held && !lock() {
+			reply(w, 503, 503)
+			return
+		}
+		if err == nil && !selected.cycling {
+			corner, err = s.recoverCorner(ctx, d)
+		}
+	} else {
+		image, err = s.obtainImage(ctx, d, o, selected)
+	}
 	if err != nil {
 		reply(w, 503, 503)
 		return

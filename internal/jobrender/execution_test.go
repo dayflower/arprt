@@ -216,7 +216,8 @@ func TestExecutionAbsoluteCutoffIncludesPriorWorkAndSlotWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := executionDone(t, done)
-	if !errors.Is(result.err, context.DeadlineExceeded) || time.Since(start) > time.Second {
+	var candidate *ExecutionError
+	if !errors.Is(result.err, context.DeadlineExceeded) || !errors.As(result.err, &candidate) || candidate.Reason != "JobTimedOut" || time.Since(start) > time.Second {
 		t.Fatal("slot wait extended the cutoff", result)
 	}
 	r.mu.Lock()
@@ -229,6 +230,22 @@ func TestExecutionAbsoluteCutoffIncludesPriorWorkAndSlotWaiting(t *testing.T) {
 	req.StartedAt = time.Now().Add(-11 * time.Second)
 	if _, err := r.Execute(t.Context(), req); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("spent authentication budget launched work", err)
+	}
+}
+
+type deadlineAPIReader struct{ client.Reader }
+
+func (r deadlineAPIReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return context.DeadlineExceeded
+}
+
+func TestExecutionInfrastructureTimeoutIsNotCandidateFailure(t *testing.T) {
+	r, _, req := demandFixture(t)
+	r.Reader = deadlineAPIReader{r.Reader}
+	_, err := r.Execute(t.Context(), req)
+	var candidate *ExecutionError
+	if err != context.DeadlineExceeded || errors.As(err, &candidate) {
+		t.Fatal("API timeout became a skippable rendering failure", err)
 	}
 }
 
@@ -436,6 +453,12 @@ func TestExecutionRestartCancelsUncommittedAndKeepsDurableSuccess(t *testing.T) 
 			step(t, r, d)
 			st := load(t, r, d)
 			st.Trigger = OnDemand
+			r.TriggerFor = func(*api.ArprtScreen) Trigger { return OnDemand }
+			_, _, wanted, err := r.desired(t.Context(), client.ObjectKeyFromObject(d), st.ScreenName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st.DeviceGeneration, st.Assignment = wanted.DeviceGeneration, wanted.Assignment
 			st.Active.Trigger = OnDemand
 			st.Active.Deadline = time.Now().Add(time.Second)
 			if err := r.Store.save(st); err != nil {

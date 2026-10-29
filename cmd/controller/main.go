@@ -109,6 +109,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	var jobs *jobrender.Reconciler
 	if jobConfig.PVC != "" {
 		jobConfig.Namespace = namespace
 		jobConfig.Refresh = time.Duration(refresh) * time.Second
@@ -122,7 +123,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		jobs := &jobrender.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Repository: repo, Store: store, Config: jobConfig, Recorder: mgr.GetEventRecorder("job-renderer")}
+		jobs = &jobrender.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Repository: repo, Store: store, Config: jobConfig, Recorder: mgr.GetEventRecorder("job-renderer")}
 		if err := jobs.SetupWithManager(mgr); err != nil {
 			return err
 		}
@@ -144,6 +145,9 @@ func run() error {
 		return err
 	}
 	server.Recorder = mgr.GetEventRecorder("http-renderer")
+	if jobs != nil {
+		server.Jobs = jobs
+	}
 	if jobConfig.PVC == "" {
 		if err := mgr.Add(&maintenance.StorageMaintenance{Reader: mgr.GetAPIReader(), Repository: repo, Namespace: namespace, Refresh: time.Duration(refresh) * time.Second}); err != nil {
 			return err

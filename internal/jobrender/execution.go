@@ -41,13 +41,21 @@ type ExecutionRequest struct {
 	RenderDeadline time.Time
 	Timeout        time.Duration
 	Observation    render.Observation
+	// Snapshot is captured before display waiters release their device gate.
+	Snapshot         *render.Context
+	DeviceGeneration int64
+	Assignment       string
 }
 
 // ExecutionError describes candidate failure; storage/API errors remain errors
 // from their original operation so a caller cannot hide them by skipping.
-type ExecutionError struct{ Reason string }
+type ExecutionError struct {
+	Reason string
+	cause  error
+}
 
 func (e *ExecutionError) Error() string { return e.Reason }
+func (e *ExecutionError) Unwrap() error { return e.cause }
 
 // operationMutex keeps the existing operation-wide GC exclusion while allowing
 // request admission to stop waiting at its own absolute cutoff.
@@ -107,7 +115,7 @@ func (r *Reconciler) flight(st *state) *execution {
 // Execute shares one candidate, including slot waiting, collection and storage.
 // No mutex or image admission lease is held while waiting for Kubernetes work.
 // Joining and candidate changes cannot extend the supplied absolute deadline.
-func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (artifact.Metadata, error) {
+func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (metadata artifact.Metadata, err error) {
 	if err := ctx.Err(); err != nil {
 		return artifact.Metadata{}, err
 	}
@@ -123,10 +131,19 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (artifac
 		deadline = minTime(deadline, parent)
 	}
 	if !started.Before(deadline) {
-		return artifact.Metadata{}, context.DeadlineExceeded
+		return artifact.Metadata{}, &ExecutionError{Reason: "JobTimedOut", cause: context.DeadlineExceeded}
 	}
 	waitCtx, stopWaiting := context.WithDeadline(ctx, deadline)
 	defer stopWaiting()
+	var shared *execution
+	defer func() {
+		// Only our own expired budget is a candidate timeout. An API/storage
+		// operation's independent timeout must remain an infrastructure error.
+		var candidate *ExecutionError
+		if errors.Is(err, context.DeadlineExceeded) && !errors.As(err, &candidate) && (errors.Is(waitCtx.Err(), context.DeadlineExceeded) || shared != nil && errors.Is(shared.ctx.Err(), context.DeadlineExceeded)) {
+			err = &ExecutionError{Reason: "JobTimedOut", cause: err}
+		}
+	}()
 	if err := r.mu.LockContext(waitCtx); err != nil {
 		return artifact.Metadata{}, err
 	}
@@ -136,6 +153,9 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (artifac
 	}
 	d, _, wanted, err := r.desired(waitCtx, req.Device, req.Screen)
 	if err == nil && (wanted == nil || wanted.Trigger != OnDemand || wanted.Unit != req.Unit || wanted.Revision != req.Revision) {
+		err = &ExecutionError{Reason: "ObsoleteAttempt"}
+	}
+	if err == nil && req.Assignment != "" && (wanted.Assignment != req.Assignment || wanted.DeviceGeneration != req.DeviceGeneration) {
 		err = &ExecutionError{Reason: "ObsoleteAttempt"}
 	}
 	if err != nil {
@@ -153,6 +173,13 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (artifac
 		if err != nil {
 			r.mu.Unlock()
 			return artifact.Metadata{}, err
+		}
+		if req.Snapshot != nil {
+			if req.Snapshot.Version != "v1" || req.Snapshot.Device.Name != d.Name || req.Snapshot.RenderTarget != wanted.Unit.Target {
+				r.mu.Unlock()
+				return artifact.Metadata{}, errors.New("invalid execution snapshot")
+			}
+			snapshot = *req.Snapshot
 		}
 		b, err := json.Marshal(snapshot)
 		if err != nil {
@@ -184,6 +211,7 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (artifac
 		f.waiters.Add(1)
 	}
 	r.mu.Unlock()
+	shared = f
 	defer func() {
 		if f.waiters.Add(-1) == 0 {
 			f.cancel()

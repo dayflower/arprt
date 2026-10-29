@@ -62,6 +62,9 @@ func (r *ScreenReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		reason, message := "AwaitingRender", "HTTP renders on the next authenticated display request"
 		if screen.Spec.Source.Job != nil {
 			reason, message = "JobPending", "Waiting for an assigned device with a verified target"
+			if screen.Spec.Source.Job.ExecutionMode == "OnDemand" {
+				message = "Waiting for an authenticated display request"
+			}
 			if !r.JobEnabled {
 				reason, message = "JobSchedulingDisabled", "Configure --job-pvc and --controller-pod to enable Job rendering"
 			}

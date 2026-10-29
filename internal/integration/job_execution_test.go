@@ -68,7 +68,7 @@ func TestJobExecutionWatchCancellationAndRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := &jobrender.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Store: store, Repository: repo, Config: jobrender.Config{Namespace: "execution-test", PVC: "data", DeadlineSeconds: 120, MaxActive: 2}, TriggerFor: func(*api.ArprtScreen) jobrender.Trigger { return jobrender.OnDemand }}
+		r := &jobrender.Reconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Store: store, Repository: repo, Config: jobrender.Config{Namespace: "execution-test", PVC: "data", DeadlineSeconds: 120, MaxActive: 2}}
 		if err := r.SetupWithManager(mgr); err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func TestJobExecutionWatchCancellationAndRecovery(t *testing.T) {
 	}
 	r, stop := start()
 	defer func() { stop() }()
-	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "execution-test", Name: "screen"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
+	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: "execution-test", Name: "screen"}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{ExecutionMode: "OnDemand", Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
 	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: s.Namespace, Name: "device"}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: s.Name}, AuthSecretRef: api.LocalReference{Name: "auth"}}}
 	if err := c.Create(ctx, s); err != nil {
 		t.Fatal(err)
@@ -107,8 +107,7 @@ func TestJobExecutionWatchCancellationAndRecovery(t *testing.T) {
 	if err := c.Status().Update(ctx, d); err != nil {
 		t.Fatal(err)
 	}
-	// The policy hook enables only the internal execution path. No new CRD
-	// fields or normal request routing are exposed by this phase.
+	// Public OnDemand configuration must never launch work autonomously.
 	time.Sleep(100 * time.Millisecond)
 	var jobs batchv1.JobList
 	if err := c.List(ctx, &jobs, client.InNamespace(s.Namespace)); err != nil || len(jobs.Items) != 0 {
@@ -231,4 +230,5 @@ func TestJobExecutionWatchCancellationAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool { return c.List(ctx, &jobs, client.InNamespace(s.Namespace)) == nil && len(jobs.Items) == 1 })
+	verifyOnDemandDisplay(t, c, r, root)
 }

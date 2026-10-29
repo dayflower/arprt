@@ -48,7 +48,16 @@ type RendererContainer struct {
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(proc|sys|dev|etc|bin|sbin|usr)(/|$).*')",message="output mount must not hide a system directory"
 // +kubebuilder:validation:XValidation:rule="!self.contextPath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/[^/]+$') && !self.imagePath.matches('^/var/lib/[^/]+$')",message="paths must not overlap the reserved artifact root /var/lib/arprt"
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(var/run|run)/secrets(/|$).*') && !self.imagePath.matches('^/(var/run|run)/[^/]+$')",message="output mount must not hide the ServiceAccount secret tree"
+// +kubebuilder:validation:XValidation:rule="!has(self.timeout) || (has(self.executionMode) && self.executionMode == 'OnDemand')",message="timeout is only supported for OnDemand Jobs"
 type JobSource struct {
+	// ExecutionMode omitted selects Scheduled. Defaults are normalized internally.
+	// +kubebuilder:validation:Enum=Scheduled;OnDemand
+	ExecutionMode string `json:"executionMode,omitempty"`
+	// Timeout includes slot waiting, startup, collection and base-image storage.
+	// Omission selects 5s for OnDemand; Scheduled has no request timeout.
+	// +kubebuilder:validation:Pattern=`^([1-9]|10)s$`
+	// +kubebuilder:validation:MaxLength=3
+	Timeout  string            `json:"timeout,omitempty"`
 	Renderer RendererContainer `json:"renderer"`
 	// +kubebuilder:default="/arprt/context.json"
 	// +kubebuilder:validation:MaxLength=512
@@ -69,6 +78,7 @@ type ScreenSource struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
+// +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.job) || !has(self.source.job.executionMode) || self.source.job.executionMode != 'OnDemand'",message="refreshInterval must be omitted for OnDemand Jobs"
 type ArprtScreenSpec struct {
 	// ImageProcessing controls normalization of renderer PNG inputs.
 	ImageProcessing *ImageProcessing `json:"imageProcessing,omitempty"`
@@ -76,7 +86,7 @@ type ArprtScreenSpec struct {
 	Overlay *ScreenOverlay `json:"overlay,omitempty"`
 	Source  ScreenSource   `json:"source"`
 	// RefreshInterval controls artifact freshness, not device polling. Effective
-	// defaults are 5m for GET and 30m for Job; POST has no interval.
+	// defaults are 5m for GET and 30m for Scheduled Job; POST/OnDemand have no interval.
 	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:Pattern=`^([0-9]+[hms])+$`
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s') && duration(self) <= duration('24h')",message="interval must be between 1s and 24h in whole seconds"

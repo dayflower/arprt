@@ -13,6 +13,7 @@ repository root; the guides use namespace `arprt` unless stated otherwise.
 | Normalize general RGB or preserve indexed Spectra output | [HTTP palette](renderers/http/palette/) | Python 3 or the supplied Deployment; [palette guide](../notes/RENDERERS.md#rgb-and-indexed-spectra-example) |
 | Render current device observations through HTTP POST | [HTTP device status](renderers/http/device-status/) | Python 3 or the supplied Deployment; [POST guide](../notes/RENDERERS.md#http-post-example) |
 | Render with an existing container image | [Job gray bands](renderers/job/gray-bands/) | Job scheduling and the controller's RWO PVC; [Job guide](../notes/RENDERERS.md#job-example-and-container-requirements) |
+| Run a Job only for display requests | [OnDemand Screen](custom-resources/screen-ondemand.yaml) | The gray-bands input ConfigMap, Job/PVC support and startup/rendering within the [request budget](../notes/RENDERERS.md#job-example-and-container-requirements) |
 | Display random photographs | [External Picsum renderer and Screens](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md) | Image-pull access to the [published Picsum 0.1.0 image](https://github.com/dayflower/arprt-renderers/releases/tag/picsum/v0.1.0), Job/PVC support and HTTPS egress; [Picsum guide](../notes/RENDERERS.md#picsum-job-renderer) |
 | Expose BYOS through an existing TLS Gateway | [Envoy Gateway](networking/envoy-gateway/README.md) | Gateway API, an existing Envoy Gateway, DNS and certificate |
 

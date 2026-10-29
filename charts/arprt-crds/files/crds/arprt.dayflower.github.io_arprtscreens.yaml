@@ -135,7 +135,7 @@ spec:
               refreshInterval:
                 description: |-
                   RefreshInterval controls artifact freshness, not device polling. Effective
-                  defaults are 5m for GET and 30m for Job; POST has no interval.
+                  defaults are 5m for GET and 30m for Scheduled Job; POST/OnDemand have no interval.
                 maxLength: 32
                 pattern: ^([0-9]+[hms])+$
                 type: string
@@ -178,6 +178,13 @@ spec:
                         x-kubernetes-validations:
                         - message: path must be a clean absolute POSIX file path
                           rule: '!self.split(''/'').exists(p, p == ''.'' || p == ''..'')'
+                      executionMode:
+                        description: ExecutionMode omitted selects Scheduled. Defaults
+                          are normalized internally.
+                        enum:
+                        - Scheduled
+                        - OnDemand
+                        type: string
                       imagePath:
                         default: /arprt/output.png
                         maxLength: 512
@@ -477,6 +484,13 @@ spec:
                         required:
                         - image
                         type: object
+                      timeout:
+                        description: |-
+                          Timeout includes slot waiting, startup, collection and base-image storage.
+                          Omission selects 5s for OnDemand; Scheduled has no request timeout.
+                        maxLength: 3
+                        pattern: ^([1-9]|10)s$
+                        type: string
                     required:
                     - renderer
                     type: object
@@ -497,6 +511,9 @@ spec:
                         tree
                       rule: '!self.imagePath.matches(''^/(var/run|run)/secrets(/|$).*'')
                         && !self.imagePath.matches(''^/(var/run|run)/[^/]+$'')'
+                    - message: timeout is only supported for OnDemand Jobs
+                      rule: '!has(self.timeout) || (has(self.executionMode) && self.executionMode
+                        == ''OnDemand'')'
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of http or job is required
@@ -508,6 +525,9 @@ spec:
             - message: refreshInterval must be omitted for HTTP POST
               rule: '!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method
                 != ''POST'''
+            - message: refreshInterval must be omitted for OnDemand Jobs
+              rule: '!has(self.refreshInterval) || !has(self.source.job) || !has(self.source.job.executionMode)
+                || self.source.job.executionMode != ''OnDemand'''
           status:
             properties:
               conditions:

@@ -22,11 +22,12 @@ controller's whole-filesystem RWO PVC. See
 | --- | --- | --- |
 | HTTP GET | Output depends on the screen and display target including rotation, without device telemetry | Render on demand; `refreshInterval` bounds fresh reuse |
 | HTTP POST | Output needs device name, model/firmware or current telemetry | Render synchronously for each single-screen request or new cycling turn |
-| Kubernetes Job | An existing container CLI writes an image, or rendering should run asynchronously | Render on an interval; display serves completed output |
+| Scheduled Job | An existing container CLI writes an image asynchronously | Render on an interval; display serves completed output |
+| OnDemand Job | A fast container CLI needs current display observations | Render on each single-screen display or new cycling turn; concurrent single-screen requests share work |
 
-Device polling is configured separately from screen freshness. POST forbids
+Device polling is configured separately from screen freshness. POST and OnDemand forbid
 `refreshInterval`; playlist/discovery can replay a recorded turn without rendering
-again. Job telemetry is a scheduling snapshot and may be older at display time.
+again. Scheduled Job telemetry is a scheduling snapshot and may be older at display time.
 On failure, compatible prior output can remain visible; without one, display is
 pending. See [rendering and assignment](DESIGN.md#rendering-and-assignment) for
 reuse, replay, ordering and fallback rules.
@@ -255,6 +256,23 @@ optional-value omission. POST receives current authenticated request observation
 overlaid on valid known state, with query and JSON targets agreeing.
 
 ## Job example and container requirements
+
+Job `executionMode` is `Scheduled` when omitted. Set `OnDemand` to start only
+on authenticated display requests, omit `refreshInterval`, and optionally set
+`timeout` to an integer from `1s` to `10s` (default `5s`). The candidate budget
+includes execution-slot waiting, Pod startup, collection and successful image
+storage. Rendering stops at 10 seconds from request admission; authentication
+and device-gate waiting reduce the remaining time. A shorter controller Job
+deadline also wins. Use a renderer/image whose startup and work fit the budget.
+Cold/warm container and physical-device acceptance remain pending.
+
+The [single-screen OnDemand example](../examples/custom-resources/screen-ondemand.yaml)
+uses the same image ConfigMap as the example below. Apply it and assign
+`job-bands-ondemand` through `spec.screenRef`. Each independent display attempts
+generation, even with a previous image; failure can serve compatible stale
+output or HTTP 200 / JSON 202 when none exists. Image downloads never start Jobs.
+Existing playlist/discovery retain replay, stale fallback and turn holding;
+Skip policy is not available yet.
 
 Install the [existing-image Job examples](../examples/renderers/job/gray-bands/screens.yaml):
 

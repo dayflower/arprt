@@ -1,6 +1,6 @@
 # Current design
 
-arprt maps declarative arprt resources to synchronous HTTP or asynchronous Job
+arprt maps declarative arprt resources to HTTP, scheduled or on-demand Job
 rendering, validated persistent artifacts and authenticated BYOS delivery.
 [PROTOCOL](PROTOCOL.md) owns wire/context/image details;
 [DEVELOP](DEVELOP.md) maps packages and checks;
@@ -30,7 +30,7 @@ API writes to reject rather than prune; see DEVELOP.
 Render Target is physical width/height, semantic palette and desired rotation;
 device model is not part of rendering identity when capabilities are equivalent.
 Rotation participates in exact-target cache and fallback compatibility for every
-source. Changing rotation triggers Job rescheduling and invalidates cycle replay;
+source. Changing rotation obsoletes active Jobs and invalidates cycle replay;
 output from another rotation cannot supply fallback. Display status remains
 observed hardware capabilities, and issued immutable URLs remain authorized
 under the existing retention rules. Render Context adds allowlisted device
@@ -45,12 +45,17 @@ where the controller collects. The controller never interprets arbitrary CLIs.
 | --- | --- | --- |
 | GET | On demand after miss, expiry or definition change; default freshness 5m. Concurrent work coalesces; equal current definitions/targets share fresh output. | Namespace + screen UID + exact target; no device context |
 | POST | Each new authenticated single-screen display request; no fresh reuse or context coalescing. Explicit `refreshInterval` is rejected. | Namespace + screen UID + device UID + exact target; current request overlaid on valid known state |
-| Job | Scheduled independently of display; initial readiness, definition/assignment/target changes and interval refresh (default 30m). | Same pair ownership as POST; immutable scheduling snapshot |
+| Scheduled Job | Scheduled independently of display; initial readiness, definition/assignment/target changes and interval refresh (default 30m). | Same pair ownership as POST; immutable scheduling snapshot |
+| OnDemand Job | Each authenticated single-screen display or new cycling turn; no `refreshInterval`. Concurrent single-screen requests share rendering. | Same pair ownership as POST; immutable current-request snapshot |
 
 Device polling and artifact freshness are independent. GET/POST share bounded
-HTTP execution; display reads completed Job output and never creates or waits
-for a Job. Telemetry changes affect future Job snapshots without starting work
-on every poll. Default normalization and input revisions live in
+HTTP execution. Scheduled Job display reads completed output without starting
+or waiting for work. `source.job.executionMode` defaults internally to `Scheduled`;
+`OnDemand` opts into display-triggered execution with an internal default `timeout`
+of `5s` (integer `1s`–`10s`). Admission rejects timeout on Scheduled Jobs and
+refreshInterval on OnDemand Jobs. Explicit Scheduled and omitted executionMode
+retain the original revision; explicit/omitted OnDemand `5s` also normalize alike.
+Default normalization and input revisions live in
 [screen/input.go](../internal/screen/input.go); revisions include context and
 collector, processing, encoder and palette semantic versions and exclude
 metadata/status/credentials. Screen processing defaults are contain/Atkinson;
@@ -73,14 +78,14 @@ BYOS has no verified unique display-request ID. During `device-refresh-seconds`
 after a recorded turn, replay the same image and filename, including across
 restart and early manual polls. The window begins after rendering and durable
 turn recording, uses microsecond timestamps and is not extended by replay.
-Telemetry is still observed. **POST in playlist/discovery renders on a new turn,
+Telemetry is still observed. **POST and OnDemand Job in playlist/discovery render on a new turn,
 not on replay**; a single `screenRef` retains per-request rendering.
 
 The assignment fingerprint includes device UID/generation, assignment identity
 and ordered screen names/UIDs. A fingerprint change resets selection to the
 first eligible screen. Definition edits invalidate replay without resetting
 membership/order; changed targets cannot reuse incompatible output.
-All eligible Job pairs are scheduled independently of the current turn, bounded
+All eligible Scheduled Job pairs are scheduled independently of the current turn, bounded
 by the global concurrency limit; work can remain queued before its first image.
 Removing eligibility cancels work and stops future attempts.
 
@@ -234,17 +239,18 @@ duplicating an active pair.
 Publication precedes clearing the active record so interrupted bookkeeping can
 replay publication idempotently.
 
-`jobrender.Reconciler.Execute` provides an internal request-triggered execution
-interface over the same preparation, observation, collection and publication
-transitions. It is not connected to the public Screen API or BYOS display
-handler yet; all normally configured Jobs remain scheduled. The internal policy
-hook defaults to scheduled execution. Pair and attempt records add an optional
-trigger and, for request-triggered attempts, an absolute deadline. Omitted fields
+`jobrender.Reconciler.Execute` connects authenticated BYOS display requests for
+OnDemand Screens to the same preparation, observation, collection and publication
+transitions. Assignment, configuration changes and image URL GETs never trigger
+OnDemand work. Pair and attempt records add an optional trigger and, for
+request-triggered attempts, an absolute deadline. OnDemand pairs also capture
+device generation and assignment fingerprint so changes stop old executions.
+Omitted trigger fields
 retain scheduled semantics and do not change old IDs, context digests, sequences,
 due times or backoff. A policy change terminalizes and stops old work before a
 new execution is allowed.
 
-The internal caller supplies the admission timestamp, absolute render cutoff,
+The display caller supplies the admission timestamp, absolute render cutoff,
 expected UID/target/revision and current observation allowlist. Freeze context
 bytes before slot waiting. The candidate deadline is the earliest of that
 cutoff, admission plus 10 seconds, candidate start plus its 5-second default
@@ -265,7 +271,22 @@ request worker cannot collect twice. Operation-lock admission respects the
 caller's cutoff, and manager shutdown cancels and drains execution workers.
 The surrounding display flow retains
 responsibility for authentication, assignment compatibility, fallback, issuance
-and its separate 13-second application deadline.
+and its separate 13-second application deadline. Admission precedes authentication
+and device-gate waiting. A single-screen flight survives individual waiter
+disconnects, ends when all waiters leave, and retains the first snapshot through
+finalization. Its identity includes device UID/spec/generation, screen
+UID/generation/revision, resolved target and assignment. Every response observes
+its own telemetry and revalidates current authorization before issuance.
+Hold/discovery retain their serialized turn/replay and stale-image rules;
+Skip playlists and shared cycling transitions are separate future work.
+
+Each independent single-screen request tries a new Job even with an existing
+image. Candidate failure permits the same pair's compatible stale output;
+no image returns HTTP 200 / JSON 202. Storage/API/issuance failures retain their
+failure response. Rendering and successful base storage stop by admission plus
+10s. Compatible fallback, overlays and issuance use the remaining request time
+through 13s; cleanup never waits in that reserve. Equal regenerated bytes reuse
+the immutable digest/filename, while an issued result survives response failure.
 
 When the last waiter leaves or the deadline expires, persist a terminal reason
 and stop the Job independently of the HTTP waiter. Do not wait for Pod deletion
@@ -287,7 +308,7 @@ and context bytes; conflicting or invalid records are rejected rather than guess
 Missing submitted Jobs become `JobLost`; unconfirmed execution output cannot be
 trusted merely because a file exists. Failed, timed-out or obsolete attempts use
 new directories. Cancellation accounts for old Jobs/Pods before replacement work.
-`backoffLimit: 0` leaves retries to the controller. Bounded exponential backoff
+`backoffLimit: 0` leaves Scheduled retries to the controller. Bounded exponential backoff
 slows after seven consecutive failures to at least the screen interval and five
 minutes; success resets it. Definition changes can bypass obsolete backoff.
 
