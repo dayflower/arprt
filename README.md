@@ -260,6 +260,12 @@ power wake; see [pending behavior](notes/PROTOCOL.md#responses-and-polling).
 See [RENDERERS](notes/RENDERERS.md) for installation/execution examples and
 [PROTOCOL](notes/PROTOCOL.md#png-contract) for exact image requirements.
 
+## Official renderers
+
+Official ARPRT renderers are maintained in
+[arprt-renderers](https://github.com/dayflower/arprt-renderers).
+See its README for available renderers and usage instructions.
+
 ## Display overlays
 
 A Screen can add its original render timestamp and current battery/Wi-Fi icons:
