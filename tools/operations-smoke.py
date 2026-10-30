@@ -203,6 +203,27 @@ def main():
 
             # Derived output must not replace base latest and must survive reassignment/GC.
             base_record = json.loads(inspect("cat /data/latest/" + key + ".json"))
+            device = resource("arprtdevice", "living-room")
+            delivery_path = (
+                "/data/deliveries/"
+                + hashlib.sha256(device["metadata"]["uid"].encode()).hexdigest()
+                + ".json"
+            )
+
+            def read_delivery():
+                return json.loads(inspect("cat " + delivery_path))
+
+            recorded = read_delivery()
+            assert recorded["version"] == 1
+            assert recorded["deviceUID"] == device["metadata"]["uid"]
+            assert recorded["screenUID"] == screen["metadata"]["uid"]
+            assert recorded["screenName"] == "photo"
+            assert recorded["imageDigest"] == image_digest
+            assert recorded["renderedAt"] == base_record["renderedAt"]
+            assert recorded["result"] == "ready"
+            assert recorded["rendering"] == "ready"
+            for sensitive in [headers["ID"], headers["Access-Token"]]:
+                assert sensitive not in json.dumps(recorded)
             with forwarded(namespace, 8080, directory) as base:
                 original_bytes = fetch(base, image_route)
                 patch(
@@ -243,6 +264,11 @@ def main():
                     composite["image_url"].rsplit("/", 1)[-1][:-4]
                     != current_base["imageDigest"]
                 )
+                recorded = read_delivery()
+                assert (
+                    recorded["imageDigest"] == composite_route.rsplit("/", 1)[-1][:-4]
+                )
+                assert recorded["renderedAt"] == current_base["renderedAt"]
                 patch(
                     "arprtdevice",
                     "living-room",
@@ -253,8 +279,10 @@ def main():
                 "arprtdevice", "living-room", {"spec": {"screenRef": {"name": "photo"}}}
             )
             patch("arprtscreen", "photo", {"spec": {"overlay": None}})
+            previous_delivery = read_delivery()
             installation.settings["storage"] = {"maxBytes": 1}
             installation.upgrade()
+            assert read_delivery() == previous_delivery
             patch("arprtscreen", "photo", {"spec": {"refreshInterval": "1s"}})
             assert ready_display()["image_url"] == result["image_url"]
             conditions = {
@@ -262,6 +290,7 @@ def main():
                 for c in resource("arprtdevice", "living-room")["status"]["conditions"]
             }
             assert conditions["Ready"]["reason"] == "StaleImageAvailable"
+            assert read_delivery() == previous_delivery
             with forwarded(namespace, 8080, directory) as base:
                 assert fetch(base, image_route).startswith(b"\x89PNG")
             with forwarded(namespace, 8082, directory) as base:
@@ -271,6 +300,9 @@ def main():
                     .decode()
                 )
                 assert 'arprt_storage_errors_total{operation="capacity"}' in metrics
+                assert (
+                    'arprt_storage_errors_total{operation="delivery_record"}' in metrics
+                )
                 for sensitive in [
                     headers["ID"],
                     headers["Access-Token"],
@@ -285,7 +317,7 @@ def main():
             installation.upgrade()
             assert ready_display()["status"] == 0
             print(
-                "PASS: capacity admission preserves stale success and issued URL; metrics redact identities",
+                "PASS: delivery/composite provenance and restart persistence; record capacity failure preserves delivery and prior observation; metrics redact identities",
                 flush=True,
             )
 

@@ -89,6 +89,7 @@ type IdentityStore interface {
 type Repository interface {
 	IdentityStore
 	CornerStore
+	DeliveryStore
 	// Derived images never update base latest or attempt sequence. Returned pins
 	// must be released at request completion, after issuance/state commitment.
 	FindDerived(context.Context, Metadata, overlay.Drawing) (Metadata, func(), error)

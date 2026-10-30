@@ -318,7 +318,8 @@ old artifacts, silent devices and a queue that does not drain.
 The default 1 GiB PVC has headroom through the storage admission limit and
 free-space reserve listed in [runtime configuration](#runtime-configuration).
 Usage includes base/composite blobs, derived provenance/cache references,
-authoritative corner records, metadata, Job snapshots and output files.
+authoritative corner records, last-recorded delivery observations, metadata,
+Job snapshots and output files.
 Overlays can create multiple images per base/device/day; allow headroom for the
 24-hour issued-image retention and avoid unnecessarily short polling intervals. Before new image publication, identity/issuance
 allocation or Job work, the controller checks logical usage and available
@@ -326,6 +327,13 @@ filesystem space. An admission failure reports `StorageCapacityExceeded`,
 keeps compatible prior output and retries after space becomes available.
 Updates to an existing issuance may use the reserve so stored images can still
 be delivered. The controller never evicts protected images to satisfy a limit.
+Delivery observations are best effort and do not consume the issuance reserve;
+`arprt_storage_errors_total{operation="delivery_record"}` counts failed writes.
+An older observation can remain after a write failure or crash, without
+preventing device delivery. Observation files neither retain image bytes nor
+extend issued-image access. See the
+[observation contract](DESIGN.md#delivery-observations-and-dashboard-api) for
+freshness and recovery limits; the dashboard listener/UI is not wired yet.
 
 These checks are admission controls, not reservations or a filesystem quota.
 Concurrent renderers can write beyond the threshold before the next check.

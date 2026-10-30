@@ -344,6 +344,7 @@ variable configures only the harness; it cannot change a controller image.
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
 | `internal/byos` | Routes, protocol parsing, authentication gates, display/replay and image serving |
+| `internal/dashboard` | Read-only namespaced device pages, independent status projections and previews of recorded deliveries; no production listener or UI wiring yet |
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
@@ -351,7 +352,7 @@ variable configures only the harness; it cannot change a controller image.
 | `internal/overlay` | Vendored CC0 Home Video text, original icons, current-observation levels/charging, inset foreground/edge background and palette-aware composition through shared encoding after renderer normalization; legacy persisted data remains readable |
 | `internal/render`, `internal/delivery` | Context/PNG/HTTP contracts and GET/POST execution/publication policies |
 | `internal/jobrender` | Durable pair/attempt records, scheduling, Job lifecycle, recovery and collection |
-| `internal/artifact`, `internal/maintenance` | PVC publication, identity/issuance, capacity and assignment-aware retention |
+| `internal/artifact`, `internal/maintenance` | PVC publication, identity/issuance, best-effort delivery observations, capacity and assignment-aware retention |
 | `internal/observe` | Bounded metrics and outcome reporting |
 | `internal/integration` | Envtest API validation and running-manager integration |
 | `examples/custom-resources`, `examples/renderers`, `examples/networking` | API usage patterns, runnable renderers and external routing integrations |
@@ -603,6 +604,17 @@ and `git diff --check`. No software matrix is required for prose-only changes.
 `python3 tools/check-docs.py` checks tracked local Markdown links/anchors and
 whitespace. Executable example changes still need applicable software checks.
 Use the manual full run if executable instructions or their scope are uncertain.
+
+Dashboard foundations are covered by `internal/artifact/delivery_test.go`,
+`internal/byos/record_test.go` and `internal/dashboard/server_test.go`: atomic
+concurrent observation ordering, restart/legacy/corrupt records, capacity and GC,
+GET/POST/Scheduled/OnDemand with single/Hold/Skip/discovery, stale/overlay/replay
+provenance, equal-byte independent renders, recording failure isolation, current
+generation/status scope, optional telemetry, UID replacement and read side effects.
+The envtest API suite also checks real bounded pagination/continuation and
+namespace isolation through the dashboard handler. These checks cover the HTTP
+handler foundation; browser UI and production listener/Helm acceptance belong
+to their subsequent implementation phases.
 
 ## Disposable cluster checks
 

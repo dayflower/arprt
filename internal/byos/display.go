@@ -236,7 +236,8 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 		s.outcome(ctx, d, seen, result)
 		return DisplayResponse{Status: 202}, nil
 	}
-	if err := s.Repository.Issue(ctx, string(d.UID), image.issued.ImageDigest, time.Now()); err != nil {
+	issuedAt := time.Now().UTC()
+	if err := s.Repository.Issue(ctx, string(d.UID), image.issued.ImageDigest, issuedAt); err != nil {
 		return DisplayResponse{}, err
 	}
 	if result.state == deliveryStale {
@@ -257,6 +258,7 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 	}
 	// Issuance and any new cycle turn must be durable before acknowledgement.
 	s.outcome(ctx, d, seen, result)
+	s.recordDelivery(ctx, d, selected, image, proposed, issuedAt)
 	return DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10}, nil
 }
 
