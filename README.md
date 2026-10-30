@@ -246,8 +246,13 @@ OnDemand Jobs forbid it. Job `executionMode` defaults to `Scheduled`; opt-in
 `OnDemand` renders on each independent single-screen display with current
 observations, sharing concurrent requests. Its `timeout` defaults to `5s`
 (integer `1s`–`10s`), within a fixed 10-second render budget and 13-second
-application deadline. Real cold/warm Job and device acceptance remain pending;
-see the [OnDemand example and limits](notes/RENDERERS.md#job-example-and-container-requirements). Device
+application deadline. See the separate
+[real-container and physical acceptance checks](notes/DEVELOP.md#on-demand-job-acceptance);
+startup within these budgets depends on the selected image and environment.
+OnDemand/Skip delivery and timer/manual-wake pending behavior were confirmed
+on OG and E1002 reporting official TRMNL firmware 1.8.17; this does not establish
+acceptance for other firmware, images or startup conditions.
+See the [OnDemand example and limits](notes/RENDERERS.md#job-example-and-container-requirements). Device
 polling is independent. Failures can serve compatible stale output, while an
 initial missing image returns pending. Firmware can retain the previous image
 on a normal timer wake, but may show its Friendly ID screen after a manual or

@@ -235,6 +235,68 @@ func TestExecutionAbsoluteCutoffIncludesPriorWorkAndSlotWaiting(t *testing.T) {
 
 type deadlineAPIReader struct{ client.Reader }
 
+type interruptedJobReader struct {
+	client.Reader
+	armed  atomic.Bool
+	cancel context.CancelFunc
+}
+
+func (r *interruptedJobReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, job := obj.(*batchv1.Job); job && r.armed.CompareAndSwap(true, false) {
+		if r.cancel != nil {
+			r.cancel()
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
+}
+
+func TestExecutionInterruptionDuringReconciliationRetainsReason(t *testing.T) {
+	for _, boundary := range []string{"cancel", "deadline", "cancel-at-deadline"} {
+		t.Run(boundary, func(t *testing.T) {
+			reason := "JobTimedOut"
+			if boundary == "cancel" {
+				reason = "RequestCancelled"
+			}
+			r, d, req := demandFixture(t)
+			reader := &interruptedJobReader{Reader: r.Reader}
+			r.Reader = reader
+			if boundary == "deadline" {
+				req.Timeout = time.Second
+			}
+			done := executeAsync(t.Context(), r, req)
+			initial := awaitAttempt(t, r, d)
+			r.mu.Lock()
+			if boundary == "cancel" {
+				reader.cancel = r.flight(initial).cancel
+			} else if boundary == "cancel-at-deadline" {
+				cancel := r.flight(initial).cancel
+				reader.cancel = func() {
+					r.Now = func() time.Time { return initial.Active.Deadline }
+					cancel()
+				}
+			}
+			reader.armed.Store(true)
+			r.mu.Unlock()
+			result := executionDone(t, done)
+			if !errors.Is(result.err, context.Canceled) && !errors.Is(result.err, context.DeadlineExceeded) {
+				t.Fatal(result)
+			}
+			r.mu.Lock()
+			st := load(t, r, d)
+			actual := st.Reason
+			if st.Active != nil {
+				actual = st.Active.TerminalReason
+			}
+			r.mu.Unlock()
+			if actual != reason {
+				t.Fatalf("durable reason = %q, want %q", actual, reason)
+			}
+		})
+	}
+}
+
 func (r deadlineAPIReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
 	return context.DeadlineExceeded
 }

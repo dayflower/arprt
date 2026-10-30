@@ -223,7 +223,9 @@ returns HTTP 200 / JSON 202 without an image URL/filename when all candidates
 fail or its render budget expires, and does not advance the successful turn.
 Compatible stale output is limited to Hold/discovery and single-screen fallback.
 Recorded Skip turns replay the same image and filename without rendering.
-These software bounds are not evidence that real cold/warm Jobs and finalization
+Measure the selected image and environment with the
+[real-container and physical checks](DEVELOP.md#on-demand-job-acceptance).
+Software bounds alone do not establish that cold/warm Jobs and finalization
 finish within them. Storage/CPU/network delays
 can consume the margins; the 14-second probe success does not establish a safe
 14-second rendering budget. Keep ordinary HTTP renderer execution at 10 seconds

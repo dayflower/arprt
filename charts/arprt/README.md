@@ -188,3 +188,8 @@ Playlist `failurePolicy: Skip` and its optional integer `renderTimeout: 1s`–`1
 updated CRD chart before using them, following the existing upgrade procedure.
 See the [mixed playlist example](../../examples/custom-resources/playlist-skip.yaml)
 and [selection contract](../../notes/DESIGN.md#skip-playlists).
+The same CRD-first update applies to Screen `executionMode` and `timeout`.
+The Job/Playlist suites included in `helm-smoke` exercise real OnDemand execution,
+Skip turns and retained issued URLs across a config rollout. Cold-image startup
+and physical delivery need the separate
+[acceptance procedure](../../notes/DEVELOP.md#on-demand-job-acceptance).

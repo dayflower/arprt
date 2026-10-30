@@ -226,7 +226,11 @@ delay the HTTP response. Timed-out, disconnected or obsolete work cannot publish
 late output. OnDemand schedules no periodic retries; the next display is the
 next trigger. Restart stops uncommitted work without recreating it, preserving
 durable successes and issued URLs. Mode changes stop the old execution first.
-Real container startup and physical delivery still require separate acceptance.
+Measure real container startup and physical delivery separately using the
+[on-demand acceptance procedure](DEVELOP.md#on-demand-job-acceptance). A cold pull
+can exhaust the budget before the renderer runs; pre-pull the selected image and
+keep its startup/work within the existing budgets. A stopping Pod
+continues to occupy capacity even after a display has returned fallback/pending.
 
 Playlist `failurePolicy` defaults to `Hold`; `Skip` opts into finite candidate
 exploration without stale fallback. Skip-only `renderTimeout` defaults internally
@@ -259,6 +263,9 @@ Job failures appear on the relevant screen/Job, and device `RenderReady` is not
 an aggregate across pairs. Explicit Job display polling preserves the reconciler's
 failure reason. Job reasons include `JobPending`, `JobFailed`, `JobTimedOut`,
 `JobCreationFailed`, `JobLost`, `RunUnavailable`, `CollectionFailed` and `ImageReady`.
+OnDemand records `RequestCancelled` when no waiter remains and `RequestLost`
+when startup recovers an unconfirmed request. An elapsed candidate deadline is
+`JobTimedOut`, including when its last waiter leaves at that same deadline.
 
 No compatible initial image produces pending. Firmware can retain the previous
 image on a normal timer wake, but may show its Friendly ID screen when a redraw
