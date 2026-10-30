@@ -313,7 +313,7 @@ func TestSkipMixedHTTPAndScheduledFreshness(t *testing.T) {
 			t.Fatal(err)
 		}
 		sc.Spec.Source = source
-		sc.Spec.RefreshInterval = "1s"
+		sc.Spec.RefreshInterval = "1h"
 		if i == 1 {
 			sc.Spec.RefreshInterval = ""
 		}
@@ -352,8 +352,24 @@ func TestSkipMixedHTTPAndScheduledFreshness(t *testing.T) {
 	if got := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil)); got.Status != 0 || gets.Load() != 1 || loadDevice(t, c).Status.ScreenCycle.ScreenUID != "screen-1" { // screen-1 UID is the original GET screen's UID.
 		t.Fatal(got, gets.Load(), loadDevice(t, c).Status.ScreenCycle)
 	}
-	// After freshness expires, all cached images and the old POST are rejected.
-	time.Sleep(1100 * time.Millisecond)
+	// Expire both cache entries explicitly so slow race builds cannot age the
+	// fresh GET out before the assertion above or require a wall-clock sleep.
+	for _, u := range []artifact.Unit{
+		{Namespace: "arprt", ScreenUID: "screen-1", Target: unit.Target, Output: unit.Output},
+		unit,
+	} {
+		m, err := s.Repository.Latest(t.Context(), u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Sequence++
+		m.AttemptID += "-expired"
+		m.RenderedAt = time.Now().Add(-2 * time.Hour)
+		if _, err := s.Repository.Publish(t.Context(), m, bytes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// All expired cached images and the old POST are rejected.
 	expireSkipTurn(t, c)
 	previous := loadDevice(t, c).Status.ScreenCycle.DeepCopy()
 	if w := request(s, "GET", devicePath+"/api/display", auth(), nil); w.Body.String() != `{"status":202}` || !reflect.DeepEqual(previous, loadDevice(t, c).Status.ScreenCycle) {
