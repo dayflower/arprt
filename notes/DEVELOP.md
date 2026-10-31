@@ -814,13 +814,20 @@ git push origin refs/tags/v0.2.0
 
 The workflow rejects lightweight tags, invalid versions, a checkout different
 from the tagged commit, and commits outside `origin/main`. It explicitly runs
-`make verify` and envtest on Kubernetes 1.36.0 alongside independent Docker
-Buildx/cluster jobs on that exact commit on native
-`ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Publication requires all
-of these jobs to pass. Both the pre-publication and anonymous acceptance runs
-retain the complete five-suite cluster matrix. These are
-fresh isolated clusters; release checks do not use an operator's cluster. No
-QEMU acceptance is substituted for native execution. A new architecture does
+`make verify` and envtest on Kubernetes 1.36.0 once per architecture in `checks`,
+alongside independent `validate` jobs on that exact commit on native
+`ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Each `validate` job builds
+and checks the image's architecture/version, runs the resource benchmark, then
+runs `make chart-check helm-smoke` against that image. This combines chart
+checks, the full Helm lifecycle and the five-suite matrix before archiving the
+tested image; there is no separate disposable-cluster or downstream Helm run.
+Publication requires both architectures of `checks` and `validate` to pass.
+The five-suite matrix and full Helm lifecycle run three times per architecture:
+before image publication, against the staged distribution archives, and against
+the public chart digests. The latter two stages reuse the source's envtest result.
+All cluster checks use fresh isolated clusters; release checks do not use an
+operator's cluster. No QEMU acceptance is substituted for native execution.
+A new architecture does
 not expand physical-device, Kubernetes or storage support.
 
 Docker follows [Docker's cross-compilation guidance](https://docs.docker.com/build/building/multi-platform/):
@@ -877,8 +884,10 @@ Take the index digest from the original publishing job summary or
 path validates the annotated tag again, reruns all software/native checks,
 recreates the expected chart contents from that commit and digest, runs the
 staged/public matrices, and never writes
-packages. Both chart versions must already have been uploaded. Select the
-matching Git tag with `--ref` so the workflow and helper paths belong to that
+packages. Only the two publication jobs may be skipped on this path; failed or
+cancelled prerequisites block acceptance. Both chart versions must already have
+been uploaded. Select the matching Git tag with `--ref` so the workflow and
+helper paths belong to that
 release, including releases before directory reorganizations. Do not rerun
 the publisher: existing version/platform tags are rejected. An interrupted
 partial upload requires investigation and a new version; do not overwrite the
@@ -965,11 +974,13 @@ defaults are unchanged. Preparation also concatenates the sorted generated files
 under `config/crd/bases/` into `crds.yaml`, without adding Helm ownership metadata,
 and writes `crds.yaml.sha256`. It rejects missing, extra or different schema bytes
 in either the standalone or embedded CRD chart. The exact archives and YAML assets
-are retained as `release-charts` for 90 days. Native amd64/arm64 jobs run chart checks, API integration and
+are retained as `release-charts` for 90 days. Native amd64/arm64 `chart_validate`
+jobs run chart checks and the full lifecycle/five-suite matrix through
 `make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`;
-this target does not rebuild the archives. It uses the staged image defaults
-and checks that the deployed image equals the accepted index digest. Only after these jobs pass does the
-chart publisher receive `packages: write` permission. The image publisher has
+this target does not rebuild the archives or repeat envtest from `checks`.
+It uses the staged image defaults and checks that the deployed image equals the
+accepted index digest. Only after these jobs pass does the chart publisher
+receive `packages: write` permission. The image publisher has
 that permission separately; validation and PR jobs cannot publish.
 
 The publisher refuses an existing parent version. For an existing CRD version,
