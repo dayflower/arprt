@@ -248,7 +248,7 @@ func TestPreviewOwnershipCollectionAndSafeProjection(t *testing.T) {
 func TestAssignmentsAndNonAggregatedScreenReports(t *testing.T) {
 	s, repo, c, d, sc := fixture(t)
 	d.Spec.ScreenRef, d.Spec.PlaylistRef = nil, &api.LocalReference{Name: "cycle"}
-	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle", UID: "playlist-1"}, Spec: api.ArprtPlaylistSpec{FailurePolicy: "Skip", Screens: []api.LocalReference{{Name: "missing"}, {Name: sc.Name}}}}
+	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: "cycle", UID: "playlist-1"}, Spec: api.ArprtPlaylistSpec{FailurePolicy: "Skip", Screens: []api.LocalReference{{Name: "missing"}, {Name: sc.Name}, {Name: sc.Name}}}}
 	if err := c.Create(t.Context(), playlist); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestAssignmentsAndNonAggregatedScreenReports(t *testing.T) {
 	recordFixture(t, repo, c, d, sc)
 	setCondition(d, "RenderReady", metav1.ConditionTrue, "ImageReady", d.Generation)
 	row, err := s.device(t.Context(), c, d, time.Now())
-	if err != nil || row.Assignment.Mode != "playlist" || row.Assignment.FailurePolicy != "Skip" || len(row.Assignment.Screens) != 2 || row.Assignment.Screens[0].Available || !row.Assignment.Screens[1].Available || row.Rendering.State != "Unknown" {
+	if err != nil || row.Assignment.Mode != "playlist" || row.Assignment.FailurePolicy != "Skip" || len(row.Assignment.Screens) != 3 || row.Assignment.Screens[0].Available || !row.Assignment.Screens[1].Available || !row.Assignment.Screens[2].Available || row.Rendering.State != "Unknown" {
 		t.Fatal("incorrect playlist projection", row, err)
 	}
 	if len(row.Problems) != 1 || row.Problems[0].Scope != "screen" || row.Problems[0].Screen != sc.Name {

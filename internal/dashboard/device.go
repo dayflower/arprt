@@ -143,8 +143,13 @@ func (s *Server) device(ctx context.Context, reader client.Reader, d *api.ArprtD
 	if targetErr != nil || set.Fingerprint == "" {
 		row.Delivery.State = "Unknown"
 	}
+	reportedScreens := map[string]bool{}
 	for _, entry := range set.Entries {
 		sc := entry.Screen
+		if reportedScreens[string(sc.UID)] {
+			continue
+		}
+		reportedScreens[string(sc.UID)] = true
 		// Screen Ready is a separate report, never a per-device/pair aggregate.
 		if c := meta.FindStatusCondition(sc.Status.Conditions, "Ready"); c != nil && c.ObservedGeneration == sc.Generation && c.Status == metav1.ConditionFalse {
 			row.Problems = append(row.Problems, Problem{Reason: "ScreenNotReady", Message: "A related screen reports pending or failed rendering", Scope: "screen", Screen: sc.Name})
@@ -187,7 +192,7 @@ func (s *Server) device(ctx context.Context, reader client.Reader, d *api.ArprtD
 	matchedScreen := false
 	for _, entry := range set.Entries {
 		sc := entry.Screen
-		if string(sc.UID) == record.ScreenUID && sc.Generation == record.ScreenGeneration {
+		if string(sc.UID) == record.ScreenUID && sc.Generation == record.ScreenGeneration && (record.Cycle == nil || entry.Index == record.Cycle.EntryIndex) {
 			rev, err := screen.InputRevision(sc.Spec)
 			matchedScreen = err == nil && rev == record.InputRevision
 		}

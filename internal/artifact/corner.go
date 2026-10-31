@@ -34,7 +34,7 @@ type CornerStore interface {
 }
 
 func validTurn(t *api.ScreenCycleStatus) bool {
-	return t != nil && (t.CompatibilityFingerprint == "" || digestPattern.MatchString(t.CompatibilityFingerprint)) && digestPattern.MatchString(t.Assignment) && t.ScreenUID != "" && digestPattern.MatchString(t.InputRevision) && digestPattern.MatchString(t.ImageDigest) && filenamePattern.MatchString(t.Filename) && !t.ServedAt.IsZero() && (imageprocessing.Target{Width: int(t.Target.Width), Height: int(t.Target.Height), Palette: imageprocessing.Palette(t.Target.Palette), PNGByteLimit: 1}).Validate() == nil
+	return t != nil && t.EntryIndex >= 0 && t.EntryIndex <= 63 && (t.CompatibilityFingerprint == "" || digestPattern.MatchString(t.CompatibilityFingerprint)) && digestPattern.MatchString(t.Assignment) && t.ScreenUID != "" && digestPattern.MatchString(t.InputRevision) && digestPattern.MatchString(t.ImageDigest) && filenamePattern.MatchString(t.Filename) && !t.ServedAt.IsZero() && (imageprocessing.Target{Width: int(t.Target.Width), Height: int(t.Target.Height), Palette: imageprocessing.Palette(t.Target.Palette), PNGByteLimit: 1}).Validate() == nil
 }
 func validCorner(r CornerRecord, uid string) bool {
 	return r.Version == 1 && uid != "" && r.DeviceUID == uid && r.Current.Valid() && r.Revision < math.MaxUint64 && (r.Pending == nil || (r.Pending.Next == r.Current.Next() && validTurn(r.Pending.Proposed) && (r.Pending.Previous == nil || validTurn(r.Pending.Previous)) && !EqualCycle(r.Pending.Previous, r.Pending.Proposed)))
