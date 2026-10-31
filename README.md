@@ -170,6 +170,44 @@ schema updates separately before upgrading the controller; see
 [YAML CRD operations](notes/OPERATIONS.md#yaml-managed-crds). Moving existing
 Helm-owned CRDs to this mode is outside the tested installation path.
 
+## Dashboard
+
+The optional read-only dashboard shows registered devices, assignments,
+communication/delivery/rendering problems, saved telemetry and previews of the
+last recorded issued images. Its English UI is embedded in the controller;
+no frontend build or separate assets are required.
+
+Example layouts with synthetic data:
+
+![Desktop device dashboard](notes/images/dashboard-desktop.png)
+
+<details>
+<summary>Mobile layout</summary>
+
+![Mobile device dashboard](notes/images/dashboard-mobile.png)
+
+</details>
+
+Add this to your private Helm values and apply a chart upgrade:
+
+```yaml
+dashboard:
+  enabled: true
+```
+
+For release `home` in namespace `arprt`, open a local tunnel:
+
+```sh
+kubectl -n arprt port-forward deployment/home-arprt 8083:8083
+```
+
+Open `http://127.0.0.1:8083/`. The dashboard is disabled by default and uses a
+separate listener; the BYOS Service exposes only device traffic. The dashboard
+has no built-in authentication. Keep access restricted to operators and use an
+authenticating proxy if exposing it externally. See
+[dashboard operations](notes/OPERATIONS.md#dashboard) for the observation,
+retention and restart behavior.
+
 ## Security and support boundary
 
 The historically verified physical baseline is

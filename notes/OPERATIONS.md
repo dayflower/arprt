@@ -179,6 +179,49 @@ device. Deleting the Secret resource requires redeclaring it first. Setup stays
 enabled by default; set `byos.setupEnabled: false` in Helm values to disable it
 explicitly (`--enable-setup=false` for local execution).
 
+## Dashboard
+
+Set `dashboard.enabled: true` in private Helm values and apply the upgrade to
+start the dashboard on port 8083. With release `home` in namespace `arprt`:
+
+```sh
+kubectl -n arprt port-forward deployment/home-arprt 8083:8083
+```
+
+Open `http://127.0.0.1:8083/`; keep the tunnel bound to localhost. No Service or
+Ingress is created for the dashboard, and the existing BYOS Service does not
+expose it. Direct execution can instead use
+`--dashboard-bind-address=127.0.0.1:8083`. The default `0` registers no dashboard
+listener. Setting `dashboard.enabled: false` and upgrading stops it without
+removing delivery observations or images.
+
+The dashboard has no built-in authentication or device-token checks. Restrict
+Pod/port-forward access to operators. External access requires an authenticating
+proxy in front of this separate listener; the BYOS public prefix and
+`proxyStripsPrefix` do not apply. All UI assets ship in the controller binary.
+Startup/bind failures stop the manager; manager shutdown cancels request work
+and allows up to 15 seconds to drain the listener within its existing shutdown
+budget.
+
+Device rows refresh every 30 seconds and show communication, delivery and
+rendering separately. The preview is the last **recorded completed delivery**,
+including overlays, and is not confirmation of the physical display or a
+guarantee of the latest issued image. Generation time refers to the original
+base render, not issuance, overlay updates or last communication. Replays and
+fallbacks retain that provenance when known. Missing legacy metadata stays
+unknown. A failed observation write can leave an older record; inspect
+`arprt_storage_errors_total{operation="delivery_record"}` when investigating.
+See the [observation contract](DESIGN.md#delivery-observations-and-dashboard-api).
+
+Records and retained previews survive controller restart on the same PVC for
+the same Device UID. A replacement Device with the same name has a different
+UID and does not inherit them. Opening the dashboard never renders, advances a
+playlist, updates telemetry, renews issuance or extends retention. Existing
+GC can collect a recorded image: `No image available` means no observation,
+while `Preview unavailable` means the observation or its recorded bytes cannot
+be read. Back up the PVC, resources and Secrets together using the existing
+recovery procedure.
+
 ## Runtime configuration
 
 The CLI in [main.go](../cmd/controller/main.go) defines runtime options. Configure
@@ -203,6 +246,7 @@ metrics on 8082.
 | `--byos-bind-address` | `:8080` | Device listener |
 | `--health-probe-bind-address` | `:8081` | Health/readiness probes |
 | `--metrics-bind-address` | `0` locally; `:8082` in Deployment | Internal metrics listener; `0` disables it |
+| `--dashboard-bind-address` | `0`; `:8083` with `dashboard.enabled: true` | Separate read-only operator listener; `0` disables it |
 | `--storage-max-bytes` | 805306368 (768 MiB) | Managed storage admission limit |
 | `--storage-min-free-bytes` | 67108864 (64 MiB) | Filesystem free-space reserve |
 
@@ -333,8 +377,8 @@ An older observation can remain after a write failure or crash, without
 preventing device delivery. Observation files neither retain image bytes nor
 extend issued-image access. See the
 [observation contract](DESIGN.md#delivery-observations-and-dashboard-api) for
-freshness and recovery limits. The read-only UI is embedded in the dashboard
-handler; production listener and Helm configuration are not wired yet.
+freshness and recovery limits and [dashboard operations](#dashboard) for
+listener configuration and operator access.
 
 These checks are admission controls, not reservations or a filesystem quota.
 Concurrent renderers can write beyond the threshold before the next check.

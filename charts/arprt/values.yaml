@@ -70,3 +70,7 @@ service:
 # Container listener only; metrics are never exposed by the BYOS Service.
 metrics:
   enabled: true
+
+# Operator listener only; access via Pod/Deployment port-forward, not BYOS Service.
+dashboard:
+  enabled: false
