@@ -344,7 +344,7 @@ variable configures only the harness; it cannot change a controller image.
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
 | `internal/byos` | Routes, protocol parsing, authentication gates, display/replay and image serving |
-| `internal/dashboard` | Read-only namespaced device pages, independent status projections and previews of recorded deliveries; no production listener or UI wiring yet |
+| `internal/dashboard` | Read-only namespaced device API, independent status projections, recorded-delivery previews and embedded English UI; production listener wiring is separate |
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
@@ -612,9 +612,40 @@ GET/POST/Scheduled/OnDemand with single/Hold/Skip/discovery, stale/overlay/repla
 provenance, equal-byte independent renders, recording failure isolation, current
 generation/status scope, optional telemetry, UID replacement and read side effects.
 The envtest API suite also checks real bounded pagination/continuation and
-namespace isolation through the dashboard handler. These checks cover the HTTP
-handler foundation; browser UI and production listener/Helm acceptance belong
-to their subsequent implementation phases.
+namespace isolation through the dashboard handler. `internal/dashboard/ui_test.go`
+also checks embedded asset routing, read-only methods and security headers.
+
+The optional browser suite runs the embedded assets against the actual dashboard
+handler, namespaced Kubernetes object fixtures and a temporary PVC repository.
+Its 23-device fixture covers normal/stale/silent/never-seen/pending states,
+missing and collected images, unknown provenance and optional telemetry.
+`tools/dashboard-browser.cjs` checks lazy image requests, pagination, periodic
+refresh, error/expired-token recovery, safe text, focus/expanded-state retention,
+image enlargement and keyboard controls at desktop, tablet and phone widths.
+Backend failures are injected by the browser; fixture pagination is deterministic,
+while envtest covers real Kubernetes continuation behavior. This is not live
+cluster, physical display or production listener/Helm acceptance.
+
+Install Node.js and Playwright with Chromium separately for this development
+check; neither is needed to build or run the controller. For example, keeping
+all JavaScript dependencies outside the checkout:
+
+```sh
+npm install --prefix /tmp/arprt-dashboard-browser playwright
+/tmp/arprt-dashboard-browser/node_modules/.bin/playwright install chromium
+NODE_PATH=/tmp/arprt-dashboard-browser/node_modules ARPRT_DASHBOARD_BROWSER=1 go test -count=1 -run TestBrowserUI -v ./internal/dashboard
+```
+
+Chromium also needs its platform's shared libraries. Set
+`ARPRT_DASHBOARD_SCREENSHOTS` to an absolute output directory to save desktop,
+mobile, enlarged-image and empty-state screenshots. The normal Go suite skips
+this opt-in browser check; `make verify` continues to require no frontend build.
+
+Documentation previews are kept in [images/dashboard-desktop.png](images/dashboard-desktop.png)
+and [images/dashboard-mobile.png](images/dashboard-mobile.png). Both use the
+synthetic browser fixture rather than live device data. To refresh them, run the
+browser check with `ARPRT_DASHBOARD_SCREENSHOTS` set, then copy `desktop.png` and
+`mobile.png` to those paths.
 
 ## Disposable cluster checks
 

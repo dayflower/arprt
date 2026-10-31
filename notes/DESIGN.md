@@ -300,14 +300,16 @@ before collection. This protects records written after the maintenance API
 snapshot. Abandoned atomic writes use existing 24-hour cleanup. Observation
 corruption does not block authoritative retention validation or destructive GC.
 
-`internal/dashboard` provides a read-only HTTP handler; UI assets and production
-listener/Helm wiring are separate phases. Its constructor requires the watched
-namespace, an uncached Kubernetes reader and an artifact `DeliveryReader`, with
+`internal/dashboard` provides a read-only HTTP handler with an English UI
+embedded in the Go binary. Production listener/Helm wiring is a separate phase.
+Its constructor requires the watched namespace, an uncached Kubernetes reader
+and an artifact `DeliveryReader`, with
 no client writer, renderer or credential service. The handler is intended for a
 separate operator listener; it does not implement device-token authentication.
 
 | Route | Contract |
 | --- | --- |
+| `GET /` and `GET /assets/{dashboard.css,dashboard.js,mark.svg}` | Embedded UI and explicitly allowed assets; no frontend build or external asset service. Unknown paths return 404 rather than the HTML page. |
 | `GET /api/devices?limit=20&continue=...` | A bounded page of nondeleting declared Devices in the configured namespace, including never-seen Devices; `limit` is 1–100, default 20. `continue` is the opaque Kubernetes continuation token, URL-encoded by the caller. Expired tokens return 410; other backend list failures return 503. Deleting Devices may make a page shorter or empty while a continuation remains. |
 | `GET /api/devices/{name}/preview/{digest}.png` | Only the image in the current UID's observation, with a second current UID/deletion check before response. Unknown/replaced devices, unrelated digests, corrupt/missing observations and collected/corrupt images return 404. It never exposes arbitrary artifact reads. |
 
@@ -349,6 +351,27 @@ Image age alone does not imply render failure. Missing observations have no imag
 (`No image available` in the UI); retained records without blobs have
 `Preview unavailable`, retaining known generation time. Record read failures
 are distinguished from missing/legacy records and never supply invented facts.
+
+The UI uses device rows that stack on narrow viewports. Communication, delivery
+and rendering remain separate, with the rendering report's scope and all related
+problems visible. Assignment mode/target and the recorded image's screen are
+separate fields; playlist/discovery members expand in their original order.
+Generation, issuance and last-seen timestamps use the browser's local timezone
+and include relative ages updated every ten seconds. Missing generation time
+remains unknown; neither issuance time nor image age supplies a rendering result.
+Battery percentage and voltage appear independently, without voltage conversion.
+
+The browser requests 20 devices at a time and loads only previews near the
+viewport. Image enlargement uses a keyboard-accessible modal with Escape/Close
+and focus restoration. Visible pages refresh every 30 seconds independently of
+the device poll interval; hidden tabs stop scheduling polls and refresh when
+visible again. Successful refreshes retain unchanged previews, expanded members
+and keyboard focus. API failures preserve the previous page and update timestamp
+with a visible error and retry; expired continuation tokens require an explicit
+return to the first page. Missing preview bytes have an unavailable state;
+failed image requests also offer retry. Assets use a same-origin Content Security Policy; resource names and all
+API text are inserted as text, never HTML. Browsing has the same read-only and
+retention guarantees as the API.
 
 ## Identity and credential persistence
 
