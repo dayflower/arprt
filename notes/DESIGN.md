@@ -94,7 +94,10 @@ change resets selection to the first eligible entry. Definition edits invalidate
 replay without resetting membership/order; changed targets cannot reuse incompatible output.
 All eligible Scheduled Job pairs are scheduled independently of the current turn, bounded
 by the global concurrency limit; work can remain queued before its first image.
-Removing eligibility cancels work and stops future attempts.
+Repeated entries share one Screen/Device pair, including its active attempt and
+due time. Removing some occurrences preserves that pair; removing its last
+eligible occurrence cancels work and stops future attempts. Entry positions do
+not participate in artifact cache keys or UID ownership.
 
 ### Skip playlists
 
@@ -241,7 +244,11 @@ corner. Before any subsequent selection, directly read status: a complete match
 with the proposal finalizes only the corner; a match with the previous turn
 cancels the uncommitted proposal without advancement. Other inconsistencies,
 corruption and unknown corner versions fail closed. Equal digest alone is not
-proof of commitment. Bytes issued before a later failure retain authorization.
+proof of commitment. Both complete turns include their original entry positions,
+so equal UIDs, digests, filenames and timestamps at different positions remain
+distinct during recovery. PVC turns require an explicit index in 0–63; missing,
+null or out-of-range indices are corrupt, with no old-cycle migration. Bytes
+issued before a later failure retain authorization.
 
 Derived/cache references expire after 24 hours plus one minute since their own
 last use; digest issuance independently protects bytes/filenames/access for at
@@ -252,7 +259,7 @@ retention accounting. Validate authoritative roots before destructive collection
 deleted-UID corner records have a 24-hour grace period so old API snapshots
 cannot remove new records. Caches are regenerable; corners and issuance are not.
 
-Existing base/issuance/screenCycle formats remain readable. Existing UIDs without
+Existing base/issuance formats remain readable. Existing UIDs without
 corner records start at top-right and existing replay can still return its base
 image. Downgrading after numeric-percentage or new internal-record writes is
 unverified; older maintenance does not understand the new retention roots.
@@ -265,7 +272,8 @@ screen name/UID/generation, assignment fingerprint, selected input revision,
 resolved target, actual issued image digest, optional original render time,
 issuance time, delivery result (`ready`, `stale`, `unknown`), observed rendering
 result (`ready`, `failed`, `pending`, `unknown`) and, for cycling,
-the complete committed turn. This is internal PVC metadata, not public CRD state.
+the complete committed turn including its entry position. This is internal PVC
+metadata, not public CRD state.
 It contains no credentials or MAC. Recreating a resource name never transfers
 its observation to the replacement UID.
 
@@ -1142,7 +1150,9 @@ A key-version change must never make protected bytes invisible. Unknown or
 corrupt authoritative identity/issuance/corner/scheduler records retain their
 existing fail-closed behavior; old optional fields alone are not corruption.
 Use atomic fsync/rename updates and make every transition restart-idempotent.
-This is an upgrade design, not a promise of downgrade compatibility.
+The legacy target-compatibility rules above apply only to turns that already
+carry an explicit entry index. They do not migrate earlier cycle-position
+formats. This is an upgrade design, not a promise of downgrade compatibility.
 
 Recheck UIDs, assignment, resolved target/budget and normalized revision using
 direct reads at publication and new issuance, including Job collection and
