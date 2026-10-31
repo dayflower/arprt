@@ -133,3 +133,61 @@ func TestPhase4StateMigrationPreservesAttempt(t *testing.T) {
 		t.Fatal("migration duplicated Job")
 	}
 }
+
+func TestRepeatedEntriesShareScheduledPair(t *testing.T) {
+	r, d, s, now := fixture(t)
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "repeated", UID: "playlist-uid"},
+		Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: s.Name}, {Name: s.Name}}}}
+	if err := r.Client.Create(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	d.Spec.ScreenRef, d.Spec.PlaylistRef = nil, &api.LocalReference{Name: p.Name}
+	if err := r.Client.Update(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	step(t, r, d)
+	first := load(t, r, d)
+	var jobs batchv1.JobList
+	if err := r.Client.List(t.Context(), &jobs); err != nil || len(jobs.Items) != 1 {
+		t.Fatal("duplicate Scheduled Jobs", jobs.Items, err)
+	}
+	// Removing some occurrences does not obsolete an active Scheduled attempt.
+	p.Spec.Screens = p.Spec.Screens[:1]
+	if err := r.Client.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	step(t, r, d)
+	if st := load(t, r, d); st.Active == nil || st.Active.ID != first.Active.ID || st.Sequence != first.Sequence {
+		t.Fatal("partial removal cancelled or replaced active pair", st)
+	}
+	finish(t, r, d, png(t), false)
+	step(t, r, d)
+	completed := load(t, r, d)
+	if completed.Active != nil || completed.Sequence != first.Sequence {
+		t.Fatal("pair completion duplicated work", completed)
+	}
+	// Reintroducing duplicates and reopening the scheduler preserves the due
+	// time and success, then allocates exactly one next attempt when due.
+	p.Spec.Screens = append(p.Spec.Screens, p.Spec.Screens[0], p.Spec.Screens[0])
+	if err := r.Client.Update(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	r.Store, err = NewStore(r.Store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step(t, r, d)
+	if st := load(t, r, d); st.Active != nil || !st.Due.Equal(completed.Due) {
+		t.Fatal("duplicates reset scheduling", st)
+	}
+	*now = completed.Due.Add(time.Second)
+	step(t, r, d)
+	if st := load(t, r, d); st.Active == nil || st.Sequence != first.Sequence+1 {
+		t.Fatal("wrong next scheduled attempt", st)
+	}
+	records, err := r.Store.records()
+	if err != nil || len(records) != 1 {
+		t.Fatal("duplicate pair records", records, err)
+	}
+}

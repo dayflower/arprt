@@ -131,7 +131,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 	defer r.mu.Unlock()
-	// Process eligible and previously scheduled pairs, including removals.
+	// Process each Screen/Device pair once, regardless of repeated playlist
+	// positions. A pair remains desired until its last eligible entry is removed.
 	names := map[string]bool{}
 	var d api.ArprtDevice
 	if err := r.Reader.Get(ctx, req.NamespacedName, &d); err != nil && !apierrors.IsNotFound(err) {
