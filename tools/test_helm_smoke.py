@@ -94,6 +94,130 @@ class IsolationTests(unittest.TestCase):
                 self.assertNotIn("HELM_KUBEAPISERVER", environment)
                 self.assertFalse(Path(environment["KUBECONFIG"]).parent.exists())
 
+    def test_scope_selection_and_failure_cleanup(self):
+        for scope in (None, "all", "lifecycle", "suites"):
+            for failure in (None, RuntimeError, KeyboardInterrupt):
+                with (
+                    self.subTest(scope=scope, failure=failure),
+                    tempfile.TemporaryDirectory() as temporary,
+                    patch.dict(os.environ),
+                ):
+                    calls = []
+                    exercises = []
+                    archives = {
+                        name: Path(temporary) / (name + "-1.0.0.tgz")
+                        for name in ("arprt", "arprt-crds")
+                    }
+
+                    def run(*args, **kwargs):
+                        calls.append((args, kwargs))
+                        if len(args) > 1 and str(args[1]).endswith(
+                            "run-cluster-smoke.py"
+                        ):
+                            exercises.append("suites")
+                            if failure:
+                                raise failure("injected suites failure")
+                        return subprocess.CompletedProcess(args, 0, "", "")
+
+                    def lifecycle():
+                        exercises.append("lifecycle")
+                        if failure:
+                            raise failure("injected lifecycle failure")
+
+                    argv = [
+                        "helm-smoke.py",
+                        "--helm",
+                        "/tools/helm",
+                        "--image",
+                        "arprt:test",
+                        "--node-image",
+                        "kindest/node:test",
+                        "--packages",
+                        temporary,
+                    ]
+                    if scope is not None:
+                        argv += ["--scope", scope]
+                    with (
+                        patch.object(helm, "run", side_effect=run),
+                        patch.object(helm, "packages", return_value=archives),
+                        patch.object(helm.Lifecycle, "exercise", side_effect=lifecycle),
+                        patch.object(helm, "kubectl"),
+                        patch.object(helm.signal, "signal"),
+                        patch("sys.argv", argv),
+                        redirect_stdout(io.StringIO()),
+                    ):
+                        if failure:
+                            with self.assertRaisesRegex(failure, "injected"):
+                                helm.main()
+                        else:
+                            helm.main()
+                    expected = []
+                    if scope != "suites":
+                        expected += ["lifecycle"] * 3
+                    if scope != "lifecycle":
+                        expected += ["suites"]
+                    self.assertEqual(exercises, expected[:1] if failure else expected)
+                    create = next(
+                        args
+                        for args, _ in calls
+                        if args[:3] == ("kind", "create", "cluster")
+                    )
+                    delete = next(
+                        args
+                        for args, _ in calls
+                        if args[:3] == ("kind", "delete", "cluster")
+                    )
+                    self.assertEqual(create[4], delete[4])
+                    suite_calls = [
+                        (args, kw)
+                        for args, kw in calls
+                        if len(args) > 1
+                        and str(args[1]).endswith("run-cluster-smoke.py")
+                    ]
+                    if suite_calls:
+                        args, kwargs = suite_calls[0]
+                        self.assertEqual(args[-2:], ("--jobs", "2"))
+                        self.assertEqual(
+                            args[args.index("--packages") + 1], archives["arprt"].parent
+                        )
+                        self.assertEqual(
+                            kwargs["env"]["ARPRT_KIND_RESOURCE_PROBE"], "true"
+                        )
+                    schema_installs = [
+                        args
+                        for args, _ in calls
+                        if args[:3] == ("/tools/helm", "install", "schemas")
+                    ]
+                    self.assertEqual(bool(schema_installs), bool(suite_calls))
+
+    def test_invalid_scope_fails_before_packages_or_cluster_creation(self):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "helm-smoke.py",
+                    "--helm",
+                    "helm",
+                    "--image",
+                    "arprt:test",
+                    "--node-image",
+                    "node:test",
+                    "--packages",
+                    "/packages",
+                    "--scope",
+                    "invalid",
+                ],
+            ),
+            patch.object(helm, "packages") as packages,
+            patch.object(helm, "run") as run,
+            patch("sys.stderr", new_callable=io.StringIO),
+        ):
+            with self.assertRaises(SystemExit) as error:
+                helm.main()
+            self.assertEqual(error.exception.code, 2)
+            packages.assert_not_called()
+            run.assert_not_called()
+
     def test_public_source_failure_cannot_fall_back_to_local_packages(self):
         args = helm.argparse.Namespace(
             oci_repository="oci://ghcr.io/example/charts",

@@ -16,6 +16,7 @@ REVISION ?= $(shell git rev-parse HEAD)
 GO_BUILD_TAGS ?=
 KIND_VERSION := v0.33.0
 KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+HELM_SMOKE_SCOPE ?= all
 HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
@@ -71,11 +72,11 @@ helm-smoke: chart-package
 
 # Test already assembled release archives without rebuilding them.
 helm-release-smoke: bin/kind $(HELM)
-	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,) $(if $(filter true,$(USE_CHART_IMAGE)),--use-chart-image,)
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --scope "$(HELM_SMOKE_SCOPE)" --packages "$(CHART_OUTPUT)" $(if $(filter true,$(LOAD_IMAGE)),--load-image,) $(if $(filter true,$(USE_CHART_IMAGE)),--use-chart-image,)
 
 # Available once the OCI charts are published; never falls back to local sources.
 helm-published-smoke: bin/kind $(HELM)
-	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)" --crd-chart-version "$(CRD_CHART_VERSION)" $(if $(DISTRIBUTION_RECORD),--distribution-record "$(DISTRIBUTION_RECORD)",)
+	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --scope "$(HELM_SMOKE_SCOPE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)" --crd-chart-version "$(CRD_CHART_VERSION)" $(if $(DISTRIBUTION_RECORD),--distribution-record "$(DISTRIBUTION_RECORD)",)
 
 # Release jobs use the same pinned Helm client as local checks.
 release-chart-metadata: $(HELM)
