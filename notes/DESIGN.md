@@ -125,7 +125,8 @@ independent lifetime: an expired waiter neither cancels peers nor issues late
 output. Finalization uses only the remaining 13s application lifetime.
 
 Skip requests with matching device UID/spec/generation, resolved target,
-assignment and complete candidate revisions share exploration, overlays,
+assignment, starting entry position, previous successful turn and complete
+candidate revisions share exploration, overlays,
 issuance and turn persistence. Individual cancellations leave other waiters
 running; the last departure cancels unfinished work. Each response obeys its
 own shorter parent deadline without shortening another waiter's operation.
@@ -135,6 +136,11 @@ waiter still records its observations and checks current authorization before
 responding. Rendering waits outside the device gate; shared finalization uses
 the gate and existing durable corner/turn transaction. A recorded turn replays
 its exact issued image and filename after restart without another candidate.
+Finalization also checks that the previous successful turn is still current;
+an older exploration cannot overwrite a newer success. Completed operations
+retained by responding waiters cannot be joined by a later turn, even when it
+wraps to the same entry. OnDemand rendering shares only within the same entry
+and previous successful turn; artifact ownership and cache keys remain unchanged.
 Uncommitted execution is stopped by the existing Job recovery path.
 
 Policy and effective timeout participate in assignment/replay compatibility;

@@ -35,7 +35,9 @@ func (s *Server) joinDemand(ctx context.Context, d *api.ArprtDevice, o Observati
 		ScreenGeneration int64
 		Revision         string
 		Assignment       string
-	}{u, d.Spec, d.Generation, selected.screen.Generation, selected.revision, selected.fingerprint})
+		EntryIndex       int32
+		Previous         *api.ScreenCycleStatus
+	}{u, d.Spec, d.Generation, selected.screen.Generation, selected.revision, selected.fingerprint, selected.entryIndex, d.Status.ScreenCycle})
 	if err != nil {
 		return nil, nil, err
 	}
