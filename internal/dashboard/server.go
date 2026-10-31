@@ -26,7 +26,7 @@ type Config struct {
 }
 
 // Server has no Kubernetes writer, renderer, identity or credential service.
-// Listener lifecycle and UI assets are wired separately from this package.
+// Listener lifecycle is wired separately from this package.
 type Server struct {
 	config Config
 	reader client.Reader
@@ -61,6 +61,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.RawPath != "" || strings.Contains(r.URL.EscapedPath(), "%") {
 		fail(w, http.StatusNotFound)
+		return
+	}
+	if s.serveUI(w, r) {
 		return
 	}
 	match := previewPath.FindStringSubmatch(r.URL.Path)

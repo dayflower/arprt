@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Devices · ARPRT</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script src="/assets/dashboard.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to devices</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="ARPRT dashboard"><img src="/assets/mark.svg" width="28" height="28" alt="">ARPRT</a>
+    <span class="topbar-label">Device dashboard</span>
+    <span class="read-only">Read only</span>
+  </header>
+  <main id="main" tabindex="-1">
+    <div class="page-heading">
+      <div class="title-line"><h1 id="page-title" tabindex="-1">Devices</h1><span id="page-count" class="count" hidden></span></div>
+      <p id="updated" class="updated">Connecting…</p>
+    </div>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <p id="loading" class="empty-state" role="status">Loading devices…</p>
+    <noscript><p class="notice">Enable JavaScript to view devices.</p></noscript>
+    <section id="devices" aria-label="Devices" aria-busy="true"></section>
+    <nav id="pagination" class="pagination" aria-label="Device pages" hidden>
+      <button id="previous" type="button" disabled>← Previous</button>
+      <span id="page-number" aria-live="polite">Page 1</span>
+      <button id="next" type="button" disabled>Next →</button>
+    </nav>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+  </main>
+  <dialog id="preview-dialog" aria-labelledby="preview-title">
+    <div class="dialog-heading"><h2 id="preview-title">Recorded delivery</h2><button id="close-preview" type="button">Close <span aria-hidden="true">×</span></button></div>
+    <div id="preview-content"></div>
+  </dialog>
+</body>
+</html>

@@ -333,7 +333,8 @@ An older observation can remain after a write failure or crash, without
 preventing device delivery. Observation files neither retain image bytes nor
 extend issued-image access. See the
 [observation contract](DESIGN.md#delivery-observations-and-dashboard-api) for
-freshness and recovery limits; the dashboard listener/UI is not wired yet.
+freshness and recovery limits. The read-only UI is embedded in the dashboard
+handler; production listener and Helm configuration are not wired yet.
 
 These checks are admission controls, not reservations or a filesystem quota.
 Concurrent renderers can write beyond the threshold before the next check.
