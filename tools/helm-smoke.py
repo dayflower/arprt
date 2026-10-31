@@ -730,6 +730,9 @@ def main():
     parser.add_argument("--helm", required=True)
     parser.add_argument("--image", required=True)
     parser.add_argument("--node-image", required=True)
+    parser.add_argument(
+        "--scope", choices=("all", "lifecycle", "suites"), default="all"
+    )
     parser.add_argument("--load-image", action="store_true")
     parser.add_argument("--use-chart-image", action="store_true")
     sources = parser.add_mutually_exclusive_group(required=True)
@@ -805,43 +808,45 @@ def main():
                     cluster,
                     env=env,
                 )
-            for separate in (False, True):
-                Lifecycle(args, directory, archives, env, separate).exercise()
-            Lifecycle(
-                args, directory, archives, env, True, external_yaml=True
-            ).exercise()
-            env["ARPRT_KIND_RESOURCE_PROBE"] = "true"
-            # Prepare one shared CRD owner before concurrent isolated namespaces.
-            # The optional schema fixture has already been removed by Lifecycle.
-            run(
-                args.helm,
-                "install",
-                "schemas",
-                archives["arprt-crds"],
-                "--namespace",
-                "smoke-schemas",
-                "--create-namespace",
-                "--wait",
-                "--timeout",
-                "60s",
-                env=env,
-            )
-            print(
+            if args.scope in ("all", "lifecycle"):
+                for separate in (False, True):
+                    Lifecycle(args, directory, archives, env, separate).exercise()
+                Lifecycle(
+                    args, directory, archives, env, True, external_yaml=True
+                ).exercise()
+            if args.scope in ("all", "suites"):
+                env["ARPRT_KIND_RESOURCE_PROBE"] = "true"
+                # Prepare one shared CRD owner before concurrent isolated namespaces.
+                # Lifecycle fixtures are absent in a fresh suites-only cluster.
                 run(
-                    "python3",
-                    ROOT / "tools/run-cluster-smoke.py",
-                    "--image",
-                    args.image,
-                    "--helm",
                     args.helm,
-                    "--packages",
-                    archives["arprt"].parent,
-                    "--jobs",
-                    "2",
+                    "install",
+                    "schemas",
+                    archives["arprt-crds"],
+                    "--namespace",
+                    "smoke-schemas",
+                    "--create-namespace",
+                    "--wait",
+                    "--timeout",
+                    "60s",
                     env=env,
-                ).stdout,
-                flush=True,
-            )
+                )
+                print(
+                    run(
+                        "python3",
+                        ROOT / "tools/run-cluster-smoke.py",
+                        "--image",
+                        args.image,
+                        "--helm",
+                        args.helm,
+                        "--packages",
+                        archives["arprt"].parent,
+                        "--jobs",
+                        "2",
+                        env=env,
+                    ).stdout,
+                    flush=True,
+                )
         except Exception:
             # Resource status only. Avoid logging Secrets, values or MAC-bearing CRs.
             print(kubectl("get", "pods,jobs,pvc", "-A", check=False).stdout, flush=True)

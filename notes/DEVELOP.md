@@ -28,7 +28,7 @@ in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluste
 jobs. Changed fenced/indented examples, other paths and unavailable history run the full
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
-Controller Docker builds run in the native `cluster` and `helm` jobs; `contracts`
+Controller Docker builds run in the native `cluster` and `helm_prepare` jobs; `contracts`
 checks Go. Picsum renderer development, image builds and tests are maintained in
 [arprt-renderers](https://github.com/dayflower/arprt-renderers).
 A new run cancels any older in-progress run of the same workflow for the same
@@ -200,9 +200,20 @@ API field or install-order hook is introduced.
 
 PR CI runs chart checks, API integration, Helm lifecycle and all five
 smoke suites with the pinned Helm 4 client on both native architectures.
-`helm-smoke` runs bundled/separate lifecycle scenarios first, removes their schema fixtures,
-then prepares a shared CRD-chart release and runs the five isolated suites.
-`helm-published-smoke` runs the same complete matrix using only downloaded packages.
+Local `helm-smoke`, `helm-release-smoke` and `helm-published-smoke` default to
+`HELM_SMOKE_SCOPE=all`: bundled/separate/YAML-managed lifecycle scenarios run first,
+then a shared CRD-chart release prepares the five isolated suites. Set
+`HELM_SMOKE_SCOPE=lifecycle` or `HELM_SMOKE_SCOPE=suites` to select one part.
+Each invocation owns a fresh cluster, so schema mutation/deletion in lifecycle
+checks cannot affect the suites. The five suites retain their two-worker limit.
+`helm-published-smoke` uses only downloaded packages.
+
+In PR/main CI, `helm_prepare` checks charts and envtest and saves one image and
+chart set per native architecture. `helm_smoke` runs lifecycle and suites in
+parallel on separate runners using those exact artifacts without repackaging.
+The existing `helm` checks aggregate preparation and both scopes across the
+native matrix: failures, cancellations and unexpected skips fail the check.
+Prose-only changes retain the existing skip policy.
 Image releases also gate publication on this matrix on native amd64/arm64 runners,
 using the exact archived image that passed the initial native smoke matrix.
 Local software checks do not establish physical-device or additional storage
@@ -815,13 +826,14 @@ git push origin refs/tags/v0.2.0
 The workflow rejects lightweight tags, invalid versions, a checkout different
 from the tagged commit, and commits outside `origin/main`. It explicitly runs
 `make verify` and envtest on Kubernetes 1.36.0 once per architecture in `checks`,
-alongside independent `validate` jobs on that exact commit on native
-`ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Each `validate` job builds
-and checks the image's architecture/version, runs the resource benchmark, then
-runs `make chart-check helm-smoke` against that image. This combines chart
-checks, the full Helm lifecycle and the five-suite matrix before archiving the
-tested image; there is no separate disposable-cluster or downstream Helm run.
-Publication requires both architectures of `checks` and `validate` to pass.
+alongside independent `build` jobs on that exact commit on native
+`ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Each `build` job checks the
+image's architecture/version, runs the resource benchmark and chart checks,
+then archives the candidate image and charts. Artifact upload does not authorize
+publication. The `validate` matrix downloads the same per-architecture artifacts
+and runs `helm-release-smoke` separately for lifecycle and suites on independent
+runners/clusters. Publication requires both architectures of `checks` and every
+scope of `validate` to pass; failed, cancelled or skipped validation blocks it.
 The five-suite matrix and full Helm lifecycle run three times per architecture:
 before image publication, against the staged distribution archives, and against
 the public chart digests. The latter two stages reuse the source's envtest result.
@@ -975,8 +987,10 @@ under `config/crd/bases/` into `crds.yaml`, without adding Helm ownership metada
 and writes `crds.yaml.sha256`. It rejects missing, extra or different schema bytes
 in either the standalone or embedded CRD chart. The exact archives and YAML assets
 are retained as `release-charts` for 90 days. Native amd64/arm64 `chart_validate`
-jobs run chart checks and the full lifecycle/five-suite matrix through
-`make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`;
+jobs run chart checks and parallel lifecycle/five-suite scopes in separate
+clusters through
+`make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`
+with `HELM_SMOKE_SCOPE=lifecycle` and `HELM_SMOKE_SCOPE=suites`;
 this target does not rebuild the archives or repeat envtest from `checks`.
 It uses the staged image defaults and checks that the deployed image equals the
 accepted index digest. Only after these jobs pass does the chart publisher
@@ -995,20 +1009,20 @@ parent upload needs a new parent version; an identical completed CRD upload can
 be reused. If image publication already completed but chart upload failed, use
 a new controller release tag as well; manual dispatch performs acceptance only.
 
-Public verification uses empty Helm/Docker configuration, compares the downloaded
-packages' complete contents with the validated archives, and records OCI manifest
-digests plus downloaded archive hashes in `distribution.json`. It regenerates the
-bundle from the checked source after comparing both public chart copies, checks
-the staged YAML and checksum, and records the bundle SHA-256 and CRD chart version
-in `distribution.json`. The subsequent full lifecycle/five-suite matrix pulls
-those chart digests with no local-source
-fallback, checks their recorded archive hashes, and normalizes Helm's digest-based
-filenames for the existing suite helpers. The lifecycle matrix also applies the
+The native `chart_verify` jobs use empty Helm/Docker configuration, compare the
+downloaded packages' complete contents with the validated archives, and record OCI
+manifest digests plus downloaded archive hashes in `distribution.json`. They
+regenerate the bundle from the checked source after comparing both public chart
+copies, check the staged YAML and checksum, and record the bundle SHA-256 and CRD
+chart version in `distribution.json`. Both parallel `chart_acceptance` scopes
+consume the same per-architecture verification artifact and pull those chart
+digests with no local-source fallback, check their recorded archive hashes, and
+normalize Helm's digest-based filenames for the existing suite helpers. The lifecycle matrix also applies the
 raw YAML with server-side apply, installs the controller with `crds.enabled: false`,
 and checks that upgrades, uninstall and reinstall preserve externally managed
-CRDs and application state. Both architectures must report identical distribution
-records, YAML and checksum files before the announcement job creates a GitHub
-release with `crds.yaml` and `crds.yaml.sha256` assets at
+CRDs and application state. Both scopes on both architectures must report
+identical distribution records, YAML and checksum files before the announcement
+job creates a GitHub release with `crds.yaml` and `crds.yaml.sha256` assets at
 `releases/download/<controller-tag>/`. Older releases may not provide these assets.
 Registry uploads and software acceptance do not attest physical-device behavior.
 Release notes describe the completed software checks and explicitly state that

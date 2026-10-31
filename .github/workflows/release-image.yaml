@@ -77,7 +77,7 @@ jobs:
       - run: python3 tools/check-docs.py
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
 
-  validate:
+  build:
     needs: guard
     strategy:
       fail-fast: false
@@ -112,18 +112,14 @@ jobs:
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "arprt:release-$ARCH")" = "linux/$ARCH"
           test "$(docker run --rm --platform "linux/$ARCH" "arprt:release-$ARCH" --version)" = "arprt $RELEASE_VERSION ($RELEASE_REVISION)"
       - run: make image-benchmark
-      # One invocation shares chart packaging between static and cluster checks.
-      - name: Check charts and run the full Helm lifecycle and five-suite matrix
-        run: make chart-check helm-smoke IMAGE="arprt:release-$ARCH" LOAD_IMAGE=true
-        env:
-          ARPRT_IMAGE_ACCEPTANCE_OUTPUT: ${{ github.workspace }}/dist/acceptance/image-smoke.json
+      - run: make chart-check
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: image-resources-${{ matrix.arch }}
           path: dist/acceptance/*.json
           retention-days: 90
-      - name: Export the exact tested image
+      - name: Export the candidate image (publication still requires validation)
         run: docker save "arprt:release-$ARCH" --output "/tmp/image-$ARCH.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -131,6 +127,54 @@ jobs:
           path: /tmp/image-${{ matrix.arch }}.tar
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-smoke-charts-${{ matrix.arch }}
+          path: dist/charts/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  validate:
+    needs: [guard, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        scope: [lifecycle, suites]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-image-${{ matrix.arch }}
+          path: /tmp/release-image
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-smoke-charts-${{ matrix.arch }}
+          path: dist/smoke-charts
+      - run: docker load --input "/tmp/release-image/image-${{ matrix.arch }}.tar"
+      - run: make helm-release-smoke CHART_OUTPUT="$PWD/dist/smoke-charts" IMAGE="arprt:release-${{ matrix.arch }}" LOAD_IMAGE=true HELM_SMOKE_SCOPE="${{ matrix.scope }}"
+        env:
+          ARPRT_IMAGE_ACCEPTANCE_OUTPUT: ${{ github.workspace }}/dist/acceptance/image-smoke.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.scope == 'suites'
+        with:
+          name: image-acceptance-${{ matrix.arch }}
+          path: dist/acceptance/image-smoke.json
+          retention-days: 90
 
   publish:
     if: github.event_name == 'push'
@@ -280,6 +324,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        arch: [amd64, arm64]
+        scope: [lifecycle, suites]
         include:
           - arch: amd64
             runner: ubuntu-24.04
@@ -306,7 +352,7 @@ jobs:
           path: dist/release-charts
       - run: make chart-check
       - name: Test the exact distribution packages against the public image
-        run: make helm-release-smoke CHART_OUTPUT="$PWD/dist/release-charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" USE_CHART_IMAGE=true
+        run: make helm-release-smoke CHART_OUTPUT="$PWD/dist/release-charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" USE_CHART_IMAGE=true HELM_SMOKE_SCOPE="${{ matrix.scope }}"
 
   chart_publish:
     if: github.event_name == 'push'
@@ -336,7 +382,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: make release-chart-publish VERSION="$RELEASE_VERSION" CHART_OUTPUT="$PWD/dist/release-charts"
 
-  chart_acceptance:
+  chart_verify:
     needs: [guard, publish, chart_validate, chart_publish]
     if: >-
       always() && needs.chart_validate.result == 'success' &&
@@ -378,11 +424,53 @@ jobs:
           path: dist/acceptance
       - name: Verify anonymous chart contents and record immutable references
         run: make release-chart-verify VERSION="$RELEASE_VERSION" CHART_OUTPUT="$PWD/dist/release-charts" IMAGE_EVIDENCE=dist/acceptance/image-digests.json DISTRIBUTION_RECORD=dist/acceptance/distribution.json
-      - name: Accept fresh installs and compatible upgrades using public chart digests
-        run: make helm-published-smoke OCI_CHART_REPOSITORY="oci://ghcr.io/${REPOSITORY%/*}/charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" DISTRIBUTION_RECORD="$PWD/dist/acceptance/distribution.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: accepted-distribution-${{ matrix.arch }}
+          name: verified-distribution-${{ matrix.arch }}
+          path: dist/acceptance/
+          if-no-files-found: error
+          retention-days: 90
+
+  chart_acceptance:
+    needs: [guard, publish, chart_verify]
+    if: always() && needs.chart_verify.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        scope: [lifecycle, suites]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      RELEASE_VERSION: ${{ needs.guard.outputs.version }}
+      INDEX_DIGEST: ${{ needs.publish.outputs.digest || inputs.digest }}
+      REPOSITORY: ${{ github.repository }}
+      CHART_VERSION: ${{ needs.guard.outputs.chart_version }}
+      CRD_CHART_VERSION: ${{ needs.guard.outputs.crd_version }}
+      DOCKER_CONFIG: /tmp/arprt-anonymous-docker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: verified-distribution-${{ matrix.arch }}
+          path: dist/acceptance
+      - name: Accept fresh installs and compatible upgrades using public chart digests
+        run: make helm-published-smoke OCI_CHART_REPOSITORY="oci://ghcr.io/${REPOSITORY%/*}/charts" IMAGE="ghcr.io/$REPOSITORY@$INDEX_DIGEST" DISTRIBUTION_RECORD="$PWD/dist/acceptance/distribution.json" HELM_SMOKE_SCOPE="${{ matrix.scope }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accepted-distribution-${{ matrix.arch }}-${{ matrix.scope }}
           path: |
             dist/acceptance/distribution.json
             dist/acceptance/crds.yaml
@@ -408,14 +496,19 @@ jobs:
           path: /tmp/acceptance
       - name: Publish acceptance record as a GitHub release
         run: |
-          cmp /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/acceptance/accepted-distribution-arm64/distribution.json
-          cmp /tmp/acceptance/accepted-distribution-amd64/crds.yaml /tmp/acceptance/accepted-distribution-arm64/crds.yaml
-          cmp /tmp/acceptance/accepted-distribution-amd64/crds.yaml.sha256 /tmp/acceptance/accepted-distribution-arm64/crds.yaml.sha256
-          (cd /tmp/acceptance/accepted-distribution-amd64 && sha256sum --check crds.yaml.sha256)
+          for arch in amd64 arm64; do
+            for scope in lifecycle suites; do
+              evidence="/tmp/acceptance/accepted-distribution-$arch-$scope"
+              cmp /tmp/acceptance/accepted-distribution-amd64-lifecycle/distribution.json "$evidence/distribution.json"
+              cmp /tmp/acceptance/accepted-distribution-amd64-lifecycle/crds.yaml "$evidence/crds.yaml"
+              cmp /tmp/acceptance/accepted-distribution-amd64-lifecycle/crds.yaml.sha256 "$evidence/crds.yaml.sha256"
+            done
+          done
+          (cd /tmp/acceptance/accepted-distribution-amd64-lifecycle && sha256sum --check crds.yaml.sha256)
           python3 - <<'PY' > /tmp/release-notes.md
           import json, os
           from pathlib import Path
-          evidence = json.load(open('/tmp/acceptance/accepted-distribution-amd64/distribution.json'))
+          evidence = json.load(open('/tmp/acceptance/accepted-distribution-amd64-lifecycle/distribution.json'))
           image_keys = ('image', 'tag', 'version', 'revision', 'indexDigest', 'platformDigests', 'anonymousRegistryRead')
           Path('/tmp/image-digests.json').write_text(json.dumps({key: evidence[key] for key in image_keys}, indent=2) + '\n')
           print('ARPRT is an independent, unofficial Kubernetes controller for TRMNL BYOS. It is not affiliated with or endorsed by TRMNL.\n')
@@ -440,6 +533,6 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" --verify-tag --title "arprt $RELEASE_TAG" "${release_flags[@]}" \
             --notes-file /tmp/release-notes.md \
-            /tmp/acceptance/accepted-distribution-amd64/distribution.json /tmp/image-digests.json \
-            /tmp/acceptance/accepted-distribution-amd64/crds.yaml \
-            /tmp/acceptance/accepted-distribution-amd64/crds.yaml.sha256
+            /tmp/acceptance/accepted-distribution-amd64-lifecycle/distribution.json /tmp/image-digests.json \
+            /tmp/acceptance/accepted-distribution-amd64-lifecycle/crds.yaml \
+            /tmp/acceptance/accepted-distribution-amd64-lifecycle/crds.yaml.sha256
