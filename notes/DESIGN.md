@@ -245,6 +245,111 @@ corner records start at top-right and existing replay can still return its base
 image. Downgrading after numeric-percentage or new internal-record writes is
 unverified; older maintenance does not understand the new retention roots.
 
+## Delivery observations and dashboard API
+
+`internal/artifact` stores one version-1 observation per device UID under
+`deliveries/<hashed-uid>.json`. It contains the device generation, selected
+screen name/UID/generation, assignment fingerprint, selected input revision,
+resolved target, actual issued image digest, optional original render time,
+issuance time, delivery result (`ready`, `stale`, `unknown`), observed rendering
+result (`ready`, `failed`, `pending`, `unknown`) and, for cycling,
+the complete committed turn. This is internal PVC metadata, not public CRD state.
+It contains no credentials or MAC. Recreating a resource name never transfers
+its observation to the replacement UID.
+
+BYOS records the observation synchronously under the existing device gate,
+after final authorization, successful Issue, required turn/corner commitment
+and best-effort status reporting, before writing the display response. The
+common finalization path covers GET, POST, Scheduled/OnDemand Job, Hold, Skip,
+discovery and replay. Pending and failed transactions leave the previous
+observation intact. Skip records only its successful candidate; shared Skip
+waiters do not create additional observations. Replay updates the observed
+issuance time while preserving original provenance only when the previous
+record matches the complete committed turn, screen, target and revision.
+Missing legacy observations leave generation time and rendering result unknown.
+An equal digest or a newer latest-success pointer cannot supply that provenance.
+New render successes with equal bytes retain their own original render times.
+Overlay composition and stale fallback use the selected base success's time.
+
+Observation writes use capacity admission, file/directory fsync and atomic
+rename under the repository lock. A delayed writer with an equal/older issuance
+timestamp is rejected rather than guessing order; a backward clock can therefore
+leave the observation behind. Observation failure never changes an otherwise
+successful delivery response, issuance authorization, turn or corner. The fixed
+storage error category `delivery_record` counts failed writes without logging raw
+errors or paths. Stalled filesystem operations retain the existing synchronous
+I/O limitations; this is not a hard response-latency guarantee.
+
+An observation is **the last recorded completed delivery**, not proof of the
+latest issued image or of physical display success. A write failure or crash
+after required commitment can leave an older record; a crash after recording
+but before response delivery can leave a record the device never received.
+There is no atomic transaction across API status, PVC state and the network.
+After restart, the available evidence cannot rule out an unrecorded newer
+single-screen delivery. Accordingly the API always returns
+`freshness: last-recorded` and `latestGuaranteed: false`, even for an apparently
+matching record. It does not silently upgrade uncertain history to current
+device rendering health. Successful later delivery replaces a corrupt observation;
+unknown versions and malformed records are otherwise read as unavailable.
+
+Observation files count toward managed storage, but are not blob retention or
+issuance roots. Existing image/issuance retention remains unchanged. Live UIDs
+retain their one observation even after its image is collected; deleted-UID
+and invalid observation files have a 24-hour modification-time grace period
+before collection. This protects records written after the maintenance API
+snapshot. Abandoned atomic writes use existing 24-hour cleanup. Observation
+corruption does not block authoritative retention validation or destructive GC.
+
+`internal/dashboard` provides a read-only HTTP handler; UI assets and production
+listener/Helm wiring are separate phases. Its constructor requires the watched
+namespace, an uncached Kubernetes reader and an artifact `DeliveryReader`, with
+no client writer, renderer or credential service. The handler is intended for a
+separate operator listener; it does not implement device-token authentication.
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/devices?limit=20&continue=...` | A bounded page of nondeleting declared Devices in the configured namespace, including never-seen Devices; `limit` is 1–100, default 20. `continue` is the opaque Kubernetes continuation token, URL-encoded by the caller. Expired tokens return 410; other backend list failures return 503. Deleting Devices may make a page shorter or empty while a continuation remains. |
+| `GET /api/devices/{name}/preview/{digest}.png` | Only the image in the current UID's observation, with a second current UID/deletion check before response. Unknown/replaced devices, unrelated digests, corrupt/missing observations and collected/corrupt images return 404. It never exposes arbitrary artifact reads. |
+
+Responses use `no-store` and `nosniff`. Only GET is accepted; malformed/duplicate
+page parameters and unknown query keys return 400. Concurrency is bounded to 16
+requests with a 10-second context deadline. List assembly caches related
+Screen/Playlist reads only within that page and checks preview presence without
+loading image bytes. Preview reads share runtime image admission with BYOS and
+rendering, held through response writing. Neither path repairs storage, updates
+timestamps, grants issuance, pins images, advances turns, observes telemetry or
+starts work. A preview can disappear after listing because existing GC continues.
+
+The list DTO explicitly selects names/namespace, model/firmware, resolved
+dimensions/palette/rotation, saved battery/network values, LastSeenAt, assignment
+mode/ordered members and the last recorded image. It excludes MACs, Secret
+references/contents, renderer configuration, internal records and storage paths.
+Battery percentage is reported only when present; voltage never supplies an
+inferred percentage. Omitted telemetry retains its own observation history, not
+a guaranteed measurement at LastSeenAt. BYOS LastSeenAt persistence may coalesce
+within 30 seconds; the dashboard does not invent more precise communication time.
+
+Communication is `Never seen`, `Ready`, `Silent` after more than three polling
+intervals (minimum two minutes), or `Unknown` for future timestamps. Device
+delivery uses only current-generation Ready conditions and distinguishes
+`Serving stale image`, `Image pending` and `Unknown`. Rendering is separately
+scoped to `recorded-delivery`, requiring matching device/assignment/target and
+screen UID/generation/revision, plus the complete current turn for cycling.
+A current single-screen negative RenderReady report is shown independently as
+`device-report`, including without any observation; JobPending and disabled Job
+execution are `Image pending`. A failed HTTP refresh or OnDemand execution is
+recorded as such. Stale Scheduled Job output alone leaves rendering `Unknown`: an overdue
+Scheduled Job image may simply be awaiting its next run. Positive device conditions
+alone do not establish per-screen provenance. Related Screen failures remain
+separate screen-scoped problems; Screen Ready and Playlist Ready never become
+per-device rendering aggregates. Multiple communication, authentication, target,
+assignment, telemetry and rendering problems remain visible together, using
+fixed explanations rather than forwarding arbitrary condition/storage messages.
+Image age alone does not imply render failure. Missing observations have no image
+(`No image available` in the UI); retained records without blobs have
+`Preview unavailable`, retaining known generation time. Record read failures
+are distinguished from missing/legacy records and never supply invented facts.
+
 ## Identity and credential persistence
 
 MAC source selection, direct value and Secret reference name/key are immutable.
