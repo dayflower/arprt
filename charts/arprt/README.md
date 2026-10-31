@@ -125,6 +125,15 @@ including IANA zone availability and existing PVC topology. Defaults follow
 | `nodeSelector`, `tolerations` | `{}`, `[]` | Pod scheduling |
 | `service.type`, `service.annotations` | `ClusterIP`, `{}` | BYOS Service configuration |
 | `metrics.enabled` | `true` | Internal port 8082; never added to the BYOS Service |
+| `dashboard.enabled` | `false` | Read-only operator UI/API on container port 8083; no Service or Ingress |
+
+Enable `dashboard.enabled` in private values and apply an upgrade, then use
+`kubectl -n arprt port-forward deployment/home-arprt 8083:8083` for release
+`home` and open `http://127.0.0.1:8083/`. The UI is embedded in the controller
+image. The listener has no built-in authentication; restrict operator access
+and use an authenticating proxy for external exposure. Disabling the setting
+stops the listener without deleting observations or images. See
+[dashboard operations](../../notes/OPERATIONS.md#dashboard).
 
 For existing claims, leave `storageClass` and `size` at their defaults and manage
 them externally. A whole-filesystem RWO PVC is mounted at `/var/lib/arprt` even

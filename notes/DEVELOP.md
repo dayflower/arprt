@@ -344,7 +344,7 @@ variable configures only the harness; it cannot change a controller image.
 | `internal/controller` | Resource readiness, reference watches and optimistic status reconciliation |
 | `internal/assignment` | Ordered eligible sets, fingerprints and screen selection |
 | `internal/byos` | Routes, protocol parsing, authentication gates, display/replay and image serving |
-| `internal/dashboard` | Read-only namespaced device API, independent status projections, recorded-delivery previews and embedded English UI; production listener wiring is separate |
+| `internal/dashboard` | Read-only namespaced device API, independent status projections, recorded-delivery previews, embedded English UI and manager-owned operator listener |
 | `internal/devicestate` | Request observations, target resolution, status and render-context snapshots |
 | `internal/credentials`, `internal/deviceidentity` | Named auth Secret access/provisioning and durable MAC registration |
 | `internal/screen` | Effective defaults and normalized render-input revision |
@@ -624,7 +624,9 @@ refresh, error/expired-token recovery, safe text, focus/expanded-state retention
 image enlargement and keyboard controls at desktop, tablet and phone widths.
 Backend failures are injected by the browser; fixture pagination is deterministic,
 while envtest covers real Kubernetes continuation behavior. This is not live
-cluster, physical display or production listener/Helm acceptance.
+cluster, physical display or production listener/Helm acceptance. The dashboard
+TCP listener tests separately cover request-context cancellation, draining,
+closed sockets after shutdown and bind failures.
 
 Install Node.js and Playwright with Chromium separately for this development
 check; neither is needed to build or run the controller. For example, keeping
@@ -706,6 +708,16 @@ condition as well as Job completion; Job completion alone can precede output
 collection and durable publication. Operations checks add corruption, capacity pressure,
 redaction, composite/base separation, old composite URL retention, HTTP-only GC and installation of the supplied examples.
 These scripts do not configure public ingress or a physical device.
+
+The operations suite also checks the dashboard's default-disabled and explicitly
+disabled listener through failed port-forward requests, then enables it using
+the packaged chart. It verifies embedded assets, namespace-scoped and redacted
+device JSON, previews from GET/POST/Job delivery without device credentials,
+BYOS Service/route separation, read-only observations and original composite
+provenance across a controller restart. Disabling the listener preserves the
+record and authenticated BYOS image retrieval. `make chart-check` covers
+enabled/disabled rendering with both Job modes, claim modes and CRD modes,
+including custom release/namespace names and invalid dashboard settings.
 
 ### On-demand Job acceptance
 

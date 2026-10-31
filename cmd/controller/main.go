@@ -13,6 +13,7 @@ import (
 	"github.com/dayflower/arprt/internal/assignment"
 	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/controller"
+	"github.com/dayflower/arprt/internal/dashboard"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/jobrender"
 	"github.com/dayflower/arprt/internal/maintenance"
@@ -38,7 +39,7 @@ func main() {
 }
 
 func run() error {
-	var namespace, root, probes, listen, publicURL, metricsAddress, overlayZone string
+	var namespace, root, probes, listen, publicURL, metricsAddress, dashboardAddress, overlayZone string
 	var storageMax int64
 	var storageReserve uint64
 	var enableSetup, strips, showVersion bool
@@ -58,6 +59,7 @@ func run() error {
 	flag.Int64Var(&jobConfig.DeadlineSeconds, "job-deadline-seconds", 120, "Maximum renderer Job execution duration")
 	flag.IntVar(&jobConfig.MaxActive, "job-concurrency", 4, "Maximum active renderer Jobs")
 	flag.StringVar(&metricsAddress, "metrics-bind-address", "0", "Internal metrics listener; 0 disables it")
+	flag.StringVar(&dashboardAddress, "dashboard-bind-address", "0", "Read-only operator dashboard listener; 0 disables it")
 	flag.Int64Var(&storageMax, "storage-max-bytes", 768<<20, "Managed storage admission limit")
 	flag.Uint64Var(&storageReserve, "storage-min-free-bytes", 64<<20, "Filesystem free-space reserve")
 	flag.BoolVar(&showVersion, "version", false, "Print controller version and source revision")
@@ -156,6 +158,15 @@ func run() error {
 	if err := mgr.Add(&byos.Listener{Address: listen, Handler: server}); err != nil {
 		return err
 	}
+	if dashboardAddress != "0" {
+		dashboardServer, err := dashboard.NewServer(dashboard.Config{Namespace: namespace, RefreshSeconds: refresh}, mgr.GetAPIReader(), repo)
+		if err != nil {
+			return err
+		}
+		if err := mgr.Add(&dashboard.Listener{Address: dashboardAddress, Handler: dashboardServer}); err != nil {
+			return err
+		}
+	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return err
 	}
@@ -169,6 +180,6 @@ func run() error {
 	}); err != nil {
 		return err
 	}
-	ctrl.Log.Info("Starting BYOS controller", "namespace", namespace, "setupEnabled", enableSetup, "jobScheduling", jobConfig.PVC != "", "imageEncoder", imageprocessing.EncoderVersion)
+	ctrl.Log.Info("Starting BYOS controller", "namespace", namespace, "setupEnabled", enableSetup, "jobScheduling", jobConfig.PVC != "", "dashboardEnabled", dashboardAddress != "0", "imageEncoder", imageprocessing.EncoderVersion)
 	return mgr.Start(ctrl.SetupSignalHandler())
 }

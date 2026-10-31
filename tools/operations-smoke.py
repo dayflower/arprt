@@ -7,9 +7,11 @@ existing device namespace; uses a temporary administrative PVC inspection Pod.
 
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import json
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -37,6 +39,74 @@ def main():
         installation = helm_install.Installation(args, namespace, directory)
         try:
             installation.install()
+
+            def dashboard_disabled():
+                deployment = json.loads(
+                    kubectl(
+                        "-n", namespace, "get", "deployment/arprt-arprt", "-o", "json"
+                    ).stdout
+                )
+                container = deployment["spec"]["template"]["spec"]["containers"][0]
+                assert "--dashboard-bind-address=0" in container["args"]
+                assert all(p["containerPort"] != 8083 for p in container["ports"])
+                with forwarded(namespace, 8083, directory) as base:
+                    try:
+                        with urllib.request.urlopen(base + "/api/devices", timeout=5):
+                            raise AssertionError(
+                                "disabled dashboard accepted a request"
+                            )
+                    except urllib.error.HTTPError as error:
+                        raise AssertionError(
+                            "disabled dashboard returned an HTTP response"
+                        ) from error
+                    except (OSError, http.client.HTTPException):
+                        pass
+
+            dashboard_disabled()
+            installation.settings["dashboard"] = {"enabled": True}
+            installation.upgrade()
+            service = json.loads(
+                kubectl(
+                    "-n", namespace, "get", "service/arprt-arprt", "-o", "json"
+                ).stdout
+            )
+            assert [p["port"] for p in service["spec"]["ports"]] == [8080]
+
+            def dashboard_image(expected_bytes):
+                device_before = resource("arprtdevice", "living-room")
+                with forwarded(namespace, 8083, directory) as base:
+                    status, _, html = smoke.request(base, "/", {})
+                    assert status == 200 and b"/assets/dashboard.js" in html
+                    for asset in ["dashboard.js", "dashboard.css", "mark.svg"]:
+                        assert smoke.request(base, "/assets/" + asset, {})[0] == 200
+                    status, _, body = smoke.request(base, "/api/devices", {})
+                    assert status == 200
+                    for sensitive in [
+                        headers["ID"],
+                        headers["Access-Token"],
+                        "/var/lib/arprt",
+                        "authSecretRef",
+                    ]:
+                        assert sensitive.encode() not in body
+                    page = json.loads(body)
+                    assert len(page["devices"]) == 1
+                    row = page["devices"][0]
+                    assert (
+                        row["name"] == "living-room" and row["namespace"] == namespace
+                    )
+                    image = row["image"]
+                    assert image["freshness"] == "last-recorded"
+                    assert image["latestGuaranteed"] is False
+                    status, _, png = smoke.request(base, image["previewURL"], {})
+                    assert status == 200 and png == expected_bytes
+                device_after = resource("arprtdevice", "living-room")
+                for field in ["lastSeenAt", "screenCycle", "battery", "network"]:
+                    assert device_before["status"].get(field) == device_after[
+                        "status"
+                    ].get(field)
+                with forwarded(namespace, 8080, directory) as base:
+                    assert smoke.request(base, "/api/devices", {})[0] == 404
+                return image
 
             for example in ["http/gray-bands", "http/device-status", "job/gray-bands"]:
                 helm_install.apply_example(namespace, example)
@@ -114,6 +184,7 @@ def main():
                 with forwarded(namespace, 8080, directory) as base:
                     png = fetch(base, urllib.parse.urlsplit(result["image_url"]).path)
                     assert png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) < 90000
+                dashboard_image(png)
             print(
                 "PASS: clean installation and all documented GET/POST/default/custom Job examples",
                 flush=True,
@@ -275,10 +346,32 @@ def main():
                     {"spec": {"screenRef": {"name": "device-status"}}},
                 )
                 assert fetch(base, composite_route) == composite_bytes
+            image_before = dashboard_image(composite_bytes)
+            assert image_before["generatedAt"] == recorded["renderedAt"]
+            assert read_delivery() == recorded
+            kubectl("-n", namespace, "rollout", "restart", "deployment/arprt-arprt")
+            kubectl(
+                "-n",
+                namespace,
+                "rollout",
+                "status",
+                "deployment/arprt-arprt",
+                "--timeout=180s",
+            )
+            assert dashboard_image(composite_bytes) == image_before
+            assert read_delivery() == recorded
+            print(
+                "PASS: dashboard port-forward, embedded assets, redaction, read-only GET/POST/Job previews and composite provenance after restart",
+                flush=True,
+            )
             patch(
                 "arprtdevice", "living-room", {"spec": {"screenRef": {"name": "photo"}}}
             )
             patch("arprtscreen", "photo", {"spec": {"overlay": None}})
+            # Restart while reassigned can collect photo's selection pointer.
+            # Establish a base success before testing capacity-limited fallback.
+            wait(ready_display, 90)
+            result = ready_display()
             previous_delivery = read_delivery()
             installation.settings["storage"] = {"maxBytes": 1}
             installation.upgrade()
@@ -347,6 +440,13 @@ def main():
                 assert fetch(base, image_route).startswith(b"\x89PNG")
             logs = kubectl("-n", namespace, "logs", "deployment/arprt-arprt").stdout
             assert headers["Access-Token"] not in logs and headers["ID"] not in logs
+            with forwarded(namespace, 8080, directory) as base:
+                assert fetch(base, composite_route) == composite_bytes
+            previous_delivery = read_delivery()
+            installation.settings["dashboard"] = {"enabled": False}
+            installation.upgrade()
+            dashboard_disabled()
+            assert read_delivery() == previous_delivery
             with forwarded(namespace, 8080, directory) as base:
                 assert fetch(base, composite_route) == composite_bytes
             print(

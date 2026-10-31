@@ -128,23 +128,26 @@ func run(helm, packages string) error {
 		for _, bundled := range []bool{true, false} {
 			for _, existing := range []bool{false, true} {
 				for _, jobs := range []bool{true, false} {
-					settings := map[string]any{
-						"byos": map[string]any{"publicBaseURL": "https://byos.example.test/arprt"},
-						"crds": map[string]any{"enabled": bundled}, "jobs": map[string]any{"enabled": jobs},
-						"credentials": map[string]any{"authSecrets": []any{map[string]any{"name": "living-room-auth", "create": !existing}}, "identitySecrets": []string{"living-room-identity"}},
-					}
-					if existing {
-						settings["persistence"] = map[string]any{"existingClaim": "external-data"}
-					}
-					if err := write(settings); err != nil {
-						return err
-					}
-					objects, err := render(helm, "charts/arprt", name.release, name.namespace, values)
-					if err != nil {
-						return err
-					}
-					if err := check(objects, name.release, name.namespace, bundled, existing, jobs, expectedImage); err != nil {
-						return fmt.Errorf("release=%s bundled=%t existing=%t jobs=%t: %w", name.release, bundled, existing, jobs, err)
+					for _, dashboard := range []bool{false, true} {
+						settings := map[string]any{
+							"byos": map[string]any{"publicBaseURL": "https://byos.example.test/arprt"},
+							"crds": map[string]any{"enabled": bundled}, "jobs": map[string]any{"enabled": jobs},
+							"dashboard":   map[string]any{"enabled": dashboard},
+							"credentials": map[string]any{"authSecrets": []any{map[string]any{"name": "living-room-auth", "create": !existing}}, "identitySecrets": []string{"living-room-identity"}},
+						}
+						if existing {
+							settings["persistence"] = map[string]any{"existingClaim": "external-data"}
+						}
+						if err := write(settings); err != nil {
+							return err
+						}
+						objects, err := render(helm, "charts/arprt", name.release, name.namespace, values)
+						if err != nil {
+							return err
+						}
+						if err := check(objects, name.release, name.namespace, bundled, existing, jobs, dashboard, expectedImage); err != nil {
+							return fmt.Errorf("release=%s bundled=%t existing=%t jobs=%t dashboard=%t: %w", name.release, bundled, existing, jobs, dashboard, err)
+						}
 					}
 				}
 			}
@@ -222,6 +225,8 @@ func run(helm, packages string) error {
 		{object{"persistence": object{"existingClaim": "external", "storageClass": "fast"}}, "storageClass"},
 		{object{"display": object{"overlayTimeZone": "Local"}}, "overlayTimeZone"},
 		{object{"jobs": object{"concurrency": 0}}, "concurrency"},
+		{object{"dashboard": object{"enabled": "true"}}, "enabled"},
+		{object{"dashboard": object{"port": 8080}}, "port"},
 		{object{"credentials": object{"authSecrets": []any{object{"name": "same", "create": true}, object{"name": "same", "create": false}}}}, "duplicate"},
 		{object{"credentials": object{"authSecrets": []any{object{"name": "auth", "create": true, "apiKey": "forbidden"}}}}, "apiKey"},
 	}
@@ -260,7 +265,14 @@ func run(helm, packages string) error {
 			return err
 		}
 		if chart == "arprt" {
-			if err := check(objects, "home", "custom-space", true, false, true, expectedImage); err != nil {
+			if err := check(objects, "home", "custom-space", true, false, true, false, expectedImage); err != nil {
+				return err
+			}
+			enabled, err := render(helm, target, "home", "custom-space", values, "--set", "dashboard.enabled=true")
+			if err != nil {
+				return err
+			}
+			if err := check(enabled, "home", "custom-space", true, false, true, true, expectedImage); err != nil {
 				return err
 			}
 		} else {
@@ -307,7 +319,7 @@ func permissions(role rbacv1.Role) []string {
 	return result
 }
 
-func check(objects []object, release, namespace string, bundled, existing, jobs bool, image string) error {
+func check(objects []object, release, namespace string, bundled, existing, jobs, dashboard bool, image string) error {
 	var deployment appsv1.Deployment
 	if err := one(objects, "Deployment", &deployment); err != nil {
 		return err
@@ -338,6 +350,13 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 	if existing {
 		claim = "external-data"
 	}
+	ports := []corev1.ContainerPort{{Name: "byos", ContainerPort: 8080}, {Name: "metrics", ContainerPort: 8082}}
+	dashboardAddress := "0"
+	if dashboard {
+		ports = append(ports, corev1.ContainerPort{Name: "dashboard", ContainerPort: 8083})
+		dashboardAddress = ":8083"
+	}
+	ports = append(ports, corev1.ContainerPort{Name: "probes", ContainerPort: 8081})
 	labels := map[string]string{"app.kubernetes.io/name": "arprt", "app.kubernetes.io/instance": release}
 	if err := require(deployment.Name == name && deployment.Namespace == namespace && *deployment.Spec.Replicas == 1 && deployment.Spec.Strategy.Type == appsv1.RecreateDeploymentStrategyType &&
 		reflect.DeepEqual(deployment.Spec.Selector.MatchLabels, labels) && reflect.DeepEqual(deployment.Spec.Template.Labels, labels) && pod.ServiceAccountName == name &&
@@ -346,14 +365,14 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 		reflect.DeepEqual(controller.Resources, expectedResources) && reflect.DeepEqual(controller.LivenessProbe, probe("/healthz")) && reflect.DeepEqual(controller.ReadinessProbe, probe("/readyz")) &&
 		len(pod.Volumes) == 1 && pod.Volumes[0].PersistentVolumeClaim != nil && pod.Volumes[0].Name == "data" && !pod.Volumes[0].PersistentVolumeClaim.ReadOnly && pod.Volumes[0].PersistentVolumeClaim.ClaimName == claim &&
 		pod.TerminationGracePeriodSeconds != nil && *pod.TerminationGracePeriodSeconds == 30 &&
-		reflect.DeepEqual(controller.Ports, []corev1.ContainerPort{{Name: "byos", ContainerPort: 8080}, {Name: "metrics", ContainerPort: 8082}, {Name: "probes", ContainerPort: 8081}}), "Deployment violates fixed security/storage/runtime contracts"); err != nil {
+		reflect.DeepEqual(controller.Ports, ports), "Deployment violates fixed security/storage/runtime contracts"); err != nil {
 		return err
 	}
 	jobClaim := ""
 	if jobs {
 		jobClaim = claim
 	}
-	for _, arg := range []string{"--namespace=$(POD_NAMESPACE)", "--artifact-root=/var/lib/arprt", "--job-pvc=" + jobClaim, "--metrics-bind-address=:8082"} {
+	for _, arg := range []string{"--namespace=$(POD_NAMESPACE)", "--artifact-root=/var/lib/arprt", "--job-pvc=" + jobClaim, "--metrics-bind-address=:8082", "--dashboard-bind-address=" + dashboardAddress} {
 		if !contains(controller.Args, arg) {
 			return fmt.Errorf("missing runtime argument %s", arg)
 		}
@@ -363,7 +382,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs 
 		return err
 	}
 	expectedConfig := map[string]string{"publicBaseURL": "https://byos.example.test/arprt", "proxyStripsPrefix": "false", "setupEnabled": "true", "deviceRefreshSeconds": "300", "overlayTimeZone": "UTC", "storageMaxBytes": "805306368", "storageMinFreeBytes": "67108864", "jobConcurrency": "4", "jobDeadlineSeconds": "120"}
-	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 12 || len(controller.Args) != 12 {
+	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 12 || len(controller.Args) != 13 {
 		return fmt.Errorf("runtime defaults or environment/argument set differs")
 	}
 	expectedEnvironment := map[string]corev1.EnvVarSource{

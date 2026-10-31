@@ -301,7 +301,13 @@ snapshot. Abandoned atomic writes use existing 24-hour cleanup. Observation
 corruption does not block authoritative retention validation or destructive GC.
 
 `internal/dashboard` provides a read-only HTTP handler with an English UI
-embedded in the Go binary. Production listener/Helm wiring is a separate phase.
+embedded in the Go binary. `cmd/controller` registers its independent,
+manager-owned listener only when `--dashboard-bind-address` is not `0`.
+Helm defaults `dashboard.enabled` to false; enabling it binds `:8083` and adds
+only a container port, without changing the BYOS Service or RBAC. Startup
+failures propagate to the manager. Shutdown cancels request contexts and drains
+the HTTP server for up to 15 seconds. Runtime access is documented in
+[OPERATIONS](OPERATIONS.md#dashboard).
 Its constructor requires the watched namespace, an uncached Kubernetes reader
 and an artifact `DeliveryReader`, with
 no client writer, renderer or credential service. The handler is intended for a

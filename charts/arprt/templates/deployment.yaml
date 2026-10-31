@@ -41,6 +41,7 @@ spec:
             - --artifact-root=/var/lib/arprt
             - --job-pvc={{ if .Values.jobs.enabled }}{{ include "arprt.claimName" . }}{{ end }}
             - --metrics-bind-address={{ ternary ":8082" "0" .Values.metrics.enabled }}
+            - --dashboard-bind-address={{ ternary ":8083" "0" .Values.dashboard.enabled }}
             - --proxy-strips-prefix=$(PROXY_STRIPS_PREFIX)
             - --enable-setup=$(ENABLE_SETUP)
             - --device-refresh-seconds=$(DEVICE_REFRESH_SECONDS)
@@ -74,6 +75,10 @@ spec:
             {{- if .Values.metrics.enabled }}
             - name: metrics
               containerPort: 8082
+            {{- end }}
+            {{- if .Values.dashboard.enabled }}
+            - name: dashboard
+              containerPort: 8083
             {{- end }}
             - name: probes
               containerPort: 8081
