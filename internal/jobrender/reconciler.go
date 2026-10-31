@@ -79,10 +79,11 @@ func (r *Reconciler) desired(ctx context.Context, key client.ObjectKey, screenNa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	s := eligible.Screens[0]
+	s := eligible.Entries[0].Screen
 	if len(screenName) > 0 {
 		s = nil
-		for _, candidate := range eligible.Screens {
+		for _, entry := range eligible.Entries {
+			candidate := entry.Screen
 			if candidate.Name == screenName[0] {
 				s = candidate
 				break
@@ -140,7 +141,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
 			return ctrl.Result{}, err
 		}
-		for _, s := range set.Screens {
+		for _, entry := range set.Entries {
+			s := entry.Screen
 			if s.Spec.Source.Job != nil {
 				names[s.Name] = true
 			}

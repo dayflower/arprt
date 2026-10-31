@@ -364,7 +364,8 @@ Set `spec.playlistRef.name` to `living-room` and remove `screenRef`.
 See [playlist](examples/custom-resources/playlist.yaml),
 [playlist device](examples/custom-resources/device-playlist.yaml) and
 [discovery device](examples/custom-resources/device-discovery.yaml) samples.
-Playlists contain 1–64 distinct names; discovery uses the first 64 screens.
+Playlists contain 1–64 ordered entries and may repeat screen names; discovery
+uses the first 64 screens.
 Missing playlist entries are skipped. No eligible screens means pending.
 
 Playlist `failurePolicy` defaults to `Hold`. Hold and discovery advance after a

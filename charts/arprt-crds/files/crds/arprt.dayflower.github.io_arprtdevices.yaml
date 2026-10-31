@@ -343,6 +343,13 @@ spec:
                       processing semantics. Omission denotes a legacy turn, never current replay.
                     pattern: ^[a-f0-9]{64}$
                     type: string
+                  entryIndex:
+                    description: EntryIndex is the original zero-based assignment
+                      position.
+                    format: int32
+                    maximum: 63
+                    minimum: 0
+                    type: integer
                   filename:
                     type: string
                   imageDigest:
@@ -382,6 +389,7 @@ spec:
                     type: object
                 required:
                 - assignment
+                - entryIndex
                 - filename
                 - imageDigest
                 - inputRevision

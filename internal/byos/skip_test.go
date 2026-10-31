@@ -95,6 +95,7 @@ func TestSkipTraversalReplayAndRestart(t *testing.T) {
 	// Force the previous successful position to B, so C is the next candidate.
 	d := loadDevice(t, c)
 	d.Status.ScreenCycle.ScreenUID = "uid-screen-1"
+	d.Status.ScreenCycle.EntryIndex = 1
 	if err := c.Status().Update(t.Context(), d); err != nil {
 		t.Fatal(err)
 	}
