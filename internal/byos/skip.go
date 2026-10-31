@@ -39,7 +39,9 @@ func (s *Server) joinSkip(ctx context.Context, d *api.ArprtDevice, o Observation
 		Spec       api.ArprtDeviceSpec
 		Target     render.ResolvedTarget
 		Revision   string
-	}{string(d.UID), d.Generation, d.Spec, selected.resolvedTarget(), selected.setRevision})
+		EntryIndex int32
+		Previous   *api.ScreenCycleStatus
+	}{string(d.UID), d.Generation, d.Spec, selected.resolvedTarget(), selected.setRevision, selected.entryIndex, d.Status.ScreenCycle})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -90,7 +92,9 @@ func (s *Server) joinSkip(ctx context.Context, d *api.ArprtDevice, o Observation
 				f.err = err
 				return
 			}
-			if current.UID != device.UID {
+			// A different turn may have committed while this operation rendered.
+			// Never let an older exploration overwrite that successful position.
+			if current.UID != device.UID || !artifact.EqualCycle(current.Status.ScreenCycle, device.Status.ScreenCycle) {
 				f.err = errDisplayPending
 				return
 			}
