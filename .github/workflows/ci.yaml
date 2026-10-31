@@ -30,35 +30,64 @@ jobs:
           DOC_BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: make release-check
   contracts:
-    needs: changes
-    # Keep this existing required-check name active for documentation failures.
+    needs: [changes, software, race]
+    # Keep this existing required-check name active, including prose-only changes.
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require successful change and documentation checks
+      - name: Require successful documentation and selected software checks
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
-        run: test "$CHANGES_RESULT" = success
+          SOFTWARE_REQUIRED: ${{ needs.changes.outputs.software }}
+          SOFTWARE_RESULT: ${{ needs.software.result }}
+          RACE_RESULT: ${{ needs.race.result }}
+        run: |
+          test "$CHANGES_RESULT" = success
+          if [ "$SOFTWARE_REQUIRED" = false ]; then
+            test "$SOFTWARE_RESULT" = skipped
+            test "$RACE_RESULT" = skipped
+          else
+            test "$SOFTWARE_RESULT" = success
+            test "$RACE_RESULT" = success
+          fi
+
+  software:
+    needs: changes
+    if: needs.changes.outputs.software != 'false'
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.software != 'false'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: needs.changes.outputs.software != 'false'
         with:
           go-version: '1.26.8'
           cache: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        if: needs.changes.outputs.software != 'false'
         with:
           python-version: '3.13'
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        if: needs.changes.outputs.software != 'false'
         with:
           version: '0.13.0'
           enable-cache: true
           cache-dependency-glob: Makefile
-      - name: Verify generation, lint, formatting, tests and build
-        run: make verify
-        if: needs.changes.outputs.software != 'false'
+      - name: Verify generation, dependencies, lint, formatting and build
+        run: make verify-checks
+
+  race:
+    needs: changes
+    if: needs.changes.outputs.software != 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [test-default, test-gray4-native4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - run: make ${{ matrix.target }}
+
   api:
     needs: changes
     if: always() && needs.changes.outputs.software != 'false'

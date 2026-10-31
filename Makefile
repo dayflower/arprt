@@ -21,7 +21,7 @@ HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
+.PHONY: generate manifests tools build test test-default test-gray4-native4 vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify verify-checks generation-check dependency-check integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
 
 tools: bin/controller-gen
 
@@ -130,15 +130,26 @@ vet:
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -tags="$(GO_BUILD_TAGS)" -o bin/arprt ./cmd/controller
 
-test:
+test: test-default test-gray4-native4
+
+test-default:
 	$(GO) test -race ./...
+
+test-gray4-native4:
 	$(GO) test -race -tags=gray4_native4 ./...
 
-verify: manifests release-check
+generation-check: manifests
 	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
-	$(MAKE) chart-check
+
+dependency-check:
 	$(GO) mod tidy -diff
-	$(MAKE) lint format-check test build
+
+# CI runs the two race targets on separate runners alongside these checks.
+verify-checks: generation-check release-check
+	$(MAKE) chart-check dependency-check lint format-check build
+
+verify: verify-checks
+	$(MAKE) test
 
 integration: manifests bin/setup-envtest $(HELM)
 	ARPRT_HELM="$(HELM)" KUBEBUILDER_ASSETS="$$($(CURDIR)/bin/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_BIN) -p path)" $(GO) test -tags=integration -count=1 -v ./internal/integration

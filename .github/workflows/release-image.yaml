@@ -45,7 +45,7 @@ jobs:
         run: make release-chart-metadata VERSION="$RELEASE_VERSION"
 
   # Independent software checks run alongside the native build/cluster jobs.
-  checks:
+  software:
     needs: guard
     strategy:
       fail-fast: false
@@ -72,10 +72,45 @@ jobs:
           version: '0.13.0'
           enable-cache: true
           cache-dependency-glob: Makefile
-      - name: Verify generation, lint, formatting, tests and build
-        run: make verify
+      - name: Verify generation, dependencies, lint, formatting and build
+        run: make verify-checks
       - run: python3 tools/check-docs.py
       - run: make integration ENVTEST_K8S_VERSION=1.36.0
+
+  race:
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        target: [test-default, test-gray4-native4]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - run: make ${{ matrix.target }}
+
+  checks:
+    needs: [guard, software, race]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all native software checks and both race builds
+        env:
+          GUARD_RESULT: ${{ needs.guard.result }}
+          SOFTWARE_RESULT: ${{ needs.software.result }}
+          RACE_RESULT: ${{ needs.race.result }}
+        run: |
+          test "$GUARD_RESULT" = success
+          test "$SOFTWARE_RESULT" = success
+          test "$RACE_RESULT" = success
 
   build:
     needs: guard
