@@ -29,7 +29,8 @@ jobs. Changed fenced/indented examples, other paths and unavailable history run 
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
 Controller Docker builds run in the native `cluster` and `helm_prepare` jobs; `contracts`
-checks Go. Picsum renderer development, image builds and tests are maintained in
+aggregates the independent `software` and `race` jobs. Picsum renderer
+development, image builds and tests are maintained in
 [arprt-renderers](https://github.com/dayflower/arprt-renderers).
 A new run cancels any older in-progress run of the same workflow for the same
 pull request or branch.
@@ -40,13 +41,17 @@ make verify
 ```
 
 `make test` runs the race suite both with the default two-bit gray4 build and
-with the temporary `gray4_native4` build tag.
+with the temporary `gray4_native4` build tag. Run `make test-default` or
+`make test-gray4-native4` to select one race suite. CI runs these targets on
+separate runners rather than concurrently on one runner.
 
 `make verify` regenerates deepcopy/CRDs and chart copies, checks their diff and
 module tidiness, checks release guards/digest wiring and both charts (including
 dependencies, templates and packages), then runs Go/Python lint and formatting
 checks, all race tests and the controller build. It does not run API integration
-or cluster tests. For API changes, edit types/validation
+or cluster tests. `make verify-checks` runs the same checks except race tests;
+`make generation-check` and `make dependency-check` select generated-file and
+module-tidiness checks individually. For API changes, edit types/validation
 markers in [types.go](../api/v1alpha1/types.go), then run `make manifests` and
 include both the types and generated files in the change. `make generate` only
 regenerates deepcopy code.
@@ -71,8 +76,10 @@ Ruff runs through `uv tool run` at the version pinned in the Makefile; uv manage
 its isolated environment and cache. No manual virtual environment setup or global
 Python packages are needed. CI installs uv with `astral-sh/setup-uv` and caches
 its downloads using the Makefile as the dependency key.
-Both the pull request/main workflow and release workflow run these checks through
-`make verify`, subject to the prose-only CI scope described above.
+Both the pull request/main workflow and release workflow run
+`make verify-checks` alongside the two race jobs, subject to the prose-only
+CI scope described above. The `contracts` aggregate requires all selected jobs
+to succeed; only successful prose-only selection permits skipped software jobs.
 
 The generated-file check compares against the Git index, so it also reports
 intended unstaged generated changes. Review those changes and check that another
@@ -825,14 +832,17 @@ git push origin refs/tags/v0.2.0
 
 The workflow rejects lightweight tags, invalid versions, a checkout different
 from the tagged commit, and commits outside `origin/main`. It explicitly runs
-`make verify` and envtest on Kubernetes 1.36.0 once per architecture in `checks`,
-alongside independent `build` jobs on that exact commit on native
+`make verify-checks` and envtest on Kubernetes 1.36.0 once per architecture in
+`software`, with `test-default` and `test-gray4-native4` running in separate
+`race` jobs for each architecture. The `checks` job requires all software and
+race jobs to succeed. These jobs run alongside independent `build` jobs on that
+exact commit on native
 `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` runners. Each `build` job checks the
 image's architecture/version, runs the resource benchmark and chart checks,
 then archives the candidate image and charts. Artifact upload does not authorize
 publication. The `validate` matrix downloads the same per-architecture artifacts
 and runs `helm-release-smoke` separately for lifecycle and suites on independent
-runners/clusters. Publication requires both architectures of `checks` and every
+runners/clusters. Publication requires the successful `checks` aggregate and every
 scope of `validate` to pass; failed, cancelled or skipped validation blocks it.
 The five-suite matrix and full Helm lifecycle run three times per architecture:
 before image publication, against the staged distribution archives, and against
@@ -991,7 +1001,7 @@ jobs run chart checks and parallel lifecycle/five-suite scopes in separate
 clusters through
 `make helm-release-smoke CHART_OUTPUT=/path/to/staged/packages IMAGE=... USE_CHART_IMAGE=true`
 with `HELM_SMOKE_SCOPE=lifecycle` and `HELM_SMOKE_SCOPE=suites`;
-this target does not rebuild the archives or repeat envtest from `checks`.
+this target does not rebuild the archives or repeat envtest from `software`.
 It uses the staged image defaults and checks that the deployed image equals the
 accepted index digest. Only after these jobs pass does the chart publisher
 receive `packages: write` permission. The image publisher has
