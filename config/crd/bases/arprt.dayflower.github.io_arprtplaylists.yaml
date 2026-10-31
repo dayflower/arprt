@@ -71,10 +71,6 @@ spec:
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: atomic
-                x-kubernetes-validations:
-                - message: playlist screen names must be distinct
-                  rule: self.all(s, self.filter(other, other.name == s.name).size()
-                    == 1)
             required:
             - screens
             type: object

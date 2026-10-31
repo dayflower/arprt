@@ -24,7 +24,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 	for _, test := range []struct {
 		name string
 		refs []api.LocalReference
-	}{{"empty", nil}, {"duplicate", []api.LocalReference{{Name: "photo"}, {Name: "photo"}}}, {"invalid", []api.LocalReference{{Name: "../other"}}}, {"bounded", make([]api.LocalReference, 65)}} {
+	}{{"empty", nil}, {"invalid", []api.LocalReference{{Name: "../other"}}}, {"bounded", make([]api.LocalReference, 65)}} {
 		t.Run("playlist-"+test.name, func(t *testing.T) {
 			if test.name == "bounded" {
 				for i := range test.refs {
@@ -36,6 +36,19 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 				t.Fatal("invalid playlist accepted", err)
 			}
 		})
+	}
+	for _, count := range []int{2, 64} {
+		refs := make([]api.LocalReference, count)
+		for i := range refs {
+			refs[i].Name = "photo"
+		}
+		p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "arprt", Name: fmt.Sprintf("repeated-%d", count)}, Spec: api.ArprtPlaylistSpec{Screens: refs}}
+		if err := c.Create(ctx, p); err != nil {
+			t.Fatal("duplicate playlist entries rejected", err)
+		}
+		if err := c.Delete(ctx, p); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cross := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": api.GroupVersion.String(), "kind": "ArprtPlaylist", "metadata": map[string]interface{}{"namespace": "arprt", "name": "cross-list"}, "spec": map[string]interface{}{"screens": []interface{}{map[string]interface{}{"name": "photo", "namespace": "other"}}}}}
 	if err := c.Create(ctx, cross, client.FieldValidation(metav1.FieldValidationStrict)); err == nil {
@@ -75,6 +88,28 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 	}
 	if uid, found, err := unstructured.NestedString(raw.Object, "status", "screenCycle", "screenUID"); err != nil || !found || uid != string(listed.UID) {
 		t.Fatal("screen-cycle status was pruned or renamed", err)
+	}
+	for _, value := range []any{nil, int64(-1), int64(64)} {
+		invalid := raw.DeepCopy()
+		if value == nil {
+			unstructured.RemoveNestedField(invalid.Object, "status", "screenCycle", "entryIndex")
+		} else if err := unstructured.SetNestedField(invalid.Object, value, "status", "screenCycle", "entryIndex"); err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Status().Update(ctx, invalid); !apierrors.IsInvalid(err) {
+			t.Fatalf("invalid entryIndex %v accepted: %v", value, err)
+		}
+	}
+	for _, index := range []int32{0, 63} {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
+				return err
+			}
+			d.Status.ScreenCycle.EntryIndex = index
+			return c.Status().Update(ctx, d)
+		}); err != nil {
+			t.Fatalf("valid entryIndex %d rejected: %v", index, err)
+		}
 	}
 	if _, found, _ := unstructured.NestedFieldNoCopy(raw.Object, "status", "rotation"); found {
 		t.Fatal("sequence state still uses rotation")

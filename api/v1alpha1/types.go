@@ -186,7 +186,6 @@ type ArprtPlaylistSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
-	// +kubebuilder:validation:XValidation:rule="self.all(s, self.filter(other, other.name == s.name).size() == 1)",message="playlist screen names must be distinct"
 	Screens []LocalReference `json:"screens"`
 }
 
@@ -209,6 +208,10 @@ type ArprtPlaylistList struct {
 
 // ScreenCycleStatus persists the last successful screen-cycle display response.
 type ScreenCycleStatus struct {
+	// EntryIndex is the original zero-based assignment position.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=63
+	EntryIndex int32 `json:"entryIndex"`
 	// CompatibilityFingerprint binds replay to output constraints, rotation and
 	// processing semantics. Omission denotes a legacy turn, never current replay.
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`

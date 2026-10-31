@@ -143,7 +143,8 @@ func (s *Server) device(ctx context.Context, reader client.Reader, d *api.ArprtD
 	if targetErr != nil || set.Fingerprint == "" {
 		row.Delivery.State = "Unknown"
 	}
-	for _, sc := range set.Screens {
+	for _, entry := range set.Entries {
+		sc := entry.Screen
 		// Screen Ready is a separate report, never a per-device/pair aggregate.
 		if c := meta.FindStatusCondition(sc.Status.Conditions, "Ready"); c != nil && c.ObservedGeneration == sc.Generation && c.Status == metav1.ConditionFalse {
 			row.Problems = append(row.Problems, Problem{Reason: "ScreenNotReady", Message: "A related screen reports pending or failed rendering", Scope: "screen", Screen: sc.Name})
@@ -184,7 +185,8 @@ func (s *Server) device(ctx context.Context, reader client.Reader, d *api.ArprtD
 	}
 	matching := record.DeviceUID == string(d.UID) && record.DeviceGeneration == d.Generation && record.Assignment == set.Fingerprint && record.Target == target
 	matchedScreen := false
-	for _, sc := range set.Screens {
+	for _, entry := range set.Entries {
+		sc := entry.Screen
 		if string(sc.UID) == record.ScreenUID && sc.Generation == record.ScreenGeneration {
 			rev, err := screen.InputRevision(sc.Spec)
 			matchedScreen = err == nil && rev == record.InputRevision
@@ -229,14 +231,16 @@ func describeAssignment(ctx context.Context, reader client.Reader, d *api.ArprtD
 			a.FailurePolicy = "Skip"
 		}
 	default:
-		for _, sc := range set.Screens {
+		for _, entry := range set.Entries {
+			sc := entry.Screen
 			a.Screens = append(a.Screens, AssignedScreen{Name: sc.Name, Available: true})
 		}
 		return a, nil
 	}
 	for _, ref := range refs {
 		available := false
-		for _, sc := range set.Screens {
+		for _, entry := range set.Entries {
+			sc := entry.Screen
 			available = available || sc.Name == ref.Name
 		}
 		a.Screens = append(a.Screens, AssignedScreen{Name: ref.Name, Available: available})

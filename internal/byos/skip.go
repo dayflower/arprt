@@ -120,7 +120,8 @@ func (s *Server) joinSkip(ctx context.Context, d *api.ArprtDevice, o Observation
 }
 
 func (s *Server) exploreSkip(ctx, request context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, token string, started time.Time) (deliveryImage, selectedDelivery, error) {
-	for _, candidate := range selected.candidates {
+	for _, entry := range selected.candidates {
+		candidate := entry.Screen
 		// Revalidate the complete candidate snapshot even after a failed attempt.
 		// A membership/definition/auth change terminates this exploration.
 		if err := s.validateIssuance(request, d, selected, token); err != nil {
@@ -131,6 +132,7 @@ func (s *Server) exploreSkip(ctx, request context.Context, d *api.ArprtDevice, o
 			break
 		}
 		selected.screen = candidate
+		selected.entryIndex = entry.Index
 		var err error
 		selected.revision, err = screen.InputRevision(candidate.Spec)
 		if err != nil {

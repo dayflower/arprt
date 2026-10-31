@@ -82,7 +82,8 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 		if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
 			return err
 		}
-		for _, s := range eligible.Screens {
+		for _, entry := range eligible.Entries {
+			s := entry.Screen
 			u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), Target: resolved.Target}
 			if s.Spec.Source.Job != nil || (s.Spec.Source.HTTP != nil && s.Spec.Source.HTTP.Method == "POST") {
 				u.DeviceUID = string(d.UID)

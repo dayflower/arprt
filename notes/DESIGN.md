@@ -17,7 +17,7 @@ The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
 - `ArprtDevice` selects a single screen, an ordered playlist, or discovery, with
   an auth Secret, optional direct/Secret-backed hardware identity and desired
   clockwise content rotation (`spec.rotation`, default 0; 0/90/180/270).
-- `ArprtPlaylist` defines 1–64 distinct screen names in explicit order.
+- `ArprtPlaylist` defines 1–64 ordered screen references; repeated names are allowed.
 
 All references and discovery stay in the device namespace. Capabilities,
 telemetry, registration observations and screen-cycle progress belong in status.
@@ -71,6 +71,7 @@ playlist or empty eligible set returns initial pending. The default playlist
 renderer currently has no image.
 
 Playlist/discovery uses `status.screenCycle` to persist the successful turn,
+original zero-based entry index (`entryIndex`, required, 0–63), screen UID,
 target, revision, image digest/filename and serving time. Under Hold/discovery,
 a compatible stale image counts as success; without one the selected turn holds.
 Issuance and the new turn are durable before the response is acknowledged.
@@ -83,9 +84,14 @@ Telemetry is still observed. **POST and OnDemand Job in playlist/discovery rende
 not on replay**; a single `screenRef` retains per-request rendering.
 
 The assignment fingerprint includes device UID/generation, assignment identity
-and ordered screen names/UIDs. A fingerprint change resets selection to the
-first eligible screen. Definition edits invalidate replay without resetting
-membership/order; changed targets cannot reuse incompatible output.
+and every original reference position, name and resolution (UID, missing or
+deleting), including repeated references. Each name is resolved once per snapshot;
+eligible entries retain their original positions. Discovery uses positions in the
+bounded, name-sorted eligible array; a single screen has internal position zero
+and does not create cycle status. Selection validates both the recorded position
+and UID, and candidate traversal starts at that exact occurrence. A fingerprint
+change resets selection to the first eligible entry. Definition edits invalidate
+replay without resetting membership/order; changed targets cannot reuse incompatible output.
 All eligible Scheduled Job pairs are scheduled independently of the current turn, bounded
 by the global concurrency limit; work can remain queued before its first image.
 Removing eligibility cancels work and stops future attempts.

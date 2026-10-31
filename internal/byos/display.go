@@ -32,6 +32,7 @@ var (
 // against this snapshot, including the complete assignment fingerprint.
 type selectedDelivery struct {
 	screen        *api.ArprtScreen
+	entryIndex    int32
 	target        render.Target
 	output        render.OutputConstraints
 	revision      string
@@ -42,7 +43,7 @@ type selectedDelivery struct {
 	compatibility string
 	skip          bool
 	renderTimeout time.Duration
-	candidates    []*api.ArprtScreen
+	candidates    []assignment.Entry
 	setRevision   string
 }
 
@@ -216,7 +217,7 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 	defer release()
 	var proposed *api.ScreenCycleStatus
 	if image.metadata.ImageDigest != "" && selected.cycling && selected.replay == nil {
-		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), InputRevision: selected.revision, Target: api.CycleTargetStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
+		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), EntryIndex: selected.entryIndex, InputRevision: selected.revision, Target: api.CycleTargetStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
 		if image.advanceCorner {
 			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
 			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
@@ -267,7 +268,8 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolve
 	if err != nil {
 		return selectedDelivery{}, err
 	}
-	assigned, replay := eligible.Select(d, time.Now().UTC(), time.Duration(s.Config.RefreshSeconds)*time.Second)
+	entry, replay := eligible.Select(d, time.Now().UTC(), time.Duration(s.Config.RefreshSeconds)*time.Second)
+	assigned := entry.Screen
 	revision, err := screen.InputRevision(assigned.Spec)
 	if err != nil {
 		return selectedDelivery{}, err
@@ -289,7 +291,7 @@ func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolve
 	if assigned.Spec.Source.HTTP == nil && assigned.Spec.Source.Job == nil {
 		return selectedDelivery{}, errUnsupportedScreen
 	}
-	selected := selectedDelivery{skip: eligible.Skip, renderTimeout: eligible.RenderTimeout, candidates: eligible.Candidates(assigned), compatibility: compatibility, screen: assigned, target: resolved.Target, output: resolved.Output, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
+	selected := selectedDelivery{skip: eligible.Skip, renderTimeout: eligible.RenderTimeout, entryIndex: entry.Index, candidates: eligible.Candidates(entry), compatibility: compatibility, screen: assigned, target: resolved.Target, output: resolved.Output, revision: revision, fingerprint: eligible.Fingerprint, cycling: eligible.Cycling, reporting: reportHTTP}
 	if assigned.Spec.Source.Job != nil {
 		selected.reporting = reportJob
 	}
