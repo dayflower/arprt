@@ -1,0 +1,69 @@
+name: Cache pinned development tools
+description: Restore exact tool binaries without restoring controller build outputs.
+inputs:
+  kind-writer:
+    description: Sole kind writer per native architecture
+    default: 'false'
+  tools:
+    description: Space-separated tool names
+    default: ''
+runs:
+  using: composite
+  steps:
+    - id: versions
+      if: inputs.tools != ''
+      shell: bash
+      run: |
+        make --no-print-directory --eval='ci-cache-versions:;@$(foreach name,CONTROLLER_GEN_VERSION ENVTEST_VERSION STATICCHECK_VERSION KIND_VERSION HELM_VERSION ENVTEST_K8S_VERSION GOTOOLCHAIN,echo "$(name)=$($(name))";)' ci-cache-versions >> "$GITHUB_OUTPUT"
+        case "$RUNNER_ARCH" in
+          X64) echo "arch=amd64" >> "$GITHUB_OUTPUT" ;;
+          ARM64) echo "arch=arm64" >> "$GITHUB_OUTPUT" ;;
+          *) echo "Unsupported runner architecture: $RUNNER_ARCH" >&2; exit 1 ;;
+        esac
+        echo "platform=tools-v1-${ImageOS}-${{ runner.arch }}" >> "$GITHUB_OUTPUT"
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' controller-gen ')
+      with:
+        path: bin/controller-gen
+        key: ${{ steps.versions.outputs.platform }}-controller-gen-${{ steps.versions.outputs.CONTROLLER_GEN_VERSION }}-${{ steps.versions.outputs.GOTOOLCHAIN }}
+        writer: ${{ github.job == 'helm_prepare' }}
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' setup-envtest ')
+      with:
+        path: bin/setup-envtest
+        key: ${{ steps.versions.outputs.platform }}-setup-envtest-${{ steps.versions.outputs.ENVTEST_VERSION }}-${{ steps.versions.outputs.GOTOOLCHAIN }}
+        writer: ${{ github.job == 'helm_prepare' }}
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' staticcheck ')
+      with:
+        path: bin/staticcheck-${{ steps.versions.outputs.STATICCHECK_VERSION }}/staticcheck
+        key: ${{ steps.versions.outputs.platform }}-staticcheck-${{ steps.versions.outputs.STATICCHECK_VERSION }}-${{ steps.versions.outputs.GOTOOLCHAIN }}
+        writer: ${{ github.job == 'software' || (github.job == 'helm_prepare' && runner.arch == 'ARM64') }}
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' kind ')
+      with:
+        path: bin/kind
+        key: ${{ steps.versions.outputs.platform }}-kind-${{ steps.versions.outputs.KIND_VERSION }}-${{ steps.versions.outputs.GOTOOLCHAIN }}
+        writer: ${{ inputs.kind-writer == 'true' }}
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' helm ')
+      with:
+        path: bin/helm-${{ steps.versions.outputs.HELM_VERSION }}
+        key: ${{ steps.versions.outputs.platform }}-helm-${{ steps.versions.outputs.HELM_VERSION }}-${{ hashFiles('tools/install-helm.py') }}
+        writer: ${{ github.job == 'helm_prepare' }}
+    - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' envtest ')
+      with:
+        path: bin/k8s/k8s/${{ steps.versions.outputs.ENVTEST_K8S_VERSION }}-linux-${{ steps.versions.outputs.arch }}
+        key: ${{ steps.versions.outputs.platform }}-envtest-${{ steps.versions.outputs.ENVTEST_K8S_VERSION }}
+        writer: ${{ github.job == 'helm_prepare' }}
+    # Checkout timestamps are newer than restored binaries. The installer hash
+    # above invalidates this exact cache when its verification logic changes.
+    - if: contains(format(' {0} ', inputs.tools), ' helm ')
+      shell: bash
+      run: touch -c "bin/helm-${{ steps.versions.outputs.HELM_VERSION }}"
+    # PR/main software checks run on amd64. Warm the pinned arm64 linter here
+    # so native release software jobs can restore it from main as well.
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.job == 'helm_prepare' && runner.arch == 'ARM64'
+      shell: bash
+      run: make "$PWD/bin/staticcheck-${{ steps.versions.outputs.STATICCHECK_VERSION }}/staticcheck"

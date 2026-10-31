@@ -95,6 +95,55 @@ Jobs. Integrated resource and physical acceptance have separate evidence
 requirements below. Context v1 profile fixtures are under
 [testdata/render-context](../testdata/render-context/README.md).
 
+### CI cache ownership
+
+Both workflows use the [shared CI helpers](../.github/actions/setup-go/action.yaml)
+with `setup-go` caching disabled. Helpers are checked out separately under
+`.ci-actions/` at `github.workflow_sha`; the working source and Makefile still
+come from the requested revision. This also supports manual acceptance of older
+tags that predate the helpers. All cache-consuming runners use Ubuntu 24.04.
+Cache misses always run the normal installation/build/test steps.
+
+Go cache keys include the runner OS image (`ImageOS`), native architecture and
+resolved Go version. Module downloads use an immutable `go.sum` key, saved only
+by each native main `helm_prepare` job. Build caches additionally include the
+job purpose, race target or smoke scope, dependency hash and source SHA.
+Each main job owns its own build key; fallback prefixes reuse previous results
+within that purpose and platform, first with matching dependencies, then without.
+There is no fallback across architectures, Go versions or build purposes.
+
+Only successful `push` jobs on `refs/heads/main` save these caches. PRs, tags and
+manual runs restore only, without competing for a save key. They can restore
+main caches through GitHub's default-branch lookup. Different tags cannot read
+each other's caches; release caching does not depend on a previous tag run.
+See [GitHub's cache matching and access rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
+and the pinned [cache Action](https://github.com/actions/cache/tree/a7833574556fa59680c1b7cb190c1735db73ebf0).
+
+The [tool helper](../.github/actions/cache-tools/action.yaml) caches only the
+selected controller-gen, setup-envtest, Staticcheck, kind and Helm binaries, plus
+the exact Kubernetes envtest version directory. Keys use versions evaluated from
+the target Makefile, OS image and architecture; Go-built tools also include the
+pinned Go toolchain. Tools have no version fallback. `helm_prepare` owns
+controller-gen, setup-envtest, Helm and envtest saves on both architectures;
+`software` owns amd64 Staticcheck, and arm64 `helm_prepare` warms/saves the pinned
+Staticcheck binary for releases. Only the `suites` lane of each native main
+`helm_smoke` job saves kind. Helm keys include the installer hash; a restored
+binary's timestamp is refreshed so Make does not redownload it just because the
+installer was checked out later. Neither the whole `bin/` tree nor controller
+executables, credentials or test evidence are cached. Ruff retains its separate
+uv-managed cache.
+
+Docker layers and BuildKit mounts remain separate from host Go caches; this
+change does not add Docker caching. Measure host cache effects before selecting
+an additional Docker cache backend. For cold and warm CI runs, compare the same
+native jobs, including helper checkout overhead, cache hit/matched-key logs,
+restore/compression/save durations and archive sizes. Use Actions cache metadata
+to confirm the saving ref and creation time; compare workflow elapsed time and
+total runner minutes as well as compilation/test durations. Do not infer release
+speedups from local Go test-cache hits or create release tags for benchmarking.
+Actual PR/main, manual acceptance and tag-path timing must be measured in Actions;
+a successful local check does not establish a warm-cache speedup.
+
 ## CRD chart generation and checks
 
 The [CRD chart](../charts/arprt-crds/README.md) is an application chart containing

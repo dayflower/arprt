@@ -1,0 +1,30 @@
+name: Purpose-specific cache
+description: Save only from the designated main writer; restore everywhere else.
+inputs:
+  path:
+    description: Exact cache paths
+    required: true
+  key:
+    description: Immutable save key
+    required: true
+  restore-keys:
+    description: Compatible fallback prefixes
+    default: ''
+  writer:
+    description: Whether this job owns saves on main
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.writer == 'true'
+      uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+    - if: github.event_name != 'push' || github.ref != 'refs/heads/main' || inputs.writer != 'true'
+      uses: actions/cache/restore@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
