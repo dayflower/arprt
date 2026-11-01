@@ -134,7 +134,7 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 	defer renderer.Close()
 	screen := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery"}, Spec: api.ArprtScreenSpec{Overlay: &api.ScreenOverlay{Enabled: true, CycleCorners: true, Margin: &api.OverlayMargin{Left: 8, Right: 8, Top: 4, Bottom: 4}}, Source: api.ScreenSource{HTTP: &api.HTTPSource{URL: renderer.URL}}}}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-key"}, Data: map[string][]byte{"apiKey": []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}}
-	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: screen.Name}}}}
+	playlist := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-list"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: screen.Name}, {Name: screen.Name}}}}
 	device := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "overlay-delivery-device"}, Spec: api.ArprtDeviceSpec{HardwareID: "02:00:00:00:00:10", AuthSecretRef: api.LocalReference{Name: secret.Name}, PlaylistRef: &api.LocalReference{Name: playlist.Name}}}
 	for _, obj := range []client.Object{screen, secret, playlist, device} {
 		if err := c.Create(ctx, obj); err != nil {
@@ -169,7 +169,7 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 		t.Fatal(err)
 	}
 	committed := device.Status.ScreenCycle.DeepCopy()
-	if device.Status.Battery.Percent == nil || *device.Status.Battery.Percent != 20.5 || committed == nil {
+	if device.Status.Battery.Percent == nil || *device.Status.Battery.Percent != 20.5 || committed == nil || committed.EntryIndex != 0 {
 		t.Fatal("actual API status lost overlay/measurement")
 	}
 	// Reopen the PVC and verify actual API microsecond serialization supports replay.
@@ -199,8 +199,35 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 	if next.Filename == first.Filename {
 		t.Fatal("new API turn did not move overlay")
 	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(device), device); err != nil || device.Status.ScreenCycle.EntryIndex != 1 {
+		t.Fatal("new HTTP turn lost repeated position", device.Status.ScreenCycle, err)
+	}
 	corner, err = restartedRepo.Corner(ctx, string(device.UID))
 	if err != nil || corner.Revision != 2 || corner.Current != overlay.BottomLeft {
 		t.Fatal("API turn not finalized", corner, err)
+	}
+	// Reopen at the later occurrence: replay must retain it, then wrap to zero.
+	restartedRepo, err = artifact.NewPVC(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err = byos.NewServer(server.Config, c, c, restartedRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed = device.Status.ScreenCycle.DeepCopy()
+	if got := poll(restarted, "0"); got != next {
+		t.Fatal("later occurrence replay changed image", got, next)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(device), device); err != nil || !artifact.EqualCycle(committed, device.Status.ScreenCycle) {
+		t.Fatal("later occurrence replay changed turn", err)
+	}
+	device.Status.ScreenCycle.ServedAt = metav1.NewMicroTime(time.Now().UTC().Add(-time.Hour))
+	if err := c.Status().Update(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	poll(restarted, "0")
+	if err := c.Get(ctx, client.ObjectKeyFromObject(device), device); err != nil || device.Status.ScreenCycle.EntryIndex != 0 {
+		t.Fatal("repeated HTTP cycle did not wrap", device.Status.ScreenCycle, err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/jobrender"
 	batchv1 "k8s.io/api/batch/v1"
@@ -17,13 +18,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// A failed candidate precedes two separately committed occurrences of one Screen.
 // This uses real API watches and durable Job/turn state; envtest has no kubelet.
 func verifySkipDisplay(t *testing.T, c client.Client, jobs *jobrender.Reconciler, root string) {
 	t.Helper()
 	ctx := t.Context()
-	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "execution-test", Name: "skip-list"}, Spec: api.ArprtPlaylistSpec{FailurePolicy: "Skip", Screens: []api.LocalReference{{Name: "skip-a"}, {Name: "skip-b"}}}}
-	for _, ref := range p.Spec.Screens {
-		sc := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: ref.Name}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{ExecutionMode: "OnDemand", Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: "execution-test", Name: "skip-list"}, Spec: api.ArprtPlaylistSpec{FailurePolicy: "Skip", Screens: []api.LocalReference{{Name: "skip-a"}, {Name: "skip-b"}, {Name: "skip-b"}}}}
+	for _, name := range []string{"skip-a", "skip-b"} {
+		sc := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: name}, Spec: api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{ExecutionMode: "OnDemand", Renderer: api.RendererContainer{Image: "busybox:1.37.0"}}}}}
 		if err := c.Create(ctx, sc); err != nil {
 			t.Fatal(err)
 		}
@@ -120,17 +122,50 @@ func verifySkipDisplay(t *testing.T, c client.Client, jobs *jobrender.Reconciler
 	if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
 		t.Fatal(err)
 	}
-	var b api.ArprtScreen
-	if err := c.Get(ctx, client.ObjectKey{Namespace: p.Namespace, Name: "skip-b"}, &b); err != nil {
+	var repeated api.ArprtScreen
+	if err := c.Get(ctx, client.ObjectKey{Namespace: p.Namespace, Name: "skip-b"}, &repeated); err != nil {
 		t.Fatal(err)
 	}
-	if d.Status.ScreenCycle == nil || d.Status.ScreenCycle.ScreenUID != string(b.UID) {
+	if d.Status.ScreenCycle == nil || d.Status.ScreenCycle.ScreenUID != string(repeated.UID) || d.Status.ScreenCycle.EntryIndex != 1 {
 		t.Fatal("failed position recorded", d.Status.ScreenCycle)
 	}
+	// A new turn must execute the later occurrence even for identical output.
+	d.Status.ScreenCycle.ServedAt = metav1.NewMicroTime(time.Now().UTC().Add(-time.Hour))
+	if err := c.Status().Update(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	go func() { first <- fetch(s) }()
+	var later batchv1.Job
+	eventually(t, func() bool {
+		for _, job := range owned() {
+			if job.UID != failed.UID && job.UID != success.UID && job.Status.CompletionTime == nil {
+				later = job
+				return true
+			}
+		}
+		return false
+	})
+	completeDisplayJob(t, c, root, &later)
+	select {
+	case w := <-first:
+		var response byos.DisplayResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != 200 || response != previous {
+			t.Fatal("later occurrence changed identical output", w.Body.String(), err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("later occurrence did not finish")
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil || d.Status.ScreenCycle.EntryIndex != 2 || d.Status.ScreenCycle.ScreenUID != string(repeated.UID) {
+		t.Fatal("later occurrence not committed", d.Status.ScreenCycle, err)
+	}
+	committed := d.Status.ScreenCycle.DeepCopy()
 	count := len(owned())
 	replay := fetch(newServer())
 	var response byos.DisplayResponse
 	if err := json.Unmarshal(replay.Body.Bytes(), &response); err != nil || replay.Code != 200 || response != previous || len(owned()) != count {
 		t.Fatal("restart duplicated the turn", replay.Body.String(), err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil || !artifact.EqualCycle(d.Status.ScreenCycle, committed) {
+		t.Fatal("restart lost later occurrence", d.Status.ScreenCycle, err)
 	}
 }

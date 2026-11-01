@@ -218,7 +218,9 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 {"name": "b-post"},
                 {"name": "missing"},
                 {"name": "c-job"},
+                {"name": "b-post"},
                 {"name": "a-get"},
+                {"name": "c-job"},
             ]
             apply(
                 {
@@ -285,7 +287,10 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                         {
                             "status": {
                                 "screenCycle": {
-                                    "servedAt": "2000-01-01T00:00:00.000000Z"
+                                    "entryIndex": device()["status"]["screenCycle"][
+                                        "entryIndex"
+                                    ],
+                                    "servedAt": "2000-01-01T00:00:00.000000Z",
                                 }
                             }
                         }
@@ -297,11 +302,15 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
 
             last_turn, corner_index = None, 0
 
-            def turn(base, name):
+            def turn(base, name, index):
                 nonlocal last_turn, corner_index
                 response = display(base)
                 committed = device().get("status", {}).get("screenCycle", {})
-                if response["status"] != 0 or committed.get("screenUID") != uids[name]:
+                if (
+                    response["status"] != 0
+                    or committed.get("screenUID") != uids[name]
+                    or committed.get("entryIndex") != index
+                ):
                     actual = next(
                         (
                             name
@@ -311,7 +320,7 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                         "none",
                     )
                     raise RuntimeError(
-                        f"wrong screen-cycle turn: expected {name}, status {response['status']}, committed {actual}"
+                        f"wrong screen-cycle turn: expected {name} at {index}, got {committed.get('entryIndex')}, status {response['status']}, committed {actual}"
                     )
                 image_path = response["image_url"].removeprefix(
                     "https://byos.example.test"
@@ -332,7 +341,11 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 replay_bytes = fetch(base, image_path)
                 headers["Percent-Charged"], headers["RSSI"] = "0", "-99"
                 headers["Battery-Charging"] = "1"
-                if display(base) != response or fetch(base, image_path) != replay_bytes:
+                if (
+                    display(base) != response
+                    or fetch(base, image_path) != replay_bytes
+                    or device().get("status", {}).get("screenCycle") != committed
+                ):
                     raise RuntimeError("retry telemetry changed the committed overlay")
                 headers.pop("Percent-Charged")
                 headers.pop("Battery-Charging")
@@ -341,11 +354,23 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
 
             with forwarded(namespace, 8080, directory) as base:
                 token = json.loads(fetch(base, path + "/api/setup"))["api_key"]
-                first = turn(base, "b-post")
+                turn(base, "b-post", 0)
                 # Pre-rendering must publish before c-job is ever selected or
                 # restart interrupts collection. Do not poll display to wait:
                 # successful polls would advance the shared corner/cycle state.
                 wait(lambda: job_output_ready(namespace), 120)
+                expire()
+                turn(base, "c-job", 2)
+                expire()
+                first = turn(base, "b-post", 3)
+                scheduled_jobs = {
+                    j["metadata"]["uid"]
+                    for j in json.loads(
+                        kubectl("-n", namespace, "get", "jobs", "-o", "json").stdout
+                    )["items"]
+                }
+                if len(scheduled_jobs) != 1:
+                    raise RuntimeError("repeated Scheduled entry created extra Jobs")
             kubectl("-n", namespace, "rollout", "restart", "deployment/arprt-arprt")
             kubectl(
                 "-n",
@@ -359,11 +384,11 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 if display(base) != first:
                     raise RuntimeError("screen-cycle replay lost across restart")
                 expire()
-                turn(base, "c-job")
+                turn(base, "a-get", 4)
                 expire()
-                turn(base, "a-get")
+                turn(base, "c-job", 5)
                 expire()
-                turn(base, "b-post")
+                turn(base, "b-post", 0)
                 # Editing the playlist resets its order, including within a retry window.
                 kubectl(
                     "-n",
@@ -385,7 +410,19 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                         }
                     ),
                 )
-                turn(base, "a-get")
+                turn(base, "a-get", 0)
+                # Removing one occurrence keeps the Scheduled pair and its due time.
+                time.sleep(3)
+                remaining_jobs = {
+                    j["metadata"]["uid"]
+                    for j in json.loads(
+                        kubectl("-n", namespace, "get", "jobs", "-o", "json").stdout
+                    )["items"]
+                }
+                if remaining_jobs != scheduled_jobs or not job_output_ready(namespace):
+                    raise RuntimeError(
+                        "partial duplicate removal restarted Scheduled work"
+                    )
                 # Discovery reuses the same pairs, in deterministic name order.
                 kubectl(
                     "-n",
@@ -397,13 +434,13 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     "-p",
                     json.dumps({"spec": {"playlistRef": None}}),
                 )
-                turn(base, "a-get")
+                turn(base, "a-get", 0)
                 expire()
-                turn(base, "b-post")
+                turn(base, "b-post", 1)
                 expire()
-                turn(base, "c-job")
+                turn(base, "c-job", 2)
                 kubectl("-n", namespace, "delete", "arprtscreen", "a-get")
-                turn(base, "b-post")
+                turn(base, "b-post", 0)
                 # Removing Job eligibility cancels its scheduling state.
                 kubectl("-n", namespace, "delete", "arprtscreen", "c-job")
                 before = {
@@ -442,7 +479,7 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                 if (result.stdout.strip() == "yes") != allowed:
                     raise RuntimeError("playlist RBAC namespace mismatch")
             print(
-                "PASS: mixed GET/POST/Job playlists and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC"
+                "PASS: repeated-entry mixed GET/POST/Job playlists, shared Scheduled pairs and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC"
             )
         finally:
             installation.cleanup()

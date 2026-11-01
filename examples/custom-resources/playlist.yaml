@@ -6,4 +6,5 @@ spec:
   screens:
     - name: photo
     - name: device-status
+    - name: photo
     - name: weather

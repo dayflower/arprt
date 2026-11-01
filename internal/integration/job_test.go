@@ -243,7 +243,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 		return false
 	}
 	eventually(t, func() bool { return hasAttempt("exit 0 # discovered") })
-	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "cycle"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: second.Name}}}}
+	p := &api.ArprtPlaylist{ObjectMeta: metav1.ObjectMeta{Namespace: d.Namespace, Name: "cycle"}, Spec: api.ArprtPlaylistSpec{Screens: []api.LocalReference{{Name: s.Name}, {Name: second.Name}, {Name: s.Name}, {Name: second.Name}}}}
 	if err := c.Create(ctx, p); err != nil {
 		t.Fatal(err)
 	}
