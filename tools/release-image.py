@@ -2,7 +2,9 @@
 """Gate immutable releases and record anonymously verified GHCR image digests."""
 
 import argparse
+import base64
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -50,26 +52,85 @@ def guard(tag):
     print(json.dumps(outputs, indent=2))
 
 
-def unused(repository, tag):
-    owner, package = repository.split("/")
-    owner_type = run("gh", "api", "repos/" + repository, "--jq", ".owner.type")
-    prefix = "orgs" if owner_type == "Organization" else "users"
-    endpoint = f"{prefix}/{owner}/packages/container/{package}/versions?per_page=100"
-    result = subprocess.run(
-        ["gh", "api", "--paginate", "--slurp", endpoint], capture_output=True, text=True
+def registry_exists(repository, tag):
+    """Read OCI manifests; only an explicit missing-manifest response is absence.
+
+    GH_TOKEN is optional and needs packages:read for private packages. This does
+    not use the GitHub Packages API (classic PAT API scopes differ from OCI).
+    """
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*(?:/[a-z0-9][a-z0-9_.-]*)+", repository):
+        raise ValueError("expected a lowercase OCI repository path")
+    target = f"ghcr.io/{repository}:{tag}"
+    query = urllib.parse.urlencode(
+        {"service": "ghcr.io", "scope": f"repository:{repository}:pull"}
     )
-    if result.returncode:
-        # A missing first package is expected; authentication/network failures fail closed.
-        if not re.search(r"\(HTTP 404\)", result.stderr):
-            raise RuntimeError(result.stderr)
-        return
-    reserved = {tag, tag + "-amd64", tag + "-arm64"}
-    for page in json.loads(result.stdout):
-        for version in page:
-            if reserved.intersection(version["metadata"]["container"]["tags"]):
-                raise ValueError(
-                    "release tag or platform tag already exists; never overwrite it"
-                )
+    headers = {}
+    if os.environ.get("GH_TOKEN"):
+        user = os.environ.get("GITHUB_ACTOR") or repository.split("/")[0]
+        credential = base64.b64encode(
+            (user + ":" + os.environ["GH_TOKEN"]).encode()
+        ).decode()
+        headers["Authorization"] = "Basic " + credential
+    try:
+        request = urllib.request.Request(
+            "https://ghcr.io/token?" + query, headers=headers
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            token = json.load(response)["token"]
+        request = urllib.request.Request(
+            f"https://ghcr.io/v2/{repository}/manifests/{tag}",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": ", ".join(
+                    [
+                        "application/vnd.oci.image.index.v1+json",
+                        "application/vnd.docker.distribution.manifest.list.v2+json",
+                        "application/vnd.oci.image.manifest.v1+json",
+                        "application/vnd.docker.distribution.manifest.v2+json",
+                    ]
+                ),
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30):
+                return True
+        except urllib.error.HTTPError as error:
+            with error:
+                if error.code == 404:
+                    codes = {item["code"] for item in json.load(error)["errors"]}
+                    if codes and codes <= {"MANIFEST_UNKNOWN", "NAME_UNKNOWN"}:
+                        return False
+            raise
+    except (
+        urllib.error.URLError,
+        OSError,
+        http.client.HTTPException,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as error:
+        # Never echo response bodies, URLs supplied by a server, or credentials.
+        status = (
+            f"HTTP {error.code}"
+            if isinstance(error, urllib.error.HTTPError)
+            else type(error).__name__
+        )
+        if isinstance(error, urllib.error.HTTPError):
+            error.close()
+        raise RuntimeError(
+            f"cannot establish availability of {target}: {status}; check network "
+            "and anonymous visibility, or supply GH_TOKEN with packages:read"
+        ) from None
+
+
+def unused(repository, tag):
+    validate_tag(tag)
+    for candidate in (tag, tag + "-amd64", tag + "-arm64"):
+        if registry_exists(repository, candidate):
+            raise ValueError(
+                f"image ghcr.io/{repository}:{candidate} already exists; "
+                "choose a new controller version; never overwrite it"
+            )
 
 
 def validate_index(index):

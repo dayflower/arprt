@@ -21,7 +21,7 @@ HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test test-default test-gray4-native4 vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify verify-checks generation-check dependency-check integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
+.PHONY: generate manifests tools build test test-default test-gray4-native4 vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify verify-checks generation-check dependency-check integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-preflight release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
 
 tools: bin/controller-gen
 
@@ -79,6 +79,14 @@ helm-published-smoke: bin/kind $(HELM)
 	PATH="$(CURDIR)/bin:$$PATH" python3 tools/helm-smoke.py --helm "$(HELM)" --image "$(IMAGE)" --node-image "$(KIND_NODE_IMAGE)" --scope "$(HELM_SMOKE_SCOPE)" --oci-repository "$(OCI_CHART_REPOSITORY)" --chart-version "$(CHART_VERSION)" --crd-chart-version "$(CRD_CHART_VERSION)" $(if $(DISTRIBUTION_RECORD),--distribution-record "$(DISTRIBUTION_RECORD)",)
 
 # Release jobs use the same pinned Helm client as local checks.
+# Expose the pinned path to the optional CRD bump without another version source.
+.PHONY: bump-helm
+bump-helm: $(HELM)
+	@printf '%s\n' "$(HELM)"
+
+release-preflight: $(HELM)
+	python3 tools/release-charts.py preflight --helm "$(HELM)" --version "$(VERSION)" --repository "$(REPOSITORY)"
+
 release-chart-metadata: $(HELM)
 	python3 tools/release-charts.py metadata --helm "$(HELM)" --version "$(VERSION)"
 
