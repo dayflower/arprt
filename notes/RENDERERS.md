@@ -276,6 +276,49 @@ optional string of at most 256 characters; changing it changes the definition
 revision. The [JSON contract](PROTOCOL.md#renderer-state-json) describes result
 omission, explicit null and limits.
 
+### Cursor input and output example
+
+The [synthetic cursor renderer](../examples/renderers/job/cursor/renderer.py)
+supports gray4 targets and requires only Python's standard library. Install it
+as a ConfigMap and opt in with the [example Screen](../examples/renderers/job/cursor/screen.yaml):
+
+```sh
+kubectl -n arprt create configmap cursor-renderer \
+  --from-file=renderer.py=examples/renderers/job/cursor/renderer.py
+kubectl -n arprt apply --validate=strict -f examples/renderers/job/cursor/screen.yaml
+```
+
+Assign `cursor` to a Device or playlist using the normal assignment API. The
+example uses Scheduled execution and intentionally returns identical PNG bytes
+while proposing a different cursor. No RSS feed or external service is needed.
+A feed renderer can use the same exchange, replacing the synthetic cursor with
+its own pagination value; ARPRT does not interpret or validate that value's meaning.
+
+| Situation | Job input extension | Result file | Next committed input extension |
+| --- | --- | --- | --- |
+| First Job | Field absent | `{"version":"v1","nextState":{"cursor":1}}` | `"rendererState":{"cursor":1}` |
+| Next Job | `"rendererState":{"cursor":1}` | `{"version":"v1","nextState":{"cursor":2}}` | `"rendererState":{"cursor":2}` |
+| No state change | `"rendererState":{"cursor":2}` | File absent or `{"version":"v1"}` | `"rendererState":{"cursor":2}` |
+| Renderer requests clear | `"rendererState":{"cursor":2}` | `{"version":"v1","nextState":null}` | Field absent |
+| Same PNG, another attempt | Any committed input | A valid envelope with the next cursor | Consume that attempt once even if its image URL/filename matches the previous one |
+
+The last column applies only after that candidate's display delivery commits.
+Neither Job completion nor image download applies the result. An unchanged state
+still consumes one generation. Initial and cleared Context examples and an exact
+large integer are in the [Context fixtures](../testdata/render-context/README.md).
+
+For local experiments, pass `--context`, `--output` and `--result` explicitly.
+`--mode advance` varies the PNG shade with the cursor; `same-png` (the default)
+keeps PNG bytes fixed, and `same-state` preserves the input value. `missing` and
+`omit` exercise the two omission forms; `reset` writes null. `invalid`, `empty`,
+`duplicate` and `unknown` produce rejected results. `--delay SECONDS` waits after
+writing the PNG and before writing the result, so collection must wait for a
+successful terminal Job. These options are synthetic test controls, not a feed
+renderer implementation. Use `resetToken` to reset all Device pairs of a Screen;
+changing this token does not require a renderer-produced null.
+
+### Execution and container requirements
+
 Job `executionMode` is `Scheduled` when omitted. Set `OnDemand` to start only
 on authenticated display requests, omit `refreshInterval`, and optionally set
 `timeout` to an integer from `1s` to `10s` (default `5s`). The candidate budget

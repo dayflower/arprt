@@ -19,6 +19,7 @@ from pathlib import Path
 
 import helm_install
 import overlay_checks
+import state_smoke
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -452,6 +453,11 @@ def main():
             print(
                 "PASS: graceful restart, HTTP-only GC, base/composite issued URL retention and redacted logs",
                 flush=True,
+            )
+            installation.settings["jobs"] = {"enabled": True}
+            installation.upgrade()
+            state_smoke.run(
+                namespace, headers, forwarded, directory, wait, "operations"
             )
         finally:
             installation.cleanup()
