@@ -103,6 +103,40 @@ class ChangeSelectionTests(RepositoryTest):
 
 
 class SmokeRunnerTests(unittest.TestCase):
+    def test_groups_cover_every_suite_once_and_execute_only_selected_suites(self):
+        selected = []
+        for group in ("jobs", "functional"):
+            with (
+                self.subTest(group=group),
+                patch.object(runner, "execute") as execute,
+                redirect_stdout(io.StringIO()),
+            ):
+                execute.side_effect = lambda name, *_: (name, 0, "", 0)
+                self.assertEqual(
+                    runner.run_suites("arprt:test", 2, "/helm", "/packages", group), 0
+                )
+                names = [call.args[0] for call in execute.call_args_list]
+                if group == "jobs":
+                    self.assertEqual(names, ["job-smoke.py"])
+                else:
+                    self.assertCountEqual(
+                        names,
+                        [
+                            "cluster-smoke.py",
+                            "playlist-smoke.py",
+                            "operations-smoke.py",
+                            "image-smoke.py",
+                        ],
+                    )
+                selected.extend(names)
+        self.assertCountEqual(selected, runner.SUITES)
+
+    def test_unknown_group_fails_before_any_suite_runs(self):
+        with patch.object(runner, "execute") as execute:
+            with self.assertRaisesRegex(ValueError, "Unknown smoke group"):
+                runner.run_suites("arprt:test", 2, "/helm", "/packages", "invalid")
+            execute.assert_not_called()
+
     def test_failure_does_not_skip_other_suites(self):
         with tempfile.TemporaryDirectory() as directory:
             scripts = ["ok.py", "failed.py", "also-ok.py"]

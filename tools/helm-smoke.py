@@ -731,7 +731,9 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--node-image", required=True)
     parser.add_argument(
-        "--scope", choices=("all", "lifecycle", "suites"), default="all"
+        "--scope",
+        choices=("all", "lifecycle", "suites", "jobs", "functional"),
+        default="all",
     )
     parser.add_argument("--load-image", action="store_true")
     parser.add_argument("--use-chart-image", action="store_true")
@@ -814,7 +816,7 @@ def main():
                 Lifecycle(
                     args, directory, archives, env, True, external_yaml=True
                 ).exercise()
-            if args.scope in ("all", "suites"):
+            if args.scope in ("all", "suites", "jobs", "functional"):
                 env["ARPRT_KIND_RESOURCE_PROBE"] = "true"
                 # Prepare one shared CRD owner before concurrent isolated namespaces.
                 # Lifecycle fixtures are absent in a fresh suites-only cluster.
@@ -841,8 +843,10 @@ def main():
                         args.helm,
                         "--packages",
                         archives["arprt"].parent,
+                        "--group",
+                        args.scope if args.scope in ("jobs", "functional") else "all",
                         "--jobs",
-                        "2",
+                        "1" if args.scope == "jobs" else "2",
                         env=env,
                     ).stdout,
                     flush=True,

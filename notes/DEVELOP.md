@@ -126,7 +126,7 @@ the target Makefile, OS image and architecture; Go-built tools also include the
 pinned Go toolchain. Tools have no version fallback. `helm_prepare` owns
 controller-gen, setup-envtest, Helm and envtest saves on both architectures;
 `software` owns amd64 Staticcheck, and arm64 `helm_prepare` warms/saves the pinned
-Staticcheck binary for releases. Only the `suites` lane of each native main
+Staticcheck binary for releases. Only the `functional` lane of each native main
 `helm_smoke` job saves kind. Helm keys include the installer hash; a restored
 binary's timestamp is refreshed so Make does not redownload it just because the
 installer was checked out later. Neither the whole `bin/` tree nor controller
@@ -260,17 +260,26 @@ Local `helm-smoke`, `helm-release-smoke` and `helm-published-smoke` default to
 `HELM_SMOKE_SCOPE=all`: bundled/separate/YAML-managed lifecycle scenarios run first,
 then a shared CRD-chart release prepares the five isolated suites. Set
 `HELM_SMOKE_SCOPE=lifecycle` or `HELM_SMOKE_SCOPE=suites` to select one part.
+Use `HELM_SMOKE_SCOPE=jobs` for the Job suite alone, or
+`HELM_SMOKE_SCOPE=functional` for the cluster, playlist, operations and image
+suites with two workers. Both scopes prepare the shared CRD owner before
+running their selected suites. `all` and `suites` continue to run all five suites
+with two workers; `jobs` uses one worker.
 Each invocation owns a fresh cluster, so schema mutation/deletion in lifecycle
-checks cannot affect the suites. The five suites retain their two-worker limit.
+checks cannot affect the suites.
 `helm-published-smoke` uses only downloaded packages.
 
 In PR/main CI, `helm_prepare` checks charts and envtest and saves one image and
-chart set per native architecture. `helm_smoke` runs lifecycle and suites in
-parallel on separate runners using those exact artifacts without repackaging.
-The existing `helm` checks aggregate preparation and both scopes across the
+chart set per native architecture. `helm_smoke` runs lifecycle, jobs and functional
+scopes in parallel on separate runners using those exact artifacts without
+repackaging, for six smoke jobs across both architectures. Isolating the longest
+Job suite lets the other four suites progress independently of its worker slot
+and CPU usage. Image acceptance artifacts come from the functional scope.
+The existing `helm` checks aggregate preparation and all three scopes across the
 native matrix: failures, cancellations and unexpected skips fail the check.
 Prose-only changes retain the existing skip policy.
-Image releases also gate publication on this matrix on native amd64/arm64 runners,
+Image releases retain the lifecycle/suites split and also gate publication on
+all five suites on native amd64/arm64 runners,
 using the exact archived image that passed the initial native smoke matrix.
 Local software checks do not establish physical-device or additional storage
 support, cross-major Helm release migration, downgrade safety or ownership transfer.

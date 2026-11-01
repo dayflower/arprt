@@ -95,7 +95,7 @@ class IsolationTests(unittest.TestCase):
                 self.assertFalse(Path(environment["KUBECONFIG"]).parent.exists())
 
     def test_scope_selection_and_failure_cleanup(self):
-        for scope in (None, "all", "lifecycle", "suites"):
+        for scope in (None, "all", "lifecycle", "suites", "jobs", "functional"):
             for failure in (None, RuntimeError, KeyboardInterrupt):
                 with (
                     self.subTest(scope=scope, failure=failure),
@@ -152,7 +152,7 @@ class IsolationTests(unittest.TestCase):
                         else:
                             helm.main()
                     expected = []
-                    if scope != "suites":
+                    if scope in (None, "all", "lifecycle"):
                         expected += ["lifecycle"] * 3
                     if scope != "lifecycle":
                         expected += ["suites"]
@@ -176,7 +176,11 @@ class IsolationTests(unittest.TestCase):
                     ]
                     if suite_calls:
                         args, kwargs = suite_calls[0]
-                        self.assertEqual(args[-2:], ("--jobs", "2"))
+                        group = scope if scope in ("jobs", "functional") else "all"
+                        self.assertEqual(args[args.index("--group") + 1], group)
+                        self.assertEqual(
+                            args[-2:], ("--jobs", "1" if scope == "jobs" else "2")
+                        )
                         self.assertEqual(
                             args[args.index("--packages") + 1], archives["arprt"].parent
                         )

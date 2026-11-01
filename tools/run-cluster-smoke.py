@@ -43,12 +43,21 @@ def execute(suite, image, helm, packages):
     )
 
 
-def run_suites(image, jobs, helm, packages):
+def select_suites(group):
+    if group == "all":
+        return SUITES
+    if group not in ("jobs", "functional"):
+        raise ValueError(f"Unknown smoke group: {group}")
+    return [suite for suite in SUITES if (suite == "job-smoke.py") == (group == "jobs")]
+
+
+def run_suites(image, jobs, helm, packages, group="all"):
+    suites = select_suites(group)
     failed = False
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         futures = {
             executor.submit(execute, suite, image, helm, packages): suite
-            for suite in SUITES
+            for suite in suites
         }
         for future in as_completed(futures):
             suite = futures[future]
@@ -71,8 +80,11 @@ def main():
     parser.add_argument("--helm", required=True)
     parser.add_argument("--packages", required=True)
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
+    parser.add_argument("--group", choices=("all", "jobs", "functional"), default="all")
     args = parser.parse_args()
-    raise SystemExit(run_suites(args.image, args.jobs, args.helm, args.packages))
+    raise SystemExit(
+        run_suites(args.image, args.jobs, args.helm, args.packages, args.group)
+    )
 
 
 if __name__ == "__main__":
