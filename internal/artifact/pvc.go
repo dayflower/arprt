@@ -75,6 +75,15 @@ func (s *PVC) Publish(ctx context.Context, m Metadata, png []byte) (Metadata, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if m.Unit.DeviceUID != "" {
+		record, err := s.corner(m.Unit.DeviceUID)
+		if err != nil {
+			return Metadata{}, err
+		}
+		if record.Pending != nil {
+			return Metadata{}, ErrPending
+		}
+	}
 	key, err := unitKey(m.Unit)
 	if err != nil {
 		return Metadata{}, err

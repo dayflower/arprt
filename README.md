@@ -279,9 +279,11 @@ Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
 are drawn afterwards. Generated gray4 temporarily uses native two-bit PNG;
 the opt-in four-bit build assumes corrected firmware expansion and has not been
 physically accepted. The historical OG / 1.8.17 baseline does not validate it.
-The renderer-state API and persistence primitives are defined, but Job/display
-integration is not yet available. See the [state contract](notes/PROTOCOL.md#renderer-state-json)
-before configuring `source.job.state`.
+Jobs can opt into renderer-owned JSON state with `source.job.state`. State advances
+once when a selected candidate is committed for display delivery; rendering,
+replay and PNG downloads do not advance it. Definition changes reset state
+conservatively. See the [state contract](notes/PROTOCOL.md#renderer-state-json)
+and [storage recovery requirements](notes/OPERATIONS.md#recovery-and-troubleshooting).
 
 GET freshness and Scheduled Job execution use `refreshInterval`; POST and
 OnDemand Jobs forbid it. Job `executionMode` defaults to `Scheduled`; opt-in

@@ -29,6 +29,16 @@ type PairDefinition struct {
 	Compatibility string `json:"compatibility"`
 }
 
+// DefinePair hashes the effective definition consistently across delivery,
+// scheduling and maintenance. Output constraints include rotation and encoding.
+func DefinePair(unit Unit, revision string) PairDefinition {
+	b, _ := json.Marshal(struct {
+		Unit     Unit
+		Revision string
+	}{unit, revision})
+	return PairDefinition{Unit: unit, InputRevision: revision, Compatibility: digest(b)}
+}
+
 type RendererPair struct {
 	Definition   PairDefinition `json:"definition"`
 	Epoch        uint64         `json:"epoch"`
@@ -241,6 +251,9 @@ func (s *PVC) ConfirmCandidate(ctx context.Context, ref string) (CandidateManife
 	if err := s.confirmDurable("blobs", "records", "manifests", "corners"); err != nil {
 		return CandidateManifest{}, err
 	}
+	if err := s.cacheCandidate(m); err != nil {
+		return CandidateManifest{}, err
+	}
 	return m, nil
 }
 
@@ -334,6 +347,9 @@ func (s *PVC) PublishCandidate(ctx context.Context, r CornerRecord, key string, 
 	if err != nil {
 		return CandidateManifest{}, err
 	}
+	if current.Pending != nil {
+		return CandidateManifest{}, ErrPending
+	}
 	expected, ok := r.Pairs[key]
 	pair, live := current.Pairs[key]
 	if !ok || !live || expected.Definition != pair.Definition || expected.Epoch != pair.Epoch {
@@ -368,6 +384,9 @@ func (s *PVC) PublishCandidate(ctx context.Context, r CornerRecord, key string, 
 				return CandidateManifest{}, ErrObsolete
 			}
 			if err := s.confirmDurable("blobs", "records", "manifests", "corners"); err != nil {
+				return CandidateManifest{}, err
+			}
+			if err := s.cacheCandidate(old); err != nil {
 				return CandidateManifest{}, err
 			}
 			return old, nil
@@ -426,6 +445,9 @@ func (s *PVC) PublishCandidate(ctx context.Context, r CornerRecord, key string, 
 	current.Pairs[key] = pair
 	current.Revision++
 	if err := s.writeDevice(ctx, current, false); err != nil {
+		return CandidateManifest{}, err
+	}
+	if err := s.cacheCandidate(manifest); err != nil {
 		return CandidateManifest{}, err
 	}
 	return manifest, nil
@@ -590,4 +612,70 @@ func (s *PVC) confirmDurable(dirs ...string) error {
 		}
 	}
 	return nil
+}
+
+// DeviceRecords validates every authoritative record before recovery or GC.
+// Callers perform external reads only after this snapshot releases the mutex.
+func (s *PVC) DeviceRecords(ctx context.Context) ([]CornerRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(filepath.Join(s.root, "corners"))
+	if err != nil {
+		return nil, err
+	}
+	var records []CornerRecord
+	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		var disk CornerRecord
+		if err := strictRead(filepath.Join(s.root, "corners", e.Name()), MaxDeviceRecordBytes, &disk); err != nil {
+			return nil, err
+		}
+		if digest([]byte(disk.DeviceUID))+".json" != e.Name() {
+			return nil, ErrCorrupt
+		}
+		r, err := s.corner(disk.DeviceUID)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
+// cacheCandidate writes only a derivative of an already authoritative manifest.
+// It preserves compatible stale images across resets without authorizing state.
+func (s *PVC) cacheCandidate(m CandidateManifest) error {
+	r, err := s.corner(m.Metadata.Unit.DeviceUID)
+	if err != nil {
+		return err
+	}
+	if r.Pending != nil {
+		return ErrPending
+	}
+	p := r.Pairs[PairKey(m.Metadata.Unit.Namespace, m.Metadata.Unit.ScreenUID)]
+	data, err := marshalManifest(m)
+	if err != nil {
+		return err
+	}
+	ref := digest(data)
+	if p.StateRef != ref && p.CandidateRef != ref {
+		return ErrObsolete
+	}
+	key, err := unitKey(m.Metadata.Unit)
+	if err != nil {
+		return err
+	}
+	old, err := s.latest(key)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if err == nil && old.Sequence > m.Metadata.Sequence {
+		return nil
+	}
+	return s.writeJSONDurable(filepath.Join(s.root, "latest", key+".json"), m.Metadata)
 }

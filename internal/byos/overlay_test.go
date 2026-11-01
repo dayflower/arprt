@@ -199,7 +199,7 @@ func TestOverlayCyclingReplayRestartAndNoDrawing(t *testing.T) {
 	turn := loadDevice(t, c).Status.ScreenCycle.DeepCopy()
 	firstBytes := imageBytes(t, s, first)
 	r, err := s.Repository.Corner(context.Background(), "device-1")
-	if err != nil || r.Current != overlay.BottomRight || r.Revision != 1 || r.Pending != nil {
+	if err != nil || r.Current != overlay.BottomRight || r.Revision != 2 || r.Pending != nil {
 		t.Fatal(r, err)
 	}
 	repo, err := artifact.NewPVC(root)
@@ -220,7 +220,7 @@ func TestOverlayCyclingReplayRestartAndNoDrawing(t *testing.T) {
 		t.Fatal("replay changed image or time")
 	}
 	r, err = repo.Corner(context.Background(), "device-1")
-	if err != nil || r.Revision != 1 {
+	if err != nil || r.Revision != 2 {
 		t.Fatal("replay advanced corner", r, err)
 	}
 	s = restarted
@@ -302,7 +302,7 @@ func TestOverlayPersistenceFallbackAndRequiredIssuanceFailure(t *testing.T) {
 				}
 			}
 			r, err := original.Corner(context.Background(), "device-1")
-			if err != nil || r.Revision != 0 || r.Current != overlay.TopRight {
+			if err != nil || r.Revision != map[bool]uint64{true: 1, false: 0}[strings.HasPrefix(failure, "issue")] || r.Current != overlay.TopRight {
 				t.Fatal("failed overlay advanced", r, err)
 			}
 		})
@@ -315,16 +315,16 @@ type cornerErrorRepository struct {
 	fail   bool
 }
 
-func (r *cornerErrorRepository) ResolveCorner(ctx context.Context, record artifact.CornerRecord, advance bool) error {
+func (r *cornerErrorRepository) ResolveDelivery(ctx context.Context, record artifact.CornerRecord, advance bool) error {
 	if r.fail && advance {
 		if r.commit {
-			if err := r.Repository.ResolveCorner(ctx, record, advance); err != nil {
+			if err := r.Repository.ResolveDelivery(ctx, record, advance); err != nil {
 				return err
 			}
 		}
 		return errors.New("injected finalization failure")
 	}
-	return r.Repository.ResolveCorner(ctx, record, advance)
+	return r.Repository.ResolveDelivery(ctx, record, advance)
 }
 
 type committedCycleClient struct {
@@ -402,7 +402,7 @@ func TestOverlayCornerRecoveryAcrossDeliveryFailureWindows(t *testing.T) {
 				t.Fatal("recovery failed", recovered)
 			}
 			record, err := repo.Corner(context.Background(), "device-1")
-			if err != nil || record.Current != overlay.BottomRight || record.Revision != 1 || record.Pending != nil {
+			if err != nil || record.Current != overlay.BottomRight || record.Revision != map[bool]uint64{true: 2, false: 4}[committed] || record.Pending != nil {
 				t.Fatal("corner advanced twice or was lost", record, err)
 			}
 			if committed && (!artifact.EqualCycle(turn, loadDevice(t, c).Status.ScreenCycle) || recovered.Filename != turn.Filename) {
@@ -455,7 +455,7 @@ func TestConcurrentOverlayRequestsCommitOnePlaylistTurn(t *testing.T) {
 		}
 	}
 	r, err := s.Repository.Corner(context.Background(), "device-1")
-	if err != nil || r.Revision != 1 || calls != 1 {
+	if err != nil || r.Revision != 2 || calls != 1 {
 		t.Fatal("multiple commits", r, calls, err)
 	}
 }
@@ -556,7 +556,7 @@ func TestFractionalPOSTContextAndStaleOverlay(t *testing.T) {
 		t.Fatal("overlay refreshed failed POST success")
 	}
 	record, err := s.Repository.Corner(context.Background(), string(d.UID))
-	if err != nil || record.Revision != 2 {
+	if err != nil || record.Revision != 4 {
 		t.Fatal("single screen deliveries didn't advance", record, err)
 	}
 	conditions := loadDevice(t, c).Status.Conditions

@@ -27,6 +27,13 @@ type demandFlight struct {
 }
 
 func (s *Server) joinDemand(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery) (*demandFlight, func(), error) {
+	if image, ok, err := s.rendererCandidate(ctx, d, selected, nil); err != nil {
+		return nil, nil, err
+	} else if ok {
+		done := make(chan struct{})
+		close(done)
+		return &demandFlight{done: done, metadata: image.metadata}, func() {}, nil
+	}
 	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(selected.screen.UID), DeviceUID: string(d.UID), Target: selected.target, Output: selected.output}
 	identity, err := json.Marshal(struct {
 		Unit             artifact.Unit
@@ -104,6 +111,9 @@ func (s *Server) waitDemand(ctx context.Context, d *api.ArprtDevice, selected se
 		return deliveryImage{}, err
 	}
 	if f.err == nil {
+		if image, ok, err := s.rendererCandidate(ctx, d, selected, &f.metadata); err != nil || ok {
+			return image, err
+		}
 		return deliveryImage{metadata: f.metadata}, nil
 	}
 	var candidate *jobrender.ExecutionError
@@ -115,7 +125,7 @@ func (s *Server) waitDemand(ctx context.Context, d *api.ArprtDevice, selected se
 	var m artifact.Metadata
 	err := imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 		var err error
-		m, err = s.Repository.Latest(ctx, artifact.Unit{Namespace: d.Namespace, ScreenUID: string(selected.screen.UID), DeviceUID: string(d.UID), Target: selected.target, Output: selected.output})
+		m, err = s.rendererFallback(ctx, d, selected)
 		return err
 	})
 	if err != nil && !errors.Is(err, artifact.ErrNotFound) {

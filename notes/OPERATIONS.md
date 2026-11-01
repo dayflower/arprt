@@ -614,8 +614,14 @@ State manifests in `manifests` and their referenced images belong in the same
 backup. A device record admits at most 64 pairs and 64 KiB; manifests are at most
 48 KiB. Capacity admission never silently discards a retained pair.
 
-The state API/storage primitives are available, but Job and display integration
-are not connected yet. The defined reset mechanism is a change to
+Job candidates advance state only when selected for durable display delivery.
+Startup, display, Job work and maintenance recover pending deliveries using the
+complete persisted API turn. A previous turn aborts; the proposed turn commits;
+any unrelated turn stops progress. Interrupted single-screen deliveries abort
+without consuming their candidate. Issued URLs retain authorization even when
+later commitment fails. Never infer commitment from a digest or edit a pending
+record manually. The fixed `delivery_commit` storage-error label records required
+BYOS commitment failures without state contents. The reset mechanism is a change to
 `source.job.state.resetToken`; normalized Screen definition changes also reset
 state conservatively, including refresh interval and renderer configuration.
 State values may contain private renderer data: keep backups private and never

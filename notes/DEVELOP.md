@@ -607,8 +607,13 @@ tests inject storage failures after write, file sync, rename and directory sync,
 then reopen the repository and retry publication or delivery decisions. They also
 cover candidate CAS competition, retention roots and fail-closed record versions.
 The API integration suite checks state paths and default collisions against the
-actual CEL rules. These tests exercise storage primitives, not real-container
-state collection, mounted result files or end-to-end state delivery.
+actual CEL rules. BYOS tests additionally exercise authenticated candidate delivery, replay and
+stale fallback, Skip age rules and unselected candidates, same-PNG attempts,
+overlay provenance, concurrent displays and late waiters. Failure tests reopen
+storage after issuance, API commitment and finalization failures, including a
+failed HTTP response, unknown-turn protection, deleted UIDs and maintenance
+reset/departure recovery. These tests do not establish real-container state
+collection, mounted result files or physical display acknowledgements.
 
 
 Start with focused tests for changed behavior, then run the applicable matrix.
@@ -734,8 +739,9 @@ Opted-in Job state unit tests in `internal/jobrender` cover immutable committed
 snapshots, paired PNG/result validation, candidate retention across intervals,
 OnDemand reuse, reset fencing and publication recovery before/after consumption.
 Repository fault tests cover durable write boundaries; Job tests also require
-confirmation failures to preserve Active bookkeeping. These tests do not prove
-BYOS state commitment or real container/PVC behavior.
+confirmation failures to preserve Active bookkeeping. BYOS commitment has its
+own delivery/recovery tests described above. Unit tests do not prove real
+container/PVC behavior.
 
 ## Disposable cluster checks
 

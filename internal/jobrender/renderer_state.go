@@ -2,12 +2,12 @@ package jobrender
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/screen"
 )
@@ -15,15 +15,15 @@ import (
 var errPendingDelivery = artifact.ErrPending
 
 // Lock order is reconciler operation, image admission (during collection), then
-// repository. No device gate is acquired here. API reads and Job waits never
-// occur under the repository mutex. Pending delivery blocks mutations until the
+// delivery decision lock, then repository. No device gate is acquired here.
+// API reads and Job waits never occur under the repository mutex. Pending delivery blocks mutations until the
 // delivery owner resolves it; collection must not infer a decision from images.
 func (r *Reconciler) rendererRecord(ctx context.Context, st *state, configure bool) (artifact.CornerRecord, error) {
 	store, ok := r.Repository.(artifact.StateStore)
 	if !ok {
 		return artifact.CornerRecord{}, errors.New("renderer state requires a state repository")
 	}
-	record, err := store.Corner(ctx, st.DeviceUID)
+	record, err := deliverycommit.RecoverDevice(ctx, store, r.Reader, st.DeviceUID, nil, st.Namespace)
 	if err != nil {
 		return record, err
 	}
@@ -35,14 +35,7 @@ func (r *Reconciler) rendererRecord(ctx context.Context, st *state, configure bo
 	}
 	// InputRevision includes normalized processing, overlay and reset settings;
 	// Unit adds the resolved target and output constraints, including rotation.
-	b, err := json.Marshal(struct {
-		Unit     artifact.Unit
-		Revision string
-	}{st.Unit, st.Revision})
-	if err != nil {
-		return record, err
-	}
-	return store.ConfigurePair(ctx, record, artifact.PairDefinition{Unit: st.Unit, InputRevision: st.Revision, Compatibility: hash(b)})
+	return store.ConfigurePair(ctx, record, artifact.DefinePair(st.Unit, st.Revision))
 }
 
 // syncRendererPair shares reset/departure ordering between watch and maintenance.
@@ -95,7 +88,7 @@ func (r *Reconciler) retireRenderer(ctx context.Context, st, replacement *state)
 	if !ok {
 		return nil
 	}
-	record, err := store.Corner(ctx, st.DeviceUID)
+	record, err := deliverycommit.RecoverDevice(ctx, store, r.Reader, st.DeviceUID, nil, st.Namespace)
 	if err != nil {
 		return err
 	}

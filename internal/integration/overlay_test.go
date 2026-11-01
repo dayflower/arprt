@@ -188,7 +188,7 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 		t.Fatal("API replay extended window", err)
 	}
 	corner, err := restartedRepo.Corner(ctx, string(device.UID))
-	if err != nil || corner.Current != overlay.BottomRight || corner.Revision != 1 {
+	if err != nil || corner.Current != overlay.BottomRight || corner.Revision != 2 {
 		t.Fatal("API replay advanced corner", corner, err)
 	}
 	device.Status.ScreenCycle.ServedAt = metav1.NewMicroTime(time.Now().UTC().Add(-time.Hour))
@@ -203,7 +203,7 @@ func verifyOverlayDelivery(t *testing.T, c client.Client) {
 		t.Fatal("new HTTP turn lost repeated position", device.Status.ScreenCycle, err)
 	}
 	corner, err = restartedRepo.Corner(ctx, string(device.UID))
-	if err != nil || corner.Revision != 2 || corner.Current != overlay.BottomLeft {
+	if err != nil || corner.Revision != 4 || corner.Current != overlay.BottomLeft {
 		t.Fatal("API turn not finalized", corner, err)
 	}
 	// Reopen at the later occurrence: replay must retain it, then wrap to zero.

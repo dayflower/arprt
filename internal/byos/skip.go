@@ -176,6 +176,14 @@ func (s *Server) exploreSkip(ctx, request context.Context, d *api.ArprtDevice, o
 
 func (s *Server) skipCandidate(ctx context.Context, d *api.ArprtDevice, o Observation, selected selectedDelivery, started time.Time) (deliveryImage, error) {
 	sc := selected.screen
+	if sc.Spec.Source.Job != nil && sc.Spec.Source.Job.State != nil {
+		if image, ok, err := s.rendererCandidate(ctx, d, selected, nil); err != nil || ok {
+			return image, err
+		}
+		if !screen.IsOnDemand(sc.Spec) {
+			return deliveryImage{renderErr: errors.New("scheduled Job has no unconsumed candidate")}, nil
+		}
+	}
 	if sc.Spec.Source.Job != nil && s.Jobs == nil {
 		return deliveryImage{renderErr: &jobrender.ExecutionError{Reason: "JobSchedulingDisabled"}}, nil
 	}
@@ -234,6 +242,9 @@ func (s *Server) skipCandidate(ctx context.Context, d *api.ArprtDevice, o Observ
 			return deliveryImage{renderErr: err}, nil
 		}
 		return deliveryImage{}, err
+	}
+	if image, ok, err := s.rendererCandidate(ctx, d, selected, &m); err != nil || ok {
+		return image, err
 	}
 	return deliveryImage{metadata: m}, nil
 }

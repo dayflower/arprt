@@ -293,9 +293,14 @@ fields. Removing fields or changing semantics requires a new context version.
 ### Renderer state JSON
 
 Opted-in Jobs snapshot committed state and collect image/result candidates.
-Display commitment is not yet connected: `source.job.state` does not currently
-enable end-to-end stateful rendering. Successful Jobs and elapsed refresh
-intervals leave the committed state unchanged and retain one unconsumed candidate.
+Successful Jobs and elapsed refresh intervals leave the committed state
+unchanged and retain one unconsumed candidate. A successful authenticated display
+URL delivery consumes the selected candidate once. Single-screen delivery commits
+with the durable device-record update after Issue; cycling delivery first records
+the complete API turn as a recoverable decision. An HTTP response failure after
+commit does not undo state. PNG downloads, preview, replay and stale fallback
+never advance state. Unconsumed opted-in candidates remain fresh for Skip
+regardless of age; unselected candidates are retained.
 
 The extension is an optional JSON value named `rendererState`; initial or cleared
 state omits the field. The [state fixture](../testdata/render-context/render-context-state.json)

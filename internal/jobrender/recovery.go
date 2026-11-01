@@ -12,6 +12,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
@@ -28,6 +29,10 @@ import (
 // prepareAttempt leaves Active nil when work must wait or fails. On success,
 // context, sequence and Active are durable before advance can submit a Job.
 func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
+	key := client.ObjectKeyFromObject(d)
+	if _, err := deliverycommit.RecoverDevice(ctx, r.Repository, r.Reader, st.DeviceUID, &key, st.Namespace); err != nil {
+		return ctrl.Result{}, err
+	}
 	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
 		f.attempted = true
 		st.Reason = ""
