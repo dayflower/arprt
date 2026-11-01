@@ -212,6 +212,9 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 			result, err = ctrl.Result{}, nil
 		}
 	}()
+	if err := r.syncRendererPair(ctx, st, wanted, d, s); err != nil {
+		return ctrl.Result{}, err
+	}
 	if !same(st, wanted) {
 		if st != nil && st.Active != nil {
 			// A compatibility or definition change is terminal even if cancellation
@@ -284,6 +287,13 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 			interval, _ := screen.EffectiveInterval(s.Spec)
 			wanted.Due = old.RenderedAt.Add(interval)
 		}
+		if s.Spec.Source.Job.State != nil {
+			record, err := r.rendererRecord(ctx, wanted, false)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			wanted.Sequence = max(wanted.Sequence, record.Pairs[artifact.PairKey(wanted.Namespace, wanted.Unit.ScreenUID)].LastSequence)
+		}
 		st = wanted
 		if err := r.Store.save(st); err != nil {
 			return ctrl.Result{}, err
@@ -291,6 +301,21 @@ func (r *Reconciler) reconcilePair(ctx context.Context, req ctrl.Request, screen
 	}
 	if st.Active != nil {
 		return r.advance(ctx, d, s, st)
+	}
+	if s.Spec.Source.Job.State != nil {
+		m, err := r.rendererCandidate(ctx, st)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if m.AttemptID != "" {
+			if st.Trigger == OnDemand {
+				if f := r.flight(st); f != nil {
+					f.metadata = m
+				}
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{RequeueAfter: candidatePollInterval}, nil
+		}
 	}
 	if st.Trigger == OnDemand {
 		if f := r.flight(st); f == nil || f.attempted || f.waiters.Load() == 0 || f.ctx.Err() != nil {
@@ -373,6 +398,23 @@ func (r *Reconciler) cancel(ctx context.Context, st *state) (bool, error) {
 
 func (r *Reconciler) advance(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state) (ctrl.Result, error) {
 	a := st.Active
+	if a.RendererPair != nil && a.TerminalReason == "" {
+		m, err := r.rendererPublished(ctx, st)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if m.AttemptID != "" {
+			return r.complete(ctx, d, s, st, m)
+		}
+		record, err := r.rendererRecord(ctx, st, false)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		pair := record.Pairs[artifact.PairKey(st.Namespace, st.Unit.ScreenUID)]
+		if pair.Epoch != a.RendererPair.Epoch || pair.Generation != a.RendererPair.Generation || pair.Definition != a.RendererPair.Definition || pair.DetachedAt != nil {
+			return r.failed(ctx, d, s, st, "ObsoleteAttempt")
+		}
+	}
 	if a.Trigger == OnDemand {
 		// A durable publication wins a crash between Publish and clearing Active.
 		f := r.flight(st)
@@ -592,6 +634,9 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if err := r.syncRendererPair(ctx, st, desired, d, s); err != nil {
+			return err
+		}
 		if !same(st, desired) {
 			if st.Active != nil {
 				if st.Active.TerminalReason == "" {
@@ -611,6 +656,17 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 			}
 			if err = os.Remove(filepath.Join(r.Store.Root, "jobs", entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
+			}
+		} else if s.Spec.Source.Job.State != nil && st.Trigger == Scheduled {
+			if _, err := r.reconcilePair(ctx, clientRequest(st), st.ScreenName); err != nil {
+				return err
+			}
+			current, err := r.Store.load(st.Namespace, st.DeviceName, st.ScreenName)
+			if err != nil {
+				return err
+			}
+			if current != nil && current.Active != nil {
+				active[current.Active.ID] = true
 			}
 		} else if st.Active != nil {
 			if st.Trigger == OnDemand && r.flight(st) == nil {

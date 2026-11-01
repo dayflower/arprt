@@ -150,7 +150,7 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (metadat
 		r.mu.Unlock()
 		return artifact.Metadata{}, context.Canceled
 	}
-	d, _, wanted, err := r.desired(waitCtx, req.Device, req.Screen)
+	d, s, wanted, err := r.desired(waitCtx, req.Device, req.Screen)
 	if err == nil && (wanted == nil || wanted.Trigger != OnDemand || wanted.Unit != req.Unit || wanted.Revision != req.Revision) {
 		err = &ExecutionError{Reason: "ObsoleteAttempt"}
 	}
@@ -160,6 +160,17 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (metadat
 	if err != nil {
 		r.mu.Unlock()
 		return artifact.Metadata{}, err
+	}
+	if s.Spec.Source.Job.State != nil {
+		_, err := r.rendererRecord(waitCtx, wanted, true)
+		var m artifact.Metadata
+		if err == nil {
+			m, err = r.rendererCandidate(waitCtx, wanted)
+		}
+		if err != nil || m.AttemptID != "" {
+			r.mu.Unlock()
+			return m, err
+		}
 	}
 	key := pairKey(req.Device.Namespace, req.Device.Name, req.Screen)
 	f := r.flights[key]
@@ -180,6 +191,7 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (metadat
 			}
 			snapshot = *req.Snapshot
 		}
+		snapshot.RendererState = nil
 		b, err := render.MarshalContext(snapshot)
 		if err != nil {
 			r.mu.Unlock()
@@ -345,6 +357,9 @@ func (r *Reconciler) stopExecutions() {
 }
 
 func (r *Reconciler) published(ctx context.Context, st *state) (artifact.Metadata, error) {
+	if st.Active != nil && st.Active.RendererPair != nil {
+		return r.rendererPublished(ctx, st)
+	}
 	var m artifact.Metadata
 	err := imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 		var err error

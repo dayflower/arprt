@@ -730,6 +730,13 @@ synthetic browser fixture rather than live device data. To refresh them, run the
 browser check with `ARPRT_DASHBOARD_SCREENSHOTS` set, then copy `desktop.png` and
 `mobile.png` to those paths.
 
+Opted-in Job state unit tests in `internal/jobrender` cover immutable committed
+snapshots, paired PNG/result validation, candidate retention across intervals,
+OnDemand reuse, reset fencing and publication recovery before/after consumption.
+Repository fault tests cover durable write boundaries; Job tests also require
+confirmation failures to preserve Active bookkeeping. These tests do not prove
+BYOS state commitment or real container/PVC behavior.
+
 ## Disposable cluster checks
 
 Smoke scripts use the selected kubeconfig context, install controllers and missing

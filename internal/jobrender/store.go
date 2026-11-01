@@ -22,15 +22,16 @@ import (
 )
 
 type attempt struct {
-	ID             string        `json:"id"`
-	Sequence       uint64        `json:"sequence"`
-	StartedAt      time.Time     `json:"startedAt"`
-	ContextDigest  string        `json:"contextDigest"`
-	Source         api.JobSource `json:"source"`
-	TerminalReason string        `json:"terminalReason,omitempty"`
-	Submitted      bool          `json:"submitted,omitempty"`
-	Trigger        Trigger       `json:"trigger,omitempty"`
-	Deadline       time.Time     `json:"deadline,omitzero"`
+	RendererPair   *artifact.RendererPair `json:"rendererPair,omitempty"`
+	ID             string                 `json:"id"`
+	Sequence       uint64                 `json:"sequence"`
+	StartedAt      time.Time              `json:"startedAt"`
+	ContextDigest  string                 `json:"contextDigest"`
+	Source         api.JobSource          `json:"source"`
+	TerminalReason string                 `json:"terminalReason,omitempty"`
+	Submitted      bool                   `json:"submitted,omitempty"`
+	Trigger        Trigger                `json:"trigger,omitempty"`
+	Deadline       time.Time              `json:"deadline,omitzero"`
 }
 
 type state struct {
@@ -372,9 +373,67 @@ func validateState(st *state) error {
 		if !validID(st.Active.ID) || st.Active.Sequence == 0 || st.Active.StartedAt.IsZero() {
 			return errors.New("invalid scheduler attempt")
 		}
+		if (st.Active.Source.State != nil) != (st.Active.RendererPair != nil) {
+			return errors.New("invalid renderer state snapshot")
+		}
+		if p := st.Active.RendererPair; p != nil && (p.Epoch == 0 || p.Definition.Unit != st.Unit || p.Definition.InputRevision != st.Revision || p.CandidateRef != "" || p.DetachedAt != nil) {
+			return errors.New("invalid renderer pair snapshot")
+		}
 		if _, err := normalize(st.Active.Source); err != nil {
 			return errors.New("invalid scheduler source")
 		}
 	}
 	return nil
+}
+
+// collectResult reads only opted-in results from the existing writable mount.
+// Absence is distinct from an unreadable file or a dangling symlink.
+func (s *Store) collectResult(ctx context.Context, a *attempt) (render.StateResult, error) {
+	if a.Source.State == nil {
+		return render.StateResult{}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return render.StateResult{}, err
+	}
+	source, err := normalize(a.Source)
+	if err != nil {
+		return render.StateResult{}, errors.New("invalid Job result path")
+	}
+	root, err := os.OpenRoot(filepath.Join(s.run(a.ID), "output"))
+	if err != nil {
+		return render.StateResult{}, err
+	}
+	defer root.Close()
+	name := filepath.Base(source.State.ResultPath)
+	if _, err := root.Lstat(name); errors.Is(err, os.ErrNotExist) {
+		return render.StateResult{}, nil
+	} else if err != nil {
+		return render.StateResult{}, err
+	}
+	f, err := root.OpenFile(name, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err != nil {
+		// Root confinement and symlink loops are renderer output failures. Actual
+		// filesystem errors (permission, I/O, descriptor exhaustion) remain visible.
+		var errno unix.Errno
+		if !errors.As(err, &errno) || errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, os.ErrNotExist) {
+			return render.StateResult{}, render.ErrStateJSON
+		}
+		return render.StateResult{}, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return render.StateResult{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > render.MaxResultBytes {
+		return render.StateResult{}, render.ErrStateJSON
+	}
+	b, err := io.ReadAll(io.LimitReader(f, render.MaxResultBytes+1))
+	if err != nil {
+		return render.StateResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return render.StateResult{}, err
+	}
+	return render.ParseStateResult(b)
 }

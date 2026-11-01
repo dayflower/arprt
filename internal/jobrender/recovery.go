@@ -40,18 +40,42 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
+		if err := f.ctx.Err(); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := json.Unmarshal(f.snapshot, &snapshot); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	var pair *artifact.RendererPair
+	if source.State != nil {
+		record, err := r.rendererRecord(ctx, st, true)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		p := record.Pairs[artifact.PairKey(st.Namespace, st.Unit.ScreenUID)]
+		if p.CandidateRef != "" {
+			return ctrl.Result{RequeueAfter: time.Minute}, nil
+		}
+		state, err := r.Repository.(artifact.StateStore).CommittedState(ctx, record, artifact.PairKey(st.Namespace, st.Unit.ScreenUID))
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		snapshot.RendererState = state
+		pair = &p
+	} else {
+		snapshot.RendererState = nil
+	}
 	b, err := render.MarshalContext(snapshot)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-	if f := r.flight(st); st.Trigger == OnDemand && f != nil {
-		b = f.snapshot
 	}
 	var id [16]byte
 	if _, err = rand.Read(id[:]); err != nil {
 		return ctrl.Result{}, err
 	}
-	a := &attempt{ID: hex.EncodeToString(id[:]), Sequence: st.Sequence + 1, StartedAt: r.now(), ContextDigest: hash(b), Source: source}
+	a := &attempt{ID: hex.EncodeToString(id[:]), Sequence: st.Sequence + 1, StartedAt: r.now(), ContextDigest: hash(b), Source: source, RendererPair: pair}
 	if st.Trigger == OnDemand {
 		f := r.flight(st)
 		if f == nil {
@@ -227,6 +251,10 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 	var result ctrl.Result
 	err = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 		b, err := r.Store.collectInput(ctx, a)
+		var stateResult render.StateResult
+		if err == nil {
+			stateResult, err = r.Store.collectResult(ctx, a)
+		}
 		if err == nil {
 			policy, policyErr := screen.ProcessingPolicy(s.Spec)
 			err = policyErr
@@ -239,7 +267,7 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 				return ctx.Err()
 			}
 			var filesystemError *os.PathError
-			if st.Trigger == OnDemand && errors.As(err, &filesystemError) && !errors.Is(err, os.ErrNotExist) {
+			if errors.As(err, &filesystemError) && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
 			result, err = r.failed(ctx, d, s, st, "CollectionFailed")
@@ -258,7 +286,7 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 			result = ctrl.Result{RequeueAfter: time.Millisecond}
 			return nil
 		}
-		result, err = r.publishCompleted(ctx, d, s, st, job, b)
+		result, err = r.publishCompleted(ctx, d, s, st, job, b, stateResult)
 		return err
 	})
 	return result, err
@@ -266,7 +294,7 @@ func (r *Reconciler) collectSuccessful(ctx context.Context, d *api.ArprtDevice, 
 
 // publishCompleted publishes before clearing Active so an interrupted save can
 // recover the same attempt and publication metadata.
-func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job, b []byte) (ctrl.Result, error) {
+func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, job *batchv1.Job, b []byte, result render.StateResult) (ctrl.Result, error) {
 	a := st.Active
 	if a.TerminalReason != "" {
 		return ctrl.Result{}, &ExecutionError{Reason: a.TerminalReason}
@@ -281,7 +309,25 @@ func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s
 	if job.Status.CompletionTime != nil {
 		renderedAt = job.Status.CompletionTime.Time
 	}
-	m, err := r.Repository.Publish(ctx, artifact.Metadata{Unit: st.Unit, ScreenGeneration: st.ScreenGeneration, InputRevision: st.Revision, AttemptID: a.ID, Sequence: a.Sequence, ContextDigest: a.ContextDigest, RenderedAt: renderedAt}, b)
+	m := artifact.Metadata{Unit: st.Unit, ScreenGeneration: st.ScreenGeneration, InputRevision: st.Revision, AttemptID: a.ID, Sequence: a.Sequence, ContextDigest: a.ContextDigest, RenderedAt: renderedAt}
+	var err error
+	if a.RendererPair != nil {
+		var record artifact.CornerRecord
+		record, err = r.rendererRecord(ctx, st, false)
+		if err == nil {
+			key := artifact.PairKey(st.Namespace, st.Unit.ScreenUID)
+			pair := record.Pairs[key]
+			if pair.Epoch != a.RendererPair.Epoch || pair.Generation != a.RendererPair.Generation || pair.Definition != a.RendererPair.Definition {
+				err = artifact.ErrObsolete
+			} else {
+				var candidate artifact.CandidateManifest
+				candidate, err = r.Repository.(artifact.StateStore).PublishCandidate(ctx, record, key, m, b, result)
+				m = candidate.Metadata
+			}
+		}
+	} else {
+		m, err = r.Repository.Publish(ctx, m, b)
+	}
 	if err != nil {
 		if errors.Is(err, artifact.ErrCapacity) {
 			if err := r.report(ctx, d, s, false, "StorageCapacityExceeded"); err != nil {
@@ -293,6 +339,18 @@ func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s
 			return ctrl.Result{RequeueAfter: time.Minute}, nil
 		}
 		if errors.Is(err, artifact.ErrObsolete) {
+			if a.RendererPair != nil {
+				// An unrelated corner/pair revision can lose the complete-record CAS
+				// without invalidating this input generation. Retry the same attempt.
+				record, readErr := r.rendererRecord(ctx, st, false)
+				if readErr != nil {
+					return ctrl.Result{}, readErr
+				}
+				pair := record.Pairs[artifact.PairKey(st.Namespace, st.Unit.ScreenUID)]
+				if pair.Epoch == a.RendererPair.Epoch && pair.Generation == a.RendererPair.Generation && pair.Definition == a.RendererPair.Definition && pair.DetachedAt == nil && pair.CandidateRef == "" {
+					return ctrl.Result{RequeueAfter: time.Millisecond}, nil
+				}
+			}
 			return r.failed(ctx, d, s, st, "ObsoleteAttempt")
 		}
 		return ctrl.Result{}, err

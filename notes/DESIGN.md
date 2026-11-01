@@ -489,8 +489,8 @@ its own telemetry and revalidates current authorization before issuance.
 Hold/discovery retain their serialized turn/replay and stale-image rules.
 Skip shares the complete turn as described above.
 
-Each independent single-screen request tries a new Job even with an existing
-image. Candidate failure permits the same pair's compatible stale output;
+Jobs without renderer state try a new Job for each independent single-screen
+request even with an existing image. Candidate failure permits the same pair's compatible stale output;
 no image returns HTTP 200 / JSON 202. Storage/API/issuance failures retain their
 failure response. Rendering and successful base storage stop by admission plus
 10s. Compatible fallback, overlays and issuance use the remaining request time
@@ -539,8 +539,9 @@ between stages. Kubernetes resource GC does not remove arbitrary PVC directories
 
 ### Renderer state persistence
 
-The [state store](../internal/artifact/state.go) provides internal primitives;
-Job collection and BYOS state delivery integration are not yet connected.
+The [state store](../internal/artifact/state.go) is connected to opted-in Job
+preparation, collection and scheduling. BYOS delivery commitment is not yet
+connected, so this is not an end-to-end stateful rendering feature.
 The existing corner API uses the same authoritative device file as renderer
 pairs and a single pending delivery. Pair ownership uses namespace, Device UID
 and Screen UID. Definition revision and a separate compatibility fingerprint
@@ -553,6 +554,26 @@ Metadata, credentials and telemetry are excluded. Epochs fence resets and
 assignment departure; generations advance only when a candidate is consumed,
 even if its state and PNG bytes are unchanged. Candidate identity is the attempt
 ID, separate from image digest. A pair has at most one unconsumed candidate.
+
+Both Scheduled and OnDemand attempts persist the committed pair snapshot,
+including epoch, generation, definition and target, beside the context digest.
+Only committed state enters `rendererState`; supplied display snapshots cannot
+inject state. Collection reads the optional result beneath the existing output
+root with nonblocking, regular-file and bounded-read checks. Missing files keep
+state; unreadable files are not treated as omission. PNG processing and result
+validation must both succeed before publication. API, filesystem I/O and capacity
+failures remain infrastructure failures for both execution modes; malformed
+renderer output uses the existing Scheduled backoff or OnDemand cleanup.
+
+An unconsumed candidate blocks periodic replacement regardless of elapsed time,
+and OnDemand returns it without starting work. Scheduled due remains
+`RenderedAt + refreshInterval`; reconciliation and minute maintenance can start
+the next attempt after consumption when due. OnDemand adds no periodic retry.
+Recovery reads authoritative candidate/committed references before Job files,
+confirms directory durability, and completes interrupted Active cleanup without
+republishing consumed work. Reset, departure and changed definitions fence late
+attempts. Pending delivery blocks preparation, collection and pair mutations
+until the delivery recovery owner resolves it.
 
 Publication saves a content-addressed image and immutable candidate manifest,
 then atomically replaces the device record using a complete snapshot CAS.
