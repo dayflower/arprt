@@ -8,9 +8,11 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
+	"github.com/dayflower/arprt/internal/screen"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,6 +48,9 @@ func (m *StorageMaintenance) Start(ctx context.Context) error {
 	}
 }
 func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
+	if err := deliverycommit.RecoverAll(ctx, m.Repository, m.Reader, m.Namespace); err != nil {
+		return err
+	}
 	refresh := m.Refresh
 	if refresh <= 0 {
 		refresh = 5 * time.Minute
@@ -76,10 +81,16 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 		}
 		resolved := devicestate.Resolved(&d)
 		if resolved.Validate() != nil {
+			if err := m.syncPairs(ctx, &d, now); err != nil {
+				return err
+			}
 			continue
 		}
 		eligible, err := (assignment.Explicit{Reader: m.Reader}).Eligible(ctx, &d)
 		if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
+			return err
+		}
+		if err := m.syncPairs(ctx, &d, now); err != nil {
 			return err
 		}
 		for _, entry := range eligible.Entries {
@@ -105,4 +116,63 @@ func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 	return imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 		return m.Repository.Collect(ctx, func(u artifact.Unit) bool { return units[u] }, uids, now)
 	})
+}
+
+// syncPairs covers resets and assignment departure even with Job execution
+// disabled or after scheduler records have been removed. CAS fences stale scans.
+func (m *StorageMaintenance) syncPairs(ctx context.Context, d *api.ArprtDevice, now time.Time) error {
+	r, err := m.Repository.Corner(ctx, string(d.UID))
+	if err != nil {
+		return err
+	}
+	for key := range r.Pairs {
+		// Take the CAS snapshot before fresh API reads. An older List snapshot must
+		// not detach/reset work published while maintenance was scanning devices.
+		r, err = m.Repository.Corner(ctx, string(d.UID))
+		if err != nil {
+			return err
+		}
+		if r.Pending != nil {
+			return artifact.ErrPending
+		}
+		var current api.ArprtDevice
+		if err := m.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
+			return err
+		}
+		if current.UID != d.UID || !current.DeletionTimestamp.IsZero() {
+			return artifact.ErrObsolete
+		}
+		target := devicestate.Resolved(&current)
+		var assigned *api.ArprtScreen
+		if target.Validate() == nil {
+			eligible, err := (assignment.Explicit{Reader: m.Reader}).Eligible(ctx, &current)
+			if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, assignment.ErrEmpty) {
+				return err
+			}
+			for _, entry := range eligible.Entries {
+				if artifact.PairKey(current.Namespace, string(entry.Screen.UID)) == key {
+					assigned = entry.Screen
+					break
+				}
+			}
+		}
+		if assigned != nil {
+			revision, err := screen.InputRevision(assigned.Spec)
+			if err != nil {
+				return err
+			}
+			unit := artifact.Unit{Namespace: current.Namespace, DeviceUID: string(current.UID), ScreenUID: string(assigned.UID), Target: target.Target, Output: target.Output}
+			r, err = m.Repository.ConfigurePair(ctx, r, artifact.DefinePair(unit, revision))
+			if err != nil {
+				return err
+			}
+			if assigned.Spec.Source.Job != nil && assigned.Spec.Source.Job.State != nil {
+				continue
+			}
+		}
+		if err := m.Repository.DetachPair(ctx, r, key, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }

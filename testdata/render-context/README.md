@@ -22,5 +22,5 @@ profile fixtures are software inputs, not physical acceptance evidence. Unit tes
 serialization, and renderer examples exercise omission and unknown-field handling.
 
 The state extension is Job-only. It is never sent in HTTP POST bodies. The
-state fixture exercises the defined serialization contract; Job/display state
-integration is not yet available.
+state fixture exercises the serialization contract. Jobs receive committed state;
+only durable display delivery consumes a selected image/result candidate.

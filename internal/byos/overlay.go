@@ -3,10 +3,10 @@ package byos
 import (
 	"context"
 	"errors"
-	"reflect"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/overlay"
@@ -18,29 +18,20 @@ import (
 // and PVC are separate durable resources: only the complete proposed turn is
 // proof that a pending playlist advancement committed.
 func (s *Server) recoverCorner(ctx context.Context, d *api.ArprtDevice) (artifact.CornerRecord, error) {
-	r, err := s.Repository.Corner(ctx, string(d.UID))
+	key := client.ObjectKeyFromObject(d)
+	r, err := deliverycommit.RecoverDevice(ctx, s.Repository, s.Reader, string(d.UID), &key, d.Namespace)
 	if err != nil {
 		return r, err
 	}
-	if r.Pending == nil {
-		return r, nil
-	}
 	var current api.ArprtDevice
-	if err := s.Reader.Get(ctx, client.ObjectKeyFromObject(d), &current); err != nil {
+	if err := s.Reader.Get(ctx, key, &current); err != nil {
 		return r, err
 	}
-	if current.UID != d.UID || current.Generation != d.Generation || !reflect.DeepEqual(current.Spec, d.Spec) || !current.DeletionTimestamp.IsZero() {
-		return r, artifact.ErrObsolete
-	}
-	committed := artifact.EqualCycle(current.Status.ScreenCycle, r.Pending.Proposed)
-	if !committed && !artifact.EqualCycle(current.Status.ScreenCycle, r.Pending.Previous) {
-		return r, artifact.ErrCorrupt
-	}
-	if err := s.Repository.ResolveCorner(ctx, r, committed); err != nil {
-		return r, err
+	if current.UID != d.UID {
+		return r, errDisplayPending
 	}
 	*d = current
-	return s.Repository.Corner(ctx, string(d.UID))
+	return r, nil
 }
 
 // The base success and render error stay separate from the issued candidate.

@@ -98,7 +98,16 @@ func (s *PVC) Corner(ctx context.Context, uid string) (CornerRecord, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.corner(uid)
+	r, err := s.corner(uid)
+	if err != nil {
+		return r, err
+	}
+	// Complete an ambiguous directory fsync before acknowledging an observed
+	// committed record, including a transaction whose pending field is gone.
+	if err := s.confirmDurable("corners"); err != nil {
+		return CornerRecord{}, err
+	}
+	return r, nil
 }
 func (s *PVC) PrepareCorner(ctx context.Context, r CornerRecord, pending CornerPending) error {
 	if err := ctx.Err(); err != nil {

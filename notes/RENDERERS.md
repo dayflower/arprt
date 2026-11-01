@@ -260,9 +260,12 @@ overlaid on valid known state, with query and JSON targets agreeing.
 The `source.job.state` object defines an opt-in contract with optional
 `resultPath` and `resetToken`. Jobs snapshot committed state and publish validated
 image/result candidates. An unconsumed candidate suppresses Scheduled updates
-and is reused by OnDemand requests. Display commitment is not yet connected;
-do not rely on this for end-to-end stateful rendering. HTTP renderers and
-Jobs without the object retain their existing behavior.
+and is reused by OnDemand requests. Authenticated display URL delivery commits
+the selected candidate once, including when overlays change its issued digest.
+Replay, stale fallback, preview and PNG downloads do not advance state. Skip
+accepts unconsumed candidates regardless of elapsed refresh interval and retains
+unselected candidates. HTTP renderers and Jobs without the object retain their
+existing behavior.
 
 `resultPath` defaults internally to `result.json` beside `imagePath`, without
 adding a writable mount. It must be a clean absolute POSIX file path, share the

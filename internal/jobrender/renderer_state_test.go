@@ -285,8 +285,12 @@ func TestRendererStateResetAndPendingFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(d)})
-	if !errors.Is(err, errPendingDelivery) {
-		t.Fatal("pending did not block", err)
+	if err != nil {
+		t.Fatal("pending recovery failed", err)
+	}
+	recovered, _ := rendererSnapshot(t, r, d)
+	if recovered.Pending != nil || recovered.Pairs[key].Generation != pair.Generation || recovered.Pairs[key].CandidateRef != pair.CandidateRef {
+		t.Fatal("interrupted single-screen delivery consumed work", recovered)
 	}
 }
 

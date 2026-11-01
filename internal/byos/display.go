@@ -2,6 +2,7 @@ package byos
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
 	"github.com/dayflower/arprt/internal/assignment"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/deviceidentity"
 	"github.com/dayflower/arprt/internal/devicestate"
 	"github.com/dayflower/arprt/internal/imageprocessing"
+	"github.com/dayflower/arprt/internal/observe"
 	"github.com/dayflower/arprt/internal/render"
 	"github.com/dayflower/arprt/internal/screen"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,7 +54,15 @@ func (s selectedDelivery) resolvedTarget() render.ResolvedTarget {
 	return render.ResolvedTarget{Target: s.target, Output: s.output}
 }
 
+type candidateSource struct {
+	ref        string
+	key        string
+	epoch      uint64
+	generation uint64
+}
+
 type deliveryImage struct {
+	candidate     *candidateSource
 	metadata      artifact.Metadata // Original rendering success, for freshness/reporting.
 	issued        artifact.Metadata // Actual immutable image sent to the device.
 	advanceCorner bool
@@ -178,7 +189,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 		image, err = s.obtainImage(ctx, d, o, selected)
 	}
 	if err != nil {
-		reply(w, 503, 503)
+		s.displayError(w, err)
 		return
 	}
 	headers, _ := Headers(r.Header)
@@ -205,6 +216,7 @@ func (s *Server) displayError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errDisplayUnauthorized):
 		reply(w, 401, 401)
 	default:
+		observe.StorageErrors.WithLabelValues("delivery_commit").Inc()
 		s.identityError(w, err)
 	}
 }
@@ -215,16 +227,30 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 		return DisplayResponse{}, err
 	}
 	defer release()
+	// Shared with background recovery so a live single-screen transaction cannot
+	// be mistaken for an interrupted request between PrepareDelivery and finalize.
+	unlock, err := deliverycommit.Lock(ctx, string(d.UID))
+	if err != nil {
+		return DisplayResponse{}, err
+	}
+	defer unlock()
+	key := client.ObjectKeyFromObject(d)
+	corner, err = deliverycommit.Recover(ctx, s.Repository, s.Reader, string(d.UID), &key, d.Namespace)
+	if err != nil {
+		return DisplayResponse{}, err
+	}
+	if image.candidate != nil {
+		c := image.candidate
+		p, ok := corner.Pairs[c.key]
+		if !ok || p.CandidateRef != c.ref || p.Epoch != c.epoch || p.Generation != c.generation || p.DetachedAt != nil {
+			// Another waiter may already have consumed this exact candidate. Its bytes
+			// remain reusable, but must never consume a newer candidate with equal PNG.
+			image.candidate = nil
+		}
+	}
 	var proposed *api.ScreenCycleStatus
 	if image.metadata.ImageDigest != "" && selected.cycling && selected.replay == nil {
 		proposed = &api.ScreenCycleStatus{CompatibilityFingerprint: selected.compatibility, Assignment: selected.fingerprint, ScreenUID: string(selected.screen.UID), EntryIndex: selected.entryIndex, InputRevision: selected.revision, Target: api.CycleTargetStatus{Width: selected.target.Width, Height: selected.target.Height, Palette: selected.target.Palette}, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, ServedAt: metav1.NewMicroTime(time.Now().UTC().Truncate(time.Microsecond))}
-		if image.advanceCorner {
-			pending := artifact.CornerPending{Next: corner.Current.Next(), Previous: d.Status.ScreenCycle.DeepCopy(), Proposed: proposed}
-			if err := s.Repository.PrepareCorner(ctx, corner, pending); err != nil {
-				return DisplayResponse{}, err
-			}
-			corner.Pending = &pending
-		}
 	}
 	if err := s.validateIssuance(ctx, d, selected, token); err != nil {
 		return DisplayResponse{}, err
@@ -236,6 +262,24 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 	if result.state == deliveryPending {
 		s.outcome(ctx, d, seen, result)
 		return DisplayResponse{Status: 202}, nil
+	}
+	if image.candidate != nil || image.advanceCorner {
+		pending := artifact.CornerPending{TransactionID: rand.Text(), RecordRevision: corner.Revision, Next: corner.Current, ImageDigest: image.issued.ImageDigest, Filename: image.issued.Filename, Proposed: proposed}
+		if proposed != nil {
+			pending.Previous = d.Status.ScreenCycle.DeepCopy()
+		}
+		if image.advanceCorner {
+			pending.Next = corner.Current.Next()
+		}
+		if image.candidate != nil {
+			c := image.candidate
+			pending.PairKey, pending.CandidateRef, pending.Epoch, pending.Generation = c.key, c.ref, c.epoch, c.generation
+		}
+		if err := s.Repository.PrepareDelivery(ctx, corner, pending); err != nil {
+			return DisplayResponse{}, err
+		}
+		corner.Revision++
+		corner.Pending = &pending
 	}
 	issuedAt := time.Now().UTC()
 	if err := s.Repository.Issue(ctx, string(d.UID), image.issued.ImageDigest, issuedAt); err != nil {
@@ -252,8 +296,8 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 			return DisplayResponse{}, err
 		}
 	}
-	if image.advanceCorner {
-		if err := s.Repository.ResolveCorner(ctx, corner, true); err != nil {
+	if corner.Pending != nil {
+		if err := s.Repository.ResolveDelivery(ctx, corner, true); err != nil {
 			return DisplayResponse{}, err
 		}
 	}
@@ -326,12 +370,20 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 		}
 		m = artifact.Metadata{ImageDigest: last.ImageDigest, Filename: last.Filename}
 	} else if assigned.Spec.Source.Job != nil {
+		if assigned.Spec.Source.Job.State != nil {
+			if image, ok, err := s.rendererCandidate(ctx, d, selected, nil); err != nil || ok {
+				return image, err
+			}
+		}
 		// Polling only reads completed output. Scheduling belongs to reconciliation.
 		renderErr = imageprocessing.RuntimeAdmission.Do(ctx, func(ctx context.Context) error {
 			var err error
-			m, err = s.Repository.Latest(ctx, artifact.Unit{Namespace: assigned.Namespace, ScreenUID: string(assigned.UID), DeviceUID: string(d.UID), Target: target, Output: selected.output})
+			m, err = s.rendererFallback(ctx, d, selected)
 			return err
 		})
+		if renderErr != nil && !errors.Is(renderErr, artifact.ErrNotFound) {
+			return deliveryImage{}, renderErr
+		}
 		if errors.Is(renderErr, artifact.ErrNotFound) {
 			renderErr = errors.New("job image pending")
 		}
@@ -343,6 +395,9 @@ func (s *Server) obtainImage(ctx context.Context, d *api.ArprtDevice, o Observat
 		}
 		if interval, _ := screen.EffectiveInterval(assigned.Spec); selected.cycling && m.ImageDigest != "" && time.Since(m.RenderedAt) >= interval {
 			renderErr = errors.New("job refresh pending")
+		}
+		if assigned.Spec.Source.Job.State != nil {
+			renderErr = errors.New("job candidate pending")
 		}
 	} else if assigned.Spec.Source.HTTP.Method == "POST" {
 		var snapshot render.Context
@@ -421,7 +476,19 @@ func (s *Server) validateIssuance(ctx context.Context, d *api.ArprtDevice, selec
 }
 
 func (s *Server) persistCycle(ctx context.Context, d *api.ArprtDevice, proposed *api.ScreenCycleStatus) error {
-	return s.mutate(ctx, d, func(current *api.ArprtDevice) {
-		current.Status.ScreenCycle = proposed.DeepCopy()
+	previous := d.Status.ScreenCycle.DeepCopy()
+	obsolete := false
+	err := s.mutate(ctx, d, func(current *api.ArprtDevice) {
+		obsolete = !artifact.EqualCycle(current.Status.ScreenCycle, previous)
+		if !obsolete {
+			current.Status.ScreenCycle = proposed.DeepCopy()
+		}
 	})
+	if err != nil {
+		return err
+	}
+	if obsolete {
+		return artifact.ErrObsolete
+	}
+	return nil
 }

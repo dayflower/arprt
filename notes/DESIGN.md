@@ -236,15 +236,16 @@ One authoritative PVC corner record belongs to each device UID, shared across
 cycling Screens and preserved across assignment/definition changes. New drawn
 cycling deliveries move clockwise from top-right; fixed, disabled, empty, failed
 and replayed overlays do not advance. The hashed-UID BYOS gate spans recovery,
-selection, drawing, issuance and commitment. Single-screen delivery issues first,
-then atomically advances the corner; the next HTTP request is a new delivery.
+selection, drawing, issuance and commitment. Single-screen delivery persists a
+pending record, issues the image, then atomically advances the corner; the next
+HTTP request is a new delivery.
 
 For playlist/discovery, persist a pending record with both the previous complete
 turn and the exact proposed `screenCycle` (fixed microsecond ServedAt), issue the
 image, optimistically persist that proposal, then atomically finalize the next
 corner. Before any subsequent selection, directly read status: a complete match
-with the proposal finalizes only the corner; a match with the previous turn
-cancels the uncommitted proposal without advancement. Other inconsistencies,
+with the proposal finalizes the corner and any selected renderer candidate;
+a match with the previous turn cancels the uncommitted proposal without advancement. Other inconsistencies,
 corruption and unknown corner versions fail closed. Equal digest alone is not
 proof of commitment. Both complete turns include their original entry positions,
 so equal UIDs, digests, filenames and timestamps at different positions remain
@@ -540,8 +541,8 @@ between stages. Kubernetes resource GC does not remove arbitrary PVC directories
 ### Renderer state persistence
 
 The [state store](../internal/artifact/state.go) is connected to opted-in Job
-preparation, collection and scheduling. BYOS delivery commitment is not yet
-connected, so this is not an end-to-end stateful rendering feature.
+preparation, collection, scheduling and BYOS delivery commitment. Successful
+rendering alone never advances the committed state.
 The existing corner API uses the same authoritative device file as renderer
 pairs and a single pending delivery. Pair ownership uses namespace, Device UID
 and Screen UID. Definition revision and a separate compatibility fingerprint
@@ -565,6 +566,14 @@ validation must both succeed before publication. API, filesystem I/O and capacit
 failures remain infrastructure failures for both execution modes; malformed
 renderer output uses the existing Scheduled backoff or OnDemand cleanup.
 
+BYOS carries candidate reference, epoch and generation separately from the issued
+image digest through optional compositing and finalization. Replay, PNG fetches,
+preview and compatible consumed-image fallback never consume a candidate. Skip
+accepts an opted-in unconsumed candidate regardless of age, retains unselected
+candidates and never serves a consumed image as a fresh candidate. Other Job
+freshness rules remain unchanged. Equal PNGs from different attempts remain
+distinct candidates, and late OnDemand waiters cannot consume newer work.
+
 An unconsumed candidate blocks periodic replacement regardless of elapsed time,
 and OnDemand returns it without starting work. Scheduled due remains
 `RenderedAt + refreshInterval`; reconciliation and minute maintenance can start
@@ -573,7 +582,10 @@ Recovery reads authoritative candidate/committed references before Job files,
 confirms directory durability, and completes interrupted Active cleanup without
 republishing consumed work. Reset, departure and changed definitions fence late
 attempts. Pending delivery blocks preparation, collection and pair mutations
-until the delivery recovery owner resolves it.
+until common delivery recovery resolves it. Startup, display, Job snapshot and
+publication, and maintenance use the same complete-turn comparison. Interrupted
+single-screen transactions abort; finalized transactions remain committed even
+if the HTTP response fails. Deleted UIDs terminate independently of replacements.
 
 Publication saves a content-addressed image and immutable candidate manifest,
 then atomically replaces the device record using a complete snapshot CAS.
@@ -581,7 +593,12 @@ The manifest binds metadata, context digest, epoch, input generation and resolve
 next state. Repeated collection recognizes a published or consumed attempt and
 cannot resurrect it. `latest` is not an authoritative state root. Blobs and
 manifests are synced before publication; a failed intermediate write leaves only
-unreferenced objects. In-memory snapshots are copied before mutation.
+unreferenced objects. After the authoritative CAS, publication repairs a derived
+latest pointer for compatible stale fallback, including across definition resets.
+A failed cache update is retried from the manifest; it never binds another image
+to state. If latest is absent, delivery can reuse the compatible committed
+manifest image without adopting state again. In-memory snapshots are copied
+before mutation.
 
 A pending transaction records its ID, prior record revision, complete previous
 and proposed turns, selected pair/candidate, expected epoch/generation, issued
@@ -597,7 +614,12 @@ Repository operations hold only their mutex during filesystem operations. They
 never read Kubernetes, wait for Jobs, acquire the device gate/reconciler mutex,
 or enter image-processing admission. Callers may hold the device gate around
 storage operations and must release repository locks before external recovery
-work. Revision/snapshot checks reject publication concurrent with a transition.
+work. A process-wide striped decision lock serializes finalization and recovery
+so maintenance cannot abort an active single-screen request. Lock order is BYOS
+gate or reconciler operation, optional image admission, decision lock, repository
+mutex. BYOS drawing releases image admission before acquiring the decision lock;
+finalization never waits for image admission or a Job. Revision/snapshot checks
+reject publication concurrent with a transition.
 
 A device record admits at most 64 pairs and 64 KiB of serialized data; manifests
 are bounded at 48 KiB with state limits defined in PROTOCOL. Capacity failure
@@ -957,9 +979,10 @@ run path and context digest without rewriting the record or snapshot. Preparing
 an existing ID cannot overwrite a different context. When desired work changes,
 the scheduler saves a terminal reason before cancellation; an interrupted cancel
 cannot revive that ID after a definition reversion. A replacement attempt follows
-cancellation and durable state replacement. Pending corner v1 records keep both
-complete original turns and resolve under the existing comparison rules before
-later status/fingerprint integration; unknown authoritative versions fail closed.
+cancellation and durable state replacement. Pending device records require
+version 2 and keep both complete original turns, including any legacy target
+fields, for recovery. Earlier corner records are rejected without migration;
+unknown authoritative versions fail closed.
 
 ### Complete-file validation and cancellation
 
@@ -1223,7 +1246,7 @@ before that calculation would falsely classify every old pointer as corrupt.
 | Unversioned latest metadata/Unit | Validate original legacy key/JSON, preserve its dimensions/rotation and map missing constraints to the legacy gray4 delivery rules, 90000-byte budget and legacy compatibility. Search legacy and current keys when appropriate; a valid old image is eligible only as stale after current-output validation. Carry the maximum validated attempt sequence forward under the publication lock before new writes. |
 | Blob, filename and issued records | Keep digest, filename and device-UID issuance keys unchanged. Serve old immutable bytes through the existing authorization/retention path even when no longer eligible for a new display. Never normalize on retrieval or infer ownership from a blob. |
 | Derived v1 | Validate with original Base/Drawing hash and old appearance/encoder rules. Treat as old cache, retain issuance roots, and generate new composites under a bumped drawing/encoder identity. Never rewrite an issued composite in place. |
-| Corner v1 pending proposal | Decode legacy complete Previous/Proposed turns and compare with original status before changing any fields. Finalize/cancel the pending transaction under existing rules first, preserving corner revision and issuance; only then upgrade the record. Unknown/corrupt authoritative versions fail closed. |
+| Device record / pending proposal | Require version 2. Corner v1 records are rejected without migration. For supported records, compare complete Previous/Proposed turns before changing fields; finalize or abort while preserving issuance. Unknown/corrupt authoritative versions fail closed. |
 | Public screenCycle target | Missing new compatibility facts denotes a legacy turn, never a current replay. Preserve original turn for pending-corner reconciliation; invalidate replay and validate fallback against current target. Retain the existing compact width/height/palette JSON through a separate target-status type, without embedding new display provenance. Add a compatibility fingerprint covering resolved constraints, rotation, processing revision and semantic versions to new turns. |
 | Scheduler pair and Active attempt | Decode legacy state, preserve UID ownership, ID, sequence, Submitted state, run directory and original context digest. Never overwrite its snapshot or reuse the attempt ID. Current model/spec/revision gates mark it obsolete, cancel any owned Job, record terminal state durably and only then prepare a new attempt. Recover a prepared/unsubmitted attempt with the same cancellation ordering. |
 
@@ -1234,8 +1257,9 @@ corrupt authoritative identity/issuance/corner/scheduler records retain their
 existing fail-closed behavior; old optional fields alone are not corruption.
 Use atomic fsync/rename updates and make every transition restart-idempotent.
 The legacy target-compatibility rules above apply only to turns that already
-carry an explicit entry index. They do not migrate earlier cycle-position
-formats. This is an upgrade design, not a promise of downgrade compatibility.
+carry an explicit entry index inside a supported device record. They do not
+migrate earlier corner or cycle-position formats. This is an upgrade design,
+not a promise of downgrade compatibility.
 
 Recheck UIDs, assignment, resolved target/budget and normalized revision using
 direct reads at publication and new issuance, including Job collection and
@@ -1243,9 +1267,10 @@ replay. Validate normalized base before success and final composite before
 issuance, always with exclusive byte comparison. Optional overlay failure may
 use a validated base; required delivery-state failures preserve existing
 failure behavior. Keep the base render timestamp through normalization and
-derived images, including Job completion time. Integration tests cover old-PVC
-startup, in-flight upgrades, pending-corner recovery and GC; preserve this
-coverage when changing migration behavior.
+derived images, including Job completion time. Integration tests cover supported
+old-PVC image/issuance data, in-flight rendering changes, current-format pending
+recovery and GC. Authoritative corner v1 migration is excluded; preserve the
+format-rejection and supported recovery coverage when changing these rules.
 
 ## Scope of future work
 

@@ -14,6 +14,7 @@ import (
 	"github.com/dayflower/arprt/internal/byos"
 	"github.com/dayflower/arprt/internal/controller"
 	"github.com/dayflower/arprt/internal/dashboard"
+	"github.com/dayflower/arprt/internal/deliverycommit"
 	"github.com/dayflower/arprt/internal/imageprocessing"
 	"github.com/dayflower/arprt/internal/jobrender"
 	"github.com/dayflower/arprt/internal/maintenance"
@@ -110,6 +111,12 @@ func run() error {
 	})
 	if err != nil {
 		return err
+	}
+	recoveryCtx, stopRecovery := context.WithTimeout(context.Background(), 30*time.Second)
+	recoveryErr := deliverycommit.RecoverAll(recoveryCtx, repo, mgr.GetAPIReader(), namespace)
+	stopRecovery()
+	if recoveryErr != nil {
+		return fmt.Errorf("delivery recovery failed")
 	}
 	var jobs *jobrender.Reconciler
 	if jobConfig.PVC != "" {

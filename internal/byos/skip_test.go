@@ -209,7 +209,7 @@ func TestSkipSharesExplorationIssuanceAndTurn(t *testing.T) {
 		t.Fatal(a, b, calls.Load(), repo.count.Load())
 	}
 	corner, err := s.Repository.Corner(t.Context(), "device-1")
-	if err != nil || corner.Revision != 1 || corner.Pending != nil {
+	if err != nil || corner.Revision != 2 || corner.Pending != nil {
 		t.Fatal("shared turn advanced the overlay corner twice", corner, err)
 	}
 }
