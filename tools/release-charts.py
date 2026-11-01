@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,9 +21,9 @@ image_release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(image_release)
 
 
-def run(*args, env=None):
+def run(*args, env=None, input=None):
     result = subprocess.run(
-        [str(arg) for arg in args], capture_output=True, text=True, env=env
+        [str(arg) for arg in args], capture_output=True, text=True, env=env, input=input
     )
     if result.returncode:
         raise RuntimeError(result.stderr or result.stdout)
@@ -65,6 +64,7 @@ def chart_metadata(helm, chart):
 
 
 def metadata(helm, version):
+    image_release.validate_tag("v" + version)
     parent = chart_metadata(helm, ROOT / "charts/arprt")
     crds = chart_metadata(helm, ROOT / "charts/arprt-crds")
     if parent["name"] != "arprt" or crds["name"] != "arprt-crds":
@@ -96,8 +96,15 @@ def contents(archive):
 
 
 def same_package(expected, actual):
-    if contents(expected) != contents(actual):
-        raise ValueError("published chart contents differ from the validated package")
+    left, right = contents(expected), contents(actual)
+    changed = sorted(
+        path for path in left.keys() | right.keys() if left.get(path) != right.get(path)
+    )
+    if changed:
+        raise ValueError(
+            "published chart contents differ from the validated package: "
+            + ", ".join(changed)
+        )
 
 
 def crd_bundle(archives):
@@ -171,10 +178,7 @@ def prepare(helm, version, repository, digest, destination):
         if count != 1:
             raise ValueError("expected exactly one default image block")
         values.write_text(text)
-        lock = (parent / "Chart.lock").read_bytes()
-        run(helm, "dependency", "build", parent, "--skip-refresh")
-        if (parent / "Chart.lock").read_bytes() != lock:
-            raise ValueError("committed dependency lock changed")
+        build_dependencies(helm, parent)
         for chart in (charts / "arprt-crds", parent):
             run(
                 helm,
@@ -192,51 +196,117 @@ def prepare(helm, version, repository, digest, destination):
 
 
 def existing(repository, name, version):
-    owner, _ = repository.split("/")
-    owner_type = image_release.run(
-        "gh", "api", "repos/" + repository, "--jq", ".owner.type"
+    return image_release.registry_exists(
+        repository.split("/")[0] + "/charts/" + name, version
     )
-    prefix = "orgs" if owner_type == "Organization" else "users"
-    package = urllib.parse.quote("charts/" + name, safe="")
-    endpoint = f"{prefix}/{owner}/packages/container/{package}/versions?per_page=100"
-    result = subprocess.run(
-        ["gh", "api", "--paginate", "--slurp", endpoint], capture_output=True, text=True
+
+
+def check_parent(repository, versions):
+    version = versions["chart_version"]
+    if existing(repository, "arprt", version):
+        raise ValueError(
+            f"parent chart arprt:{version} already exists; bump the parent chart version; never overwrite it"
+        )
+
+
+def check_crds(helm, repository, packages, versions, env=None):
+    version = versions["crd_version"]
+    if not existing(repository, "arprt-crds", version):
+        return False
+    with tempfile.TemporaryDirectory() as temporary:
+        run(
+            helm,
+            "pull",
+            "oci://ghcr.io/" + repository.split("/")[0] + "/charts/arprt-crds",
+            "--version",
+            version,
+            "--destination",
+            temporary,
+            env=env,
+        )
+        filename = f"arprt-crds-{version}.tgz"
+        try:
+            same_package(Path(packages) / filename, Path(temporary) / filename)
+        except ValueError as error:
+            raise ValueError(
+                f"CRD chart arprt-crds:{version}: {error}; "
+                "bump the CRD chart version with --crds major|minor|patch"
+            ) from None
+    return True
+
+
+def anonymous_env(directory):
+    directory = Path(directory)
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("HELM_")
+    }
+    env.update(
+        {
+            "DOCKER_CONFIG": str(directory / "docker"),
+            "HELM_CONFIG_HOME": str(directory / "config"),
+            "HELM_CACHE_HOME": str(directory / "cache"),
+            "HELM_DATA_HOME": str(directory / "data"),
+            "HELM_REGISTRY_CONFIG": str(directory / "registry.json"),
+        }
     )
-    if result.returncode:
-        if "(HTTP 404)" in result.stderr:
-            return False
-        raise RuntimeError(result.stderr)
-    return any(
-        version in item["metadata"]["container"]["tags"]
-        for page in json.loads(result.stdout)
-        for item in page
-    )
+    return env
+
+
+def build_dependencies(helm, parent):
+    lock = (parent / "Chart.lock").read_bytes()
+    run(helm, "dependency", "build", parent, "--skip-refresh")
+    if (parent / "Chart.lock").read_bytes() != lock:
+        raise ValueError(
+            "committed dependency lock changed; regenerate Chart.lock with pinned Helm"
+        )
+
+
+def preflight(helm, version, repository):
+    versions = metadata(helm, version)
+    if not repository or not re.fullmatch(
+        r"[a-z0-9][a-z0-9_.-]*/[a-z0-9][a-z0-9_.-]*", repository
+    ):
+        raise ValueError("REPOSITORY must be lowercase owner/repository")
+    with tempfile.TemporaryDirectory(prefix="arprt-preflight-") as temporary:
+        directory = Path(temporary)
+        charts = directory / "charts"
+        shutil.copytree(
+            ROOT / "charts", charts, ignore=shutil.ignore_patterns("charts", "*.tgz")
+        )
+        build_dependencies(helm, charts / "arprt")
+        run(helm, "package", charts / "arprt-crds", "--destination", directory)
+        image_release.unused(repository, "v" + version)
+        check_parent(repository, versions)
+        env = anonymous_env(directory / "helm")
+        if os.environ.get("GH_TOKEN"):
+            try:
+                run(
+                    helm,
+                    "registry",
+                    "login",
+                    "ghcr.io",
+                    "--username",
+                    os.environ.get("GITHUB_ACTOR") or repository.split("/")[0],
+                    "--password-stdin",
+                    env=env,
+                    input=os.environ["GH_TOKEN"],
+                )
+            except RuntimeError:
+                raise RuntimeError(
+                    "cannot authenticate isolated Helm for CRD package reads; "
+                    "check GH_TOKEN package access and packages:read permission"
+                ) from None
+        check_crds(helm, repository, directory, versions, env=env)
+    return versions
 
 
 def publish(helm, repository, packages, versions):
     oci = "oci://ghcr.io/" + repository.split("/")[0] + "/charts"
     parent_version, crd_version = versions["chart_version"], versions["crd_version"]
-    if existing(repository, "arprt", parent_version):
-        raise ValueError("parent chart version already exists; never overwrite it")
-    # Check both before writing either package. An unchanged CRD release may be
-    # reused only after checking every packaged file, including schema bytes.
-    reuse = existing(repository, "arprt-crds", crd_version)
-    if reuse:
-        with tempfile.TemporaryDirectory() as temporary:
-            run(
-                helm,
-                "pull",
-                oci + "/arprt-crds",
-                "--version",
-                crd_version,
-                "--destination",
-                temporary,
-            )
-            same_package(
-                Path(packages) / f"arprt-crds-{crd_version}.tgz",
-                Path(temporary) / f"arprt-crds-{crd_version}.tgz",
-            )
-    else:
+    check_parent(repository, versions)
+    # Repeat the checks immediately before writing: preflight is no reservation.
+    reuse = check_crds(helm, repository, packages, versions)
+    if not reuse:
         run(helm, "push", Path(packages) / f"arprt-crds-{crd_version}.tgz", oci)
     run(helm, "push", Path(packages) / f"arprt-{parent_version}.tgz", oci)
 
@@ -250,20 +320,7 @@ def verify(helm, repository, packages, versions, image_evidence, output):
     # No inherited Helm/Docker credentials, plugins or registry configuration.
     with tempfile.TemporaryDirectory(prefix="arprt-anonymous-charts-") as temporary:
         directory = Path(temporary)
-        env = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith("HELM_")
-        }
-        env.update(
-            {
-                "DOCKER_CONFIG": str(directory / "docker"),
-                "HELM_CONFIG_HOME": str(directory / "config"),
-                "HELM_CACHE_HOME": str(directory / "cache"),
-                "HELM_DATA_HOME": str(directory / "data"),
-                "HELM_REGISTRY_CONFIG": str(directory / "registry.json"),
-            }
-        )
+        env = anonymous_env(directory)
         for name, version in (
             ("arprt-crds", versions["crd_version"]),
             ("arprt", versions["chart_version"]),
@@ -308,7 +365,9 @@ def verify(helm, repository, packages, versions, image_evidence, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("metadata", "prepare", "publish", "verify"))
+    parser.add_argument(
+        "command", choices=("metadata", "preflight", "prepare", "publish", "verify")
+    )
     parser.add_argument("--helm", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--repository")
@@ -317,6 +376,10 @@ def main():
     parser.add_argument("--image-evidence")
     parser.add_argument("--output")
     args = parser.parse_args()
+    if args.command == "preflight":
+        versions = preflight(args.helm, args.version, args.repository)
+        print("Release preflight passed: " + json.dumps(versions, sort_keys=True))
+        return
     versions = metadata(args.helm, args.version)
     if args.command == "metadata":
         if os.environ.get("GITHUB_OUTPUT"):

@@ -1050,19 +1050,67 @@ tools/bump-version.sh patch
 
 Choose `major`, `minor` or `patch`. The helper bumps the parent chart's top-level
 `version` and `appVersion` independently, resetting lower components for major
-and minor bumps. For example, a pair of `0.2.0` versions becomes `0.2.1` with
-`patch`; unequal chart/controller versions remain independent. It preserves
-quoting, inline comments and file permissions. CRD metadata, the dependency lock
-and accepted local image defaults retain their existing versions. The helper
-requires Bash and awk, plus diff for `--dry-run`; no Make, Helm, Python or YAML
-package is needed. Prerelease/build metadata and malformed or duplicate fields
-are rejected before replacing the file. Edit prerelease versions explicitly.
+and minor bumps. Unequal chart/controller versions remain independent. To also
+update CRDs, choose their update type explicitly:
+
+```sh
+tools/bump-version.sh --dry-run minor --crds patch
+tools/bump-version.sh minor --crds patch
+make release-preflight VERSION=0.6.0 REPOSITORY=example/arprt
+```
+
+`--crds` independently bumps the CRD chart's `version` and `appVersion`, updates
+the parent's exact CRD dependency and regenerates `Chart.lock` with the Makefile's
+pinned Helm (installed through `make bump-helm`). Without `--crds`, the helper
+requires Bash and awk, plus ordinary file utilities and diff for `--dry-run`;
+Make and Helm are required only for CRD updates. Local default image tags/digests
+and CRD schema sources are never changed by this helper. It does not choose a
+bump type, generate schemas, stage/commit/tag changes or publish anything.
+
+Preparation happens in temporary copies. Malformed, duplicate and prerelease/build
+version fields are rejected before replacement; edit prereleases explicitly.
+Quoting, inline comments and permissions are preserved. Dry-run shows all target
+file diffs, including the lock's generated timestamp, and exits successfully.
+Before applying, the helper checks that source contents still match its initial
+snapshots. Ordinary apply errors restore the original files. Multiple file
+replacements are not a filesystem transaction: forced termination can leave a
+partial update. Avoid concurrent edits while applying.
+
+`release-preflight` needs network access and pinned Helm, but no annotated tag.
+Run it before opening the release PR and again before creating the release tag,
+using the planned controller version **without `v`**. It validates release SemVer,
+parent `appVersion`, exact CRD metadata and the committed lock by rebuilding
+dependencies in an isolated copy. It checks that the image's `vVERSION`,
+`vVERSION-amd64`, `vVERSION-arm64` tags and parent chart version are unused.
+An existing CRD version is reusable only when every regular file in its package
+is identical; tar/gzip timestamps and ownership are ignored. A schema, template,
+README or metadata difference reports the affected package paths and requires an
+explicit CRD bump. No placeholder image digest is resolved or persisted.
+
+OCI availability checks use anonymous GHCR reads by default. For a private
+repository, optional `GH_TOKEN` must have `packages:read` and access to the package
+(`GITHUB_ACTOR` selects its username, defaulting to the repository owner). No
+GitHub Packages API scope is assumed. CRD package comparisons in preflight use
+isolated Helm/Docker configuration, anonymously by default or with a temporary
+Helm login using that token. The login changes no operator configuration. Only explicit OCI missing-manifest/name responses count as
+absence; authorization errors, ambiguous 404s and network failures fail closed.
+Check visibility, read permissions and connectivity before retrying. Neither
+preflight nor its tests writes to the registry. Preflight does not change source
+files, dependency archives or local distribution output. It is separate from
+`make verify`, which does not contact the public registry.
+
+The release workflow's `guard` runs preflight with `packages: read` before the
+software, race and build jobs for new tag publications. Manual `workflow_dispatch`
+acceptance of existing artifacts skips the unused-version checks and retains the
+existing tag/digest/package verification and write-free recovery path. Publication
+repeats the availability and CRD-content checks immediately before writing;
+preflight does not reserve versions or make the overall release atomic.
 Review and commit the resulting diff through a PR before creating a release tag.
 
 For a candidate package, regenerate schemas with `make manifests` when API
 types/markers change. Review both generated destinations and verify deterministic
-regeneration. When intentionally changing a dependency version, update the exact
-parent dependency and regenerate/review `Chart.lock` with the pinned Helm client;
+regeneration. When intentionally changing a dependency version, use `--crds` above and review
+the exact parent dependency and regenerated `Chart.lock`;
 normal `make chart-dependencies` rebuilds archives while requiring that lock to
 stay unchanged. Run the chart checks, API integration, Docker build and full
 Helm lifecycle/smoke matrix described above against the intended image.

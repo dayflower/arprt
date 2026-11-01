@@ -8,6 +8,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import urllib.error
 from contextlib import chdir
 from pathlib import Path
 from unittest.mock import patch
@@ -86,31 +87,84 @@ class ReleaseGateTests(unittest.TestCase):
                     release.guard("v0.2.0")
 
     def test_existing_tags_and_authentication_failures_rejected(self):
-        result = subprocess.CompletedProcess(
-            [], 0, stdout='[[{"metadata":{"container":{"tags":["v0.1.0-arm64"]}}}]]'
-        )
-        with (
-            patch.object(release, "run", return_value="User"),
-            patch.object(release.subprocess, "run", return_value=result),
-        ):
-            with self.assertRaises(ValueError):
-                release.unused("dayflower/arprt", "v0.1.0")
-        for status in [401, 403, 500]:
-            result = subprocess.CompletedProcess(
-                [], 1, stderr=f"gh: failure (HTTP {status})"
+        for occupied in range(3):
+            with patch.object(
+                release, "registry_exists", side_effect=[False] * occupied + [True]
+            ):
+                with self.assertRaisesRegex(ValueError, "already exists"):
+                    release.unused("example/arprt", "v0.1.0")
+        with patch.object(release, "registry_exists", return_value=False) as exists:
+            release.unused("example/arprt", "v0.1.0")
+            self.assertEqual(
+                [call.args[1] for call in exists.call_args_list],
+                ["v0.1.0", "v0.1.0-amd64", "v0.1.0-arm64"],
+            )
+
+    def test_registry_responses_fail_closed_without_leaking_credentials(self):
+        token = b'{"token":"registry-secret"}'
+        for status, code, absent in [
+            (404, "MANIFEST_UNKNOWN", True),
+            (404, "NAME_UNKNOWN", True),
+            (404, "DENIED", False),
+            (401, "UNAUTHORIZED", False),
+            (403, "DENIED", False),
+            (500, "UNKNOWN", False),
+        ]:
+            body = json.dumps({"errors": [{"code": code}]}).encode()
+            error = urllib.error.HTTPError(
+                "https://ghcr.io/secret", status, "secret", {}, io.BytesIO(body)
             )
             with (
-                patch.object(release, "run", return_value="User"),
-                patch.object(release.subprocess, "run", return_value=result),
+                self.subTest(status=status, code=code),
+                patch.object(
+                    release.urllib.request,
+                    "urlopen",
+                    side_effect=[io.BytesIO(token), error],
+                ),
             ):
+                if absent:
+                    self.assertFalse(release.registry_exists("example/arprt", "v1.0.0"))
+                else:
+                    with self.assertRaisesRegex(
+                        RuntimeError, "packages:read"
+                    ) as caught:
+                        release.registry_exists("example/arprt", "v1.0.0")
+                    self.assertNotIn("secret", str(caught.exception))
+        for error in [
+            TimeoutError("secret"),
+            urllib.error.URLError("secret"),
+            urllib.error.HTTPError("secret", 404, "secret", {}, io.BytesIO(b"{}")),
+        ]:
+            with patch.object(release.urllib.request, "urlopen", side_effect=error):
                 with self.assertRaises(RuntimeError):
-                    release.unused("dayflower/arprt", "v0.1.0")
-        result = subprocess.CompletedProcess([], 1, stderr="gh: Not Found (HTTP 404)")
+                    release.registry_exists("example/arprt", "v1.0.0")
+        with patch.object(
+            release.urllib.request,
+            "urlopen",
+            side_effect=[io.BytesIO(token), io.BytesIO(b"{}")],
+        ) as fetch:
+            self.assertTrue(release.registry_exists("example/arprt", "v1.0.0"))
+            self.assertEqual(fetch.call_args.args[0].get_method(), "GET")
+
+    def test_optional_oci_authentication_is_used_only_for_token_exchange(self):
         with (
-            patch.object(release, "run", return_value="User"),
-            patch.object(release.subprocess, "run", return_value=result),
+            patch.dict(
+                release.os.environ,
+                {"GH_TOKEN": "private-token", "GITHUB_ACTOR": "example"},
+            ),
+            patch.object(
+                release.urllib.request,
+                "urlopen",
+                side_effect=[
+                    io.BytesIO(b'{"token":"scoped-token"}'),
+                    io.BytesIO(b"{}"),
+                ],
+            ) as fetch,
         ):
-            release.unused("dayflower/arprt", "v0.1.0")
+            self.assertTrue(release.registry_exists("example/arprt", "v1.0.0"))
+            first, second = [call.args[0] for call in fetch.call_args_list]
+            self.assertTrue(first.get_header("Authorization").startswith("Basic "))
+            self.assertEqual(second.get_header("Authorization"), "Bearer scoped-token")
 
 
 class PlatformAndImageTests(unittest.TestCase):

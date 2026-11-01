@@ -4,7 +4,6 @@ import hashlib
 import importlib.util
 import io
 import json
-import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -191,29 +190,12 @@ class AssemblyTests(unittest.TestCase):
 
 
 class PublicationTests(unittest.TestCase):
-    def test_nested_package_endpoint_and_fail_closed_errors(self):
-        for status in (401, 403, 500):
-            with (
-                patch.object(charts.image_release, "run", return_value="User"),
-                patch.object(
-                    charts.subprocess,
-                    "run",
-                    return_value=subprocess.CompletedProcess(
-                        [], 1, stderr=f"failure (HTTP {status})"
-                    ),
-                ),
-            ):
-                with self.assertRaises(RuntimeError):
-                    charts.existing("example/arprt", "arprt-crds", "0.1.0")
-        response = subprocess.CompletedProcess(
-            [], 0, stdout='[[{"metadata":{"container":{"tags":["0.1.0"]}}}]]'
-        )
-        with (
-            patch.object(charts.image_release, "run", return_value="User"),
-            patch.object(charts.subprocess, "run", return_value=response) as run,
-        ):
+    def test_nested_package_uses_shared_oci_check(self):
+        with patch.object(
+            charts.image_release, "registry_exists", return_value=True
+        ) as exists:
             self.assertTrue(charts.existing("example/arprt", "arprt-crds", "0.1.0"))
-            self.assertIn("charts%2Farprt-crds", run.call_args.args[0][-1])
+            exists.assert_called_once_with("example/charts/arprt-crds", "0.1.0")
 
     def test_existing_parent_is_never_overwritten(self):
         with (
@@ -367,6 +349,157 @@ class PublicationTests(unittest.TestCase):
                                 output,
                             )
                     (directory / asset).write_bytes(original)
+
+
+class PreflightTests(unittest.TestCase):
+    def setUp(self):
+        environment = patch.dict(charts.os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        charts.os.environ.pop("GH_TOKEN", None)
+
+    def test_isolated_lock_build_and_full_crd_comparison(self):
+        # Exercise every package file, including non-schema metadata; timestamps
+        # are deliberately different. Registry and Helm are simulated offline.
+        for change in (
+            None,
+            "arprt-crds/files/crds/schema.yaml",
+            "arprt-crds/README.md",
+            "arprt-crds/Chart.yaml",
+        ):
+            for reuse in (False, True):
+                with (
+                    self.subTest(change=change, reuse=reuse),
+                    tempfile.TemporaryDirectory() as temporary,
+                ):
+                    root = Path(temporary)
+                    parent = root / "charts/arprt"
+                    parent.mkdir(parents=True)
+                    crds = root / "charts/arprt-crds"
+                    crds.mkdir()
+                    (parent / "Chart.lock").write_bytes(b"original lock")
+                    (parent / "values.yaml").write_bytes(b"original defaults")
+                    (parent / "charts").mkdir()
+                    (parent / "charts/ignored.tgz").write_bytes(b"original archive")
+                    files = {
+                        "arprt-crds/files/crds/schema.yaml": b"schema",
+                        "arprt-crds/README.md": b"readme",
+                        "arprt-crds/Chart.yaml": b"version: 0.1.0",
+                    }
+                    snapshot = {
+                        p.relative_to(root): p.read_bytes()
+                        for p in root.rglob("*")
+                        if p.is_file()
+                    }
+                    commands = []
+
+                    def run(*args, **kwargs):
+                        commands.append(args)
+                        self.assertNotIn(args[1], ("push", "registry"))
+                        if args[1] == "dependency":
+                            self.assertFalse(
+                                (Path(args[3]) / "charts/ignored.tgz").exists()
+                            )
+                        if args[1] == "package":
+                            archive(Path(args[-1]) / "arprt-crds-0.1.0.tgz", files)
+                        if args[1] == "pull":
+                            actual = {**files, change: b"changed"} if change else files
+                            archive(
+                                Path(args[-1]) / "arprt-crds-0.1.0.tgz",
+                                actual,
+                                timestamp=123,
+                            )
+                            self.assertIn("HELM_REGISTRY_CONFIG", kwargs["env"])
+                        return ""
+
+                    with (
+                        patch.object(charts, "ROOT", root),
+                        patch.object(charts, "metadata", return_value=VERSIONS),
+                        patch.object(charts.image_release, "unused"),
+                        patch.object(charts, "existing", side_effect=[False, reuse]),
+                        patch.object(charts, "run", side_effect=run),
+                    ):
+                        if reuse and change:
+                            with self.assertRaisesRegex(ValueError, change):
+                                charts.preflight("helm", "0.3.0", "example/arprt")
+                        else:
+                            charts.preflight("helm", "0.3.0", "example/arprt")
+                    self.assertEqual(
+                        snapshot,
+                        {
+                            p.relative_to(root): p.read_bytes()
+                            for p in root.rglob("*")
+                            if p.is_file()
+                        },
+                    )
+                    self.assertFalse((root / "dist").exists())
+
+    def test_lock_mutation_and_build_failure_are_read_only(self):
+        for failure in (False, True):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                parent = root / "charts/arprt"
+                parent.mkdir(parents=True)
+                (parent / "Chart.lock").write_bytes(b"lock")
+
+                def run(*args):
+                    if failure:
+                        raise RuntimeError("invalid lock")
+                    (Path(args[3]) / "Chart.lock").write_bytes(b"changed")
+
+                with (
+                    patch.object(charts, "ROOT", root),
+                    patch.object(charts, "metadata", return_value=VERSIONS),
+                    patch.object(charts, "run", side_effect=run),
+                    patch.object(charts.image_release, "unused") as unused,
+                ):
+                    with self.assertRaises((ValueError, RuntimeError)):
+                        charts.preflight("helm", "0.3.0", "example/arprt")
+                    unused.assert_not_called()
+                self.assertEqual((parent / "Chart.lock").read_bytes(), b"lock")
+
+    def test_guard_checks_new_releases_before_heavy_jobs_but_skips_acceptance(self):
+        workflow = (charts.ROOT / ".github/workflows/release-image.yaml").read_text()
+        guard = workflow.split("  guard:\n", 1)[1].split("\n  # Independent", 1)[0]
+        self.assertIn("packages: read", guard)
+        self.assertIn("if: github.event_name == 'push'", guard)
+        self.assertIn("run: make release-preflight", guard)
+        self.assertNotIn("packages: write", guard)
+        for job in ("software", "race", "build"):
+            block = workflow.split(f"  {job}:\n", 1)[1]
+            self.assertIn("needs: guard", block.split("    strategy:", 1)[0])
+
+    def test_private_crd_reads_use_isolated_login_and_hide_authentication_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent = root / "charts/arprt"
+            parent.mkdir(parents=True)
+            (parent / "Chart.lock").write_bytes(b"lock")
+            with (
+                patch.object(charts, "ROOT", root),
+                patch.object(charts, "metadata", return_value=VERSIONS),
+                patch.object(charts, "run", return_value="") as run,
+                patch.object(charts.image_release, "unused"),
+                patch.object(charts, "check_parent"),
+                patch.object(charts, "check_crds") as crds,
+                patch.dict(charts.os.environ, {"GH_TOKEN": "private-token"}),
+            ):
+                charts.preflight("helm", "0.3.0", "example/arprt")
+                login = run.call_args_list[-1]
+                self.assertEqual(login.args[1:4], ("registry", "login", "ghcr.io"))
+                self.assertEqual(login.kwargs["input"], "private-token")
+                self.assertEqual(login.kwargs["env"], crds.call_args.kwargs["env"])
+                self.assertNotIn("private-token", str(login.args))
+
+                def fail_login(*args, **kwargs):
+                    if args[1] == "registry":
+                        raise RuntimeError("private-token")
+                    return ""
+
+                run.side_effect = fail_login
+                with self.assertRaisesRegex(RuntimeError, "packages:read") as caught:
+                    charts.preflight("helm", "0.3.0", "example/arprt")
+                self.assertNotIn("private-token", str(caught.exception))
 
 
 if __name__ == "__main__":
