@@ -42,6 +42,18 @@ type RendererContainer struct {
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
+// JobState opts a Job into renderer-owned JSON state.
+type JobState struct {
+	// ResultPath defaults internally to result.json beside imagePath.
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
+	ResultPath string `json:"resultPath,omitempty"`
+	// ResetToken changes invalidate previously generated state and candidates.
+	// +kubebuilder:validation:MaxLength=256
+	ResetToken string `json:"resetToken,omitempty"`
+}
+
 // JobSource paths designate files. Output's parent is a dedicated writable mount.
 // +kubebuilder:validation:XValidation:rule="self.contextPath != self.imagePath && !self.contextPath.startsWith(self.imagePath + '/') && !self.imagePath.startsWith(self.contextPath + '/')",message="context and image must be distinct files and neither may be an ancestor of the other"
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/[^/]+$')",message="output parent must not be the filesystem root"
@@ -49,7 +61,12 @@ type RendererContainer struct {
 // +kubebuilder:validation:XValidation:rule="!self.contextPath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/lib/arprt(/|$).*') && !self.imagePath.matches('^/var/[^/]+$') && !self.imagePath.matches('^/var/lib/[^/]+$')",message="paths must not overlap the reserved artifact root /var/lib/arprt"
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/(var/run|run)/secrets(/|$).*') && !self.imagePath.matches('^/(var/run|run)/[^/]+$')",message="output mount must not hide the ServiceAccount secret tree"
 // +kubebuilder:validation:XValidation:rule="!has(self.timeout) || (has(self.executionMode) && self.executionMode == 'OnDemand')",message="timeout is only supported for OnDemand Jobs"
+// +kubebuilder:validation:XValidation:rule="!has(self.state) || !has(self.state.resultPath) || self.state.resultPath.substring(0, self.state.resultPath.lastIndexOf('/')) == self.imagePath.substring(0, self.imagePath.lastIndexOf('/'))",message="result and image must have the same parent directory"
+// +kubebuilder:validation:XValidation:rule="!has(self.state) || !has(self.state.resultPath) || (self.state.resultPath != self.imagePath && self.state.resultPath != self.contextPath && !self.contextPath.startsWith(self.state.resultPath + '/') && !self.state.resultPath.startsWith(self.contextPath + '/'))",message="result must be distinct from context and image files"
+// +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || (!self.imagePath.endsWith('/result.json') && self.contextPath != self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json' && !self.contextPath.startsWith(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json/'))",message="default result path must be distinct from context and image files"
+// +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || size(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json') <= 512",message="default result path exceeds the path length limit"
 type JobSource struct {
+	State *JobState `json:"state,omitempty"`
 	// ExecutionMode omitted selects Scheduled. Defaults are normalized internally.
 	// +kubebuilder:validation:Enum=Scheduled;OnDemand
 	ExecutionMode string `json:"executionMode,omitempty"`

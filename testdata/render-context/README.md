@@ -7,6 +7,7 @@ in [PROTOCOL](../../notes/PROTOCOL.md#render-context-v1).
 
 | Fixture | Purpose |
 | --- | --- |
+| [render-context-state.json](render-context-state.json) | Job-only optional renderer state with an integer cursor larger than the exact floating-point range |
 | [render-context-v1.json](render-context-v1.json) | Complete Context corresponding to the [display request](../protocol/display-request.http), including `renderTarget.rotation: 90` |
 | [render-context-no-telemetry.json](render-context-no-telemetry.json) | Omit unavailable observations and rotation to exercise the default of 0 |
 | [render-context-spectra6.json](render-context-spectra6.json) | E1002 Spectra 6 target without a firmware observation |
@@ -19,3 +20,7 @@ All fixtures retain Context version v1; final PNG dimensions match the target
 for every rotation. Output budgets and value provenance stay internal. New
 profile fixtures are software inputs, not physical acceptance evidence. Unit tests check the JSON
 serialization, and renderer examples exercise omission and unknown-field handling.
+
+The state extension is Job-only. It is never sent in HTTP POST bodies. The
+state fixture exercises the defined serialization contract; Job/display state
+integration is not yet available.

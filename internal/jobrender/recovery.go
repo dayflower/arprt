@@ -40,7 +40,7 @@ func (r *Reconciler) prepareAttempt(ctx context.Context, d *api.ArprtDevice, s *
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	b, err := json.Marshal(snapshot)
+	b, err := render.MarshalContext(snapshot)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

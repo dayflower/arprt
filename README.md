@@ -279,6 +279,10 @@ Compatible renderer bytes and dithering are preserved. Optional bitmap overlays
 are drawn afterwards. Generated gray4 temporarily uses native two-bit PNG;
 the opt-in four-bit build assumes corrected firmware expansion and has not been
 physically accepted. The historical OG / 1.8.17 baseline does not validate it.
+The renderer-state API and persistence primitives are defined, but Job/display
+integration is not yet available. See the [state contract](notes/PROTOCOL.md#renderer-state-json)
+before configuring `source.job.state`.
+
 GET freshness and Scheduled Job execution use `refreshInterval`; POST and
 OnDemand Jobs forbid it. Job `executionMode` defaults to `Scheduled`; opt-in
 `OnDemand` renders on each independent single-screen display with current

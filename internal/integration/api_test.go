@@ -367,6 +367,7 @@ func TestAPIAndController(t *testing.T) {
 	verifyDisplayAPI(t, c)
 	verifyDashboardAPI(t, c)
 	verifyOnDemandAPI(t, c)
+	verifyJobStateAPI(t, c)
 	verifyOverlayAPI(t, c)
 	verifyOverlayDelivery(t, c)
 	verifyPlaylistAPI(t, c)

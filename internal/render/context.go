@@ -3,6 +3,7 @@ package render
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"time"
@@ -37,9 +38,10 @@ func (t Target) Validate() error {
 }
 
 type Context struct {
-	Version      string `json:"version"`
-	RenderTarget Target `json:"renderTarget"`
-	Device       Device `json:"device"`
+	RendererState json.RawMessage `json:"rendererState,omitempty"`
+	Version       string          `json:"version"`
+	RenderTarget  Target          `json:"renderTarget"`
+	Device        Device          `json:"device"`
 }
 
 type Device struct {

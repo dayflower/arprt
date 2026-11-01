@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"bytes"
 	"encoding/json"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
@@ -17,7 +18,9 @@ func (c *persistedCycle) UnmarshalJSON(data []byte) error {
 		plain
 		EntryIndex *int32 `json:"entryIndex"`
 	}
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&decoded); err != nil {
 		return err
 	}
 	if decoded.EntryIndex == nil || *decoded.EntryIndex < 0 || *decoded.EntryIndex > 63 {
@@ -35,7 +38,9 @@ func (p *CornerPending) UnmarshalJSON(data []byte) error {
 		Previous *persistedCycle `json:"previous"`
 		Proposed *persistedCycle `json:"proposed"`
 	}
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&decoded); err != nil {
 		return err
 	}
 	*p = CornerPending(decoded.plain)
@@ -50,7 +55,9 @@ func (r *DeliveryRecord) UnmarshalJSON(data []byte) error {
 		plain
 		Cycle *persistedCycle `json:"cycle"`
 	}
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&decoded); err != nil {
 		return err
 	}
 	*r = DeliveryRecord(decoded.plain)

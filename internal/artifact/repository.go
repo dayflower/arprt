@@ -11,6 +11,7 @@ import (
 )
 
 var (
+	ErrPending          = errors.New("device delivery recovery required")
 	ErrCapacity         = errors.New("storage admission limit reached")
 	ErrCorrupt          = errors.New("stored artifact is corrupt")
 	ErrNotFound         = errors.New("artifact not found")

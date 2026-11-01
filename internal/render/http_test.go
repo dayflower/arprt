@@ -181,3 +181,26 @@ func TestHTTPPOSTContextContract(t *testing.T) {
 		t.Fatal("invalid context reached renderer")
 	}
 }
+
+func TestHTTPPOSTExcludesRendererState(t *testing.T) {
+	png := fixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		if bytes.Contains(data, []byte("rendererState")) || bytes.Contains(data, []byte("private-cursor")) {
+			t.Error("Job state leaked to HTTP renderer")
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	}))
+	defer server.Close()
+	c := Context{Version: "v1", RenderTarget: og, Device: Device{Name: "fixture"}, RendererState: json.RawMessage(`{"cursor":"private-cursor"}`)}
+	if _, err := (HTTPPOST{URL: server.URL}).Execute(t.Context(), Request{Output: CurrentTarget(og).Output, Target: og, Context: &c}); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.RendererState) == 0 {
+		t.Fatal("HTTP execution mutated original Job snapshot")
+	}
+}

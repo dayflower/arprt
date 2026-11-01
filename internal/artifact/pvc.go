@@ -32,6 +32,7 @@ type PVC struct {
 	MaxBytes     int64
 	MinFreeBytes uint64
 	pins         map[string]int
+	writeFault   func(string) error // Test-only durability boundary injection; always nil in production.
 }
 
 var _ Repository = (*PVC)(nil)
@@ -40,7 +41,7 @@ func NewPVC(root string) (*PVC, error) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
 		return nil, errors.New("artifact root must be a clean absolute directory")
 	}
-	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners", "deliveries"} {
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners", "deliveries", "manifests"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0700); err != nil {
 			return nil, err
 		}
@@ -431,6 +432,16 @@ func atomicWrite(path string, b []byte) error {
 }
 
 func atomicWriteChecked(path string, b []byte, check func() error) error {
+	return atomicWriteFault(path, b, check, nil)
+}
+
+func atomicWriteFault(path string, b []byte, check func() error, fault func(string) error) error {
+	boundary := func(stage string) error {
+		if fault != nil {
+			return fault(filepath.Base(filepath.Dir(path)) + "/" + stage)
+		}
+		return nil
+	}
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, ".pending-")
 	if err != nil {
@@ -441,11 +452,18 @@ func atomicWriteChecked(path string, b []byte, check func() error) error {
 		f.Close()
 		return err
 	}
+	if err := boundary("write"); err != nil {
+		f.Close()
+		return err
+	}
 	if err := f.Sync(); err != nil {
 		f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := boundary("file-sync"); err != nil {
 		return err
 	}
 	if check != nil {
@@ -456,7 +474,13 @@ func atomicWriteChecked(path string, b []byte, check func() error) error {
 	if err := os.Rename(f.Name(), path); err != nil {
 		return err
 	}
-	return syncDir(dir)
+	if err := boundary("rename"); err != nil {
+		return err
+	}
+	if err := syncDir(dir); err != nil {
+		return err
+	}
+	return boundary("directory-sync")
 }
 
 func syncDir(path string) error {
@@ -476,13 +500,13 @@ func (s *PVC) storeBlob(png []byte) (imageDigest, filename string, err error) {
 	if existing, err := readImage(blob); err == nil {
 		if digest(existing) != imageDigest {
 			observe.StorageErrors.WithLabelValues("integrity").Inc()
-			if err := atomicWrite(blob, png); err != nil {
+			if err := s.writeDurable(blob, png); err != nil {
 				return "", "", err
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrCorrupt) {
 		return "", "", err
-	} else if err := atomicWrite(blob, png); err != nil {
+	} else if err := s.writeDurable(blob, png); err != nil {
 		return "", "", err
 	}
 	// Filename is stable for identical bytes, independent of target/unit. Random
@@ -511,7 +535,7 @@ func (s *PVC) storeBlob(png []byte) (imageDigest, filename string, err error) {
 			}
 			break
 		}
-		if err := writeJSON(recordPath, record); err != nil {
+		if err := s.writeJSONDurable(recordPath, record); err != nil {
 			return "", "", err
 		}
 	} else if err != nil {
@@ -519,6 +543,9 @@ func (s *PVC) storeBlob(png []byte) (imageDigest, filename string, err error) {
 	}
 	if !filenamePattern.MatchString(record.Filename) {
 		return "", "", ErrCorrupt
+	}
+	if err := s.confirmDurable("blobs", "records"); err != nil {
+		return "", "", err
 	}
 	return imageDigest, record.Filename, nil
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"path"
-	"strings"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
+	"github.com/dayflower/arprt/internal/screen"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -63,33 +63,7 @@ func (c Config) ValidateTopology(ctx context.Context, r client.Reader, root stri
 }
 
 func normalize(source api.JobSource) (api.JobSource, error) {
-	if source.ContextPath == "" {
-		source.ContextPath = "/arprt/context.json"
-	}
-	if source.ImagePath == "" {
-		source.ImagePath = "/arprt/output.png"
-	}
-	for _, p := range []string{source.ContextPath, source.ImagePath} {
-		if !path.IsAbs(p) || path.Clean(p) != p || p == "/" || strings.ContainsRune(p, 0) {
-			return source, errors.New("invalid Job file path")
-		}
-		if p == "/var/lib/arprt" || strings.HasPrefix(p, "/var/lib/arprt/") {
-			return source, errors.New("reserved artifact path")
-		}
-	}
-	if source.ContextPath == source.ImagePath || strings.HasPrefix(source.ContextPath, source.ImagePath+"/") || strings.HasPrefix(source.ImagePath, source.ContextPath+"/") {
-		return source, errors.New("overlapping Job files")
-	}
-	parent := path.Dir(source.ImagePath)
-	for _, reserved := range []string{"/", "/proc", "/sys", "/dev", "/etc", "/bin", "/sbin", "/usr", "/var/lib/arprt", "/var/run/secrets", "/run/secrets"} {
-		if parent == reserved || (reserved != "/" && (strings.HasPrefix(parent, reserved+"/") || strings.HasPrefix(reserved, parent+"/"))) {
-			return source, errors.New("output mount overlaps a reserved directory")
-		}
-	}
-	if source.Renderer.Image == "" {
-		return source, errors.New("renderer image is required")
-	}
-	return source, nil
+	return screen.NormalizeJob(source)
 }
 
 func (c Config) job(st *state) *batchv1.Job {

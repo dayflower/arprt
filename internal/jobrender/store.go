@@ -16,6 +16,7 @@ import (
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/artifact"
+	"github.com/dayflower/arprt/internal/render"
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -144,7 +145,7 @@ func (s *Store) prepare(a *attempt, snapshot []byte) error {
 	if !validID(a.ID) {
 		return errors.New("invalid run identity")
 	}
-	if len(snapshot) > 65536 || hash(snapshot) != a.ContextDigest {
+	if len(snapshot) > render.MaxContextBytes || hash(snapshot) != a.ContextDigest {
 		return errors.New("immutable context digest mismatch")
 	}
 	contextPath := filepath.Join(s.run(a.ID), "context.json")
@@ -196,14 +197,14 @@ func readSnapshot(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 65536 {
+	if !info.Mode().IsRegular() || info.Size() > render.MaxContextBytes {
 		return nil, errors.New("invalid immutable context file")
 	}
-	b, err := io.ReadAll(io.LimitReader(f, 65537))
+	b, err := io.ReadAll(io.LimitReader(f, (render.MaxContextBytes + 1)))
 	if err != nil {
 		return nil, err
 	}
-	if len(b) > 65536 {
+	if len(b) > render.MaxContextBytes {
 		return nil, errors.New("immutable context exceeds size limit")
 	}
 	return b, nil
@@ -236,9 +237,9 @@ func (s *Store) collectInput(ctx context.Context, a *attempt) ([]byte, error) {
 		snapshot.Close()
 		return nil, errors.New("context must be a regular file")
 	}
-	contextBytes, readErr := io.ReadAll(io.LimitReader(snapshot, 65537))
+	contextBytes, readErr := io.ReadAll(io.LimitReader(snapshot, (render.MaxContextBytes + 1)))
 	closeErr := snapshot.Close()
-	if readErr != nil || closeErr != nil || len(contextBytes) > 65536 || hash(contextBytes) != a.ContextDigest {
+	if readErr != nil || closeErr != nil || len(contextBytes) > render.MaxContextBytes || hash(contextBytes) != a.ContextDigest {
 		return nil, errors.New("immutable context integrity failure")
 	}
 

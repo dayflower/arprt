@@ -18,6 +18,9 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 	if err := s.validateRetention(ctx, now); err != nil {
 		return err
 	}
+	if err := s.expireDetached(ctx, now); err != nil {
+		return err
+	}
 	retained := map[string]bool{}
 	latest, err := os.ReadDir(filepath.Join(s.root, "latest"))
 	if err != nil {
@@ -61,6 +64,9 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 		}
 	}
 	if err := s.collectOverlays(ctx, retained, deviceUIDs, now); err != nil {
+		return err
+	}
+	if err := s.collectManifests(ctx, now); err != nil {
 		return err
 	}
 	if err := s.collectDeliveries(ctx, deviceUIDs, now); err != nil {
@@ -152,7 +158,7 @@ func (s *PVC) Collect(ctx context.Context, keep func(Unit) bool, deviceUIDs map[
 		}
 		usedNames[record.Filename] = true
 	}
-	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners", "deliveries"} {
+	for _, dir := range []string{"blobs", "records", "latest", "issued", "identities", "derived", "corners", "deliveries", "manifests"} {
 		entries, err := os.ReadDir(filepath.Join(s.root, dir))
 		if err != nil {
 			return err

@@ -4,7 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"path"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
 	"github.com/dayflower/arprt/internal/imageprocessing"
@@ -55,6 +59,11 @@ func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 		if s.Source.Job.ImagePath == "" {
 			s.Source.Job.ImagePath = "/arprt/output.png"
 		}
+		job, err := NormalizeJob(*s.Source.Job)
+		if err != nil {
+			return "", err
+		}
+		s.Source.Job = &job
 	}
 	interval, err := EffectiveInterval(*s)
 	if err != nil {
@@ -133,4 +142,49 @@ func ProcessingPolicy(spec api.ArprtScreenSpec) (imageprocessing.Policy, error) 
 		p.Dither = imageprocessing.Dither(spec.ImageProcessing.Dithering)
 	}
 	return p.Normalize()
+}
+
+// NormalizeJob applies file defaults and validates the single writable output mount.
+// It copies the source so callers cannot mutate another attempt's configuration.
+func NormalizeJob(source api.JobSource) (api.JobSource, error) {
+	source = *source.DeepCopy()
+	if source.ContextPath == "" {
+		source.ContextPath = "/arprt/context.json"
+	}
+	if source.ImagePath == "" {
+		source.ImagePath = "/arprt/output.png"
+	}
+	paths := []string{source.ContextPath, source.ImagePath}
+	if source.State != nil {
+		if source.State.ResultPath == "" {
+			source.State.ResultPath = path.Join(path.Dir(source.ImagePath), "result.json")
+		}
+		paths = append(paths, source.State.ResultPath)
+		if path.Dir(source.State.ResultPath) != path.Dir(source.ImagePath) {
+			return source, errors.New("result and image must have the same parent")
+		}
+	}
+	for i, p := range paths {
+		if utf8.RuneCountInString(p) > 512 || !path.IsAbs(p) || path.Clean(p) != p || p == "/" || strings.ContainsRune(p, 0) {
+			return source, errors.New("invalid Job file path")
+		}
+		if p == "/var/lib/arprt" || strings.HasPrefix(p, "/var/lib/arprt/") {
+			return source, errors.New("reserved artifact path")
+		}
+		for _, other := range paths[:i] {
+			if p == other || strings.HasPrefix(p, other+"/") || strings.HasPrefix(other, p+"/") {
+				return source, errors.New("overlapping Job files")
+			}
+		}
+	}
+	parent := path.Dir(source.ImagePath)
+	for _, reserved := range []string{"/", "/proc", "/sys", "/dev", "/etc", "/bin", "/sbin", "/usr", "/var/lib/arprt", "/var/run/secrets", "/run/secrets"} {
+		if parent == reserved || reserved != "/" && (strings.HasPrefix(parent, reserved+"/") || strings.HasPrefix(reserved, parent+"/")) {
+			return source, errors.New("output mount overlaps a reserved directory")
+		}
+	}
+	if source.Renderer.Image == "" {
+		return source, errors.New("renderer image is required")
+	}
+	return source, nil
 }

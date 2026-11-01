@@ -601,6 +601,16 @@ five-second override ended with the normal successful response.
 
 ## Selecting checks
 
+Renderer-state contract tests cover omission/null/value distinctions, large
+integers, duplicate keys, UTF-8 and exact JSON size/depth boundaries. Artifact
+tests inject storage failures after write, file sync, rename and directory sync,
+then reopen the repository and retry publication or delivery decisions. They also
+cover candidate CAS competition, retention roots and fail-closed record versions.
+The API integration suite checks state paths and default collisions against the
+actual CEL rules. These tests exercise storage primitives, not real-container
+state collection, mounted result files or end-to-end state delivery.
+
+
 Start with focused tests for changed behavior, then run the applicable matrix.
 Test externally observable guarantees, especially concurrency, restart, UID
 replacement and failure preservation; avoid tests that merely repeat code.
