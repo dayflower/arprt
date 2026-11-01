@@ -93,7 +93,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 		}
 	}
 	stop := start()
-	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "job-test"}, Spec: api.ArprtScreenSpec{RefreshInterval: "5m", Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "busybox:1.37.0", Command: []string{"sh", "-c"}, Args: []string{"exit 0"}}}}}}
+	s := &api.ArprtScreen{ObjectMeta: metav1.ObjectMeta{Name: "screen", Namespace: "job-test"}, Spec: api.ArprtScreenSpec{RefreshInterval: "5m", Source: api.ScreenSource{Job: &api.JobSource{State: &api.JobState{}, Renderer: api.RendererContainer{Image: "busybox:1.37.0", Command: []string{"sh", "-c"}, Args: []string{"exit 0"}}}}}}
 	d := &api.ArprtDevice{ObjectMeta: metav1.ObjectMeta{Name: "device", Namespace: "job-test"}, Spec: api.ArprtDeviceSpec{ScreenRef: &api.LocalReference{Name: "screen"}, AuthSecretRef: api.LocalReference{Name: "auth"}}}
 	if err = c.Create(ctx, s); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 	}
 	stop()
 	stop = start()
-	defer stop()
+	defer func() { stop() }()
 	eventually(t, func() bool {
 		return c.List(ctx, &jobs, client.InNamespace(d.Namespace)) == nil && len(jobs.Items) == 1 && jobs.Items[0].UID == originalUID
 	})
@@ -146,6 +146,9 @@ func TestJobWatchAndRestart(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(root, "runs", id, "output", "output.png"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err = os.WriteFile(filepath.Join(root, "runs", id, "output", "result.json"), []byte(`{"version":"v1","nextState":{"cursor":9007199254740993}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue, Reason: "CompletionsReached", LastTransitionTime: metav1.Now()}, {Type: batchv1.JobComplete, Status: corev1.ConditionTrue, Reason: "CompletionsReached", LastTransitionTime: metav1.Now()}}
 	job.Status.StartTime = ptr.To(metav1.Now())
 	job.Status.CompletionTime = ptr.To(metav1.Now())
@@ -165,6 +168,23 @@ func TestJobWatchAndRestart(t *testing.T) {
 	}
 	if _, err = repo.Read(ctx, m.ImageDigest); err != nil {
 		t.Fatal(err)
+	}
+	// A completion watch publishes an unconsumed candidate. Reopening both
+	// controller and repository must retain it without advancing the cursor.
+	stop()
+	stop = start()
+	reopened, err := artifact.NewPVC(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := reopened.Corner(ctx, string(d.UID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair := record.Pairs[artifact.PairKey(d.Namespace, string(s.UID))]
+	candidate, err := reopened.Candidate(ctx, pair.CandidateRef)
+	if err != nil || pair.Generation != 0 || pair.StateRef != "" || string(candidate.NextState) != `{"cursor":9007199254740993}` || len(snapshot.RendererState) != 0 {
+		t.Fatal("restart changed unconsumed state candidate", pair, err)
 	}
 	// Screen creation must wake discovery devices without another display poll.
 	editAssignment := func(fn func(*api.ArprtDevice)) {

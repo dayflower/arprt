@@ -20,6 +20,7 @@ from pathlib import Path
 import helm_install
 import ondemand_smoke
 import overlay_checks
+import state_smoke
 from image_checks import GRAY4_FIXTURE
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -582,6 +583,7 @@ def main():
             print(
                 "PASS: target gating, default/custom paths, no token, same-node RWO, snapshots, display overlays/base separation, rotation, interval refresh, polling independence, active restart, completed recovery, failures, timeout, stale output, obsolete reassignment and scoped RBAC"
             )
+            state_smoke.run(namespace, headers, forwarded, directory, wait, "single")
         finally:
             installation.cleanup()
             print("Disposable Helm test resources removed; existing CRDs untouched")

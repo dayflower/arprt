@@ -7,6 +7,7 @@ in [PROTOCOL](../../notes/PROTOCOL.md#render-context-v1).
 
 | Fixture | Purpose |
 | --- | --- |
+| [render-context-state-initial.json](render-context-state-initial.json) | Initial or cleared Job state: the extension is absent |
 | [render-context-state.json](render-context-state.json) | Job-only optional renderer state with an integer cursor larger than the exact floating-point range |
 | [render-context-v1.json](render-context-v1.json) | Complete Context corresponding to the [display request](../protocol/display-request.http), including `renderTarget.rotation: 90` |
 | [render-context-no-telemetry.json](render-context-no-telemetry.json) | Omit unavailable observations and rotation to exercise the default of 0 |
@@ -24,3 +25,10 @@ serialization, and renderer examples exercise omission and unknown-field handlin
 The state extension is Job-only. It is never sent in HTTP POST bodies. The
 state fixture exercises the serialization contract. Jobs receive committed state;
 only durable display delivery consumes a selected image/result candidate.
+
+For the [cursor renderer](../../examples/renderers/job/cursor/renderer.py), the
+initial fixture proposes `{"version":"v1","nextState":{"cursor":1}}`. The state
+fixture proposes cursor `9007199254740994` without rounding. A missing result or
+`{"version":"v1"}` preserves the input; `{"version":"v1","nextState":null}` clears
+it. Each successful display consumes its candidate once even if PNG bytes and
+filename are identical. See the [input/output table](../../notes/RENDERERS.md#cursor-input-and-output-example).

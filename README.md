@@ -282,7 +282,8 @@ physically accepted. The historical OG / 1.8.17 baseline does not validate it.
 Jobs can opt into renderer-owned JSON state with `source.job.state`. State advances
 once when a selected candidate is committed for display delivery; rendering,
 replay and PNG downloads do not advance it. Definition changes reset state
-conservatively. See the [state contract](notes/PROTOCOL.md#renderer-state-json)
+conservatively. See the [state contract](notes/PROTOCOL.md#renderer-state-json),
+the [cursor input/output example](notes/RENDERERS.md#cursor-input-and-output-example)
 and [storage recovery requirements](notes/OPERATIONS.md#recovery-and-troubleshooting).
 
 GET freshness and Scheduled Job execution use `refreshInterval`; POST and

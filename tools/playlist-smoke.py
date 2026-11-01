@@ -18,6 +18,7 @@ from pathlib import Path
 import helm_install
 import ondemand_smoke
 import overlay_checks
+import state_smoke
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location(
@@ -480,6 +481,14 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     raise RuntimeError("playlist RBAC namespace mismatch")
             print(
                 "PASS: repeated-entry mixed GET/POST/Job playlists, shared Scheduled pairs and discovery, telemetry, Job pre-rendering, retry/restart persistence, shared overlay corners/replay, edits, deletion, empty set and namespace RBAC"
+            )
+            state_smoke.run(
+                namespace,
+                {**headers, "Access-Token": token},
+                forwarded,
+                directory,
+                wait,
+                "playlist",
             )
         finally:
             installation.cleanup()

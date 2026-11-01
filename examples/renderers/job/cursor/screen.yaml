@@ -1,0 +1,20 @@
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtScreen
+metadata:
+  name: cursor
+spec:
+  refreshInterval: 5s
+  source:
+    job:
+      state: {}
+      renderer:
+        image: python:3.13-alpine
+        command: [python3, -c]
+        args:
+          - "import os; exec(os.environ['STATE_RENDERER'])"
+        env:
+          - name: STATE_RENDERER
+            valueFrom:
+              configMapKeyRef:
+                name: cursor-renderer
+                key: renderer.py

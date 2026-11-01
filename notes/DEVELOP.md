@@ -607,14 +607,21 @@ tests inject storage failures after write, file sync, rename and directory sync,
 then reopen the repository and retry publication or delivery decisions. They also
 cover candidate CAS competition, retention roots and fail-closed record versions.
 The API integration suite checks state paths and default collisions against the
-actual CEL rules. BYOS tests additionally exercise authenticated candidate delivery, replay and
-stale fallback, Skip age rules and unselected candidates, same-PNG attempts,
+actual CEL rules, completion watches, retained candidates across controller restart,
+real status conflicts, proposed-turn roll-forward and Device UID replacement.
+BYOS tests additionally exercise authenticated candidate delivery, replay and stale fallback, Skip age rules and unselected candidates, same-PNG attempts,
 overlay provenance, concurrent displays and late waiters. Failure tests reopen
 storage after issuance, API commitment and finalization failures, including a
 failed HTTP response, unknown-turn protection, deleted UIDs and maintenance
-reset/departure recovery. These tests do not establish real-container state
-collection, mounted result files or physical display acknowledgements.
-
+reset/departure recovery. The Job, playlist and operations smoke suites share
+[state acceptance](../tools/state_smoke.py) using the
+[synthetic cursor renderer](../examples/renderers/job/cursor/renderer.py). They
+exercise real result mounts/collection, interval suppression, committed Context
+snapshots, same-PNG candidates, Skip repeated entries/replay, invalid/missing/null
+results, resetToken, startup GC and retained issued URLs. The disposable wrapper
+owns its kubeconfig and kind cluster. These checks do not establish power-loss
+behavior, physical display acknowledgements, RSS integration, multiple controllers,
+old-format migration or downgrade compatibility.
 
 Start with focused tests for changed behavior, then run the applicable matrix.
 Test externally observable guarantees, especially concurrency, restart, UID
