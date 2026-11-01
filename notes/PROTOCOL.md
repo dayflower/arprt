@@ -292,9 +292,10 @@ fields. Removing fields or changing semantics requires a new context version.
 
 ### Renderer state JSON
 
-The Job state API and persistence primitives are defined, but Job snapshot,
-collection and display integration do not yet use them. Configuring
-`source.job.state` does not currently enable stateful rendering.
+Opted-in Jobs snapshot committed state and collect image/result candidates.
+Display commitment is not yet connected: `source.job.state` does not currently
+enable end-to-end stateful rendering. Successful Jobs and elapsed refresh
+intervals leave the committed state unchanged and retain one unconsumed candidate.
 
 The extension is an optional JSON value named `rendererState`; initial or cleared
 state omits the field. The [state fixture](../testdata/render-context/render-context-state.json)

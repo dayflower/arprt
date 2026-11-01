@@ -258,9 +258,10 @@ overlaid on valid known state, with query and JSON targets agreeing.
 ## Job example and container requirements
 
 The `source.job.state` object defines an opt-in contract with optional
-`resultPath` and `resetToken`. Its API and storage primitives are available;
-Job execution and display do not yet consume this contract. Do not rely on it
-for stateful rendering until those paths are connected. HTTP renderers and
+`resultPath` and `resetToken`. Jobs snapshot committed state and publish validated
+image/result candidates. An unconsumed candidate suppresses Scheduled updates
+and is reused by OnDemand requests. Display commitment is not yet connected;
+do not rely on this for end-to-end stateful rendering. HTTP renderers and
 Jobs without the object retain their existing behavior.
 
 `resultPath` defaults internally to `result.json` beside `imagePath`, without

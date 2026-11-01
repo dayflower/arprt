@@ -60,6 +60,7 @@ type StateStore interface {
 	ConfigurePair(context.Context, CornerRecord, PairDefinition) (CornerRecord, error)
 	PublishCandidate(context.Context, CornerRecord, string, Metadata, []byte, render.StateResult) (CandidateManifest, error)
 	Candidate(context.Context, string) (CandidateManifest, error)
+	ConfirmCandidate(context.Context, string) (CandidateManifest, error)
 	CommittedState(context.Context, CornerRecord, string) (json.RawMessage, error)
 	PrepareDelivery(context.Context, CornerRecord, CornerPending) error
 	ResolveDelivery(context.Context, CornerRecord, bool) error
@@ -224,6 +225,25 @@ func (s *PVC) Candidate(ctx context.Context, ref string) (CandidateManifest, err
 	defer s.mu.Unlock()
 	return s.manifest(ref)
 }
+
+// ConfirmCandidate completes directory synchronization before acknowledging a
+// publication observed after an ambiguous write. It never changes references.
+func (s *PVC) ConfirmCandidate(ctx context.Context, ref string) (CandidateManifest, error) {
+	if err := ctx.Err(); err != nil {
+		return CandidateManifest{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.manifest(ref)
+	if err != nil {
+		return CandidateManifest{}, err
+	}
+	if err := s.confirmDurable("blobs", "records", "manifests", "corners"); err != nil {
+		return CandidateManifest{}, err
+	}
+	return m, nil
+}
+
 func (s *PVC) manifest(ref string) (CandidateManifest, error) {
 	if !digestPattern.MatchString(ref) {
 		return CandidateManifest{}, ErrCorrupt
