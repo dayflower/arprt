@@ -11,4 +11,5 @@ spec:
     - name: job-bands-ondemand
     - name: photo
     - name: device-status
+    - name: photo
     - name: weather

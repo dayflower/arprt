@@ -131,6 +131,9 @@ class Acceptance:
             {
                 "status": {
                     "screenCycle": {
+                        "entryIndex": self.get("arprtdevice", "living-room")["status"][
+                            "screenCycle"
+                        ]["entryIndex"],
                         "servedAt": "2000-01-01T00:00:00.000000Z",
                     }
                 }
@@ -524,7 +527,7 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
     case.screen("skip-a", "exit 7", timeout="3s")
     case.screen("skip-b", "sleep 2; " + OUTPUT)
     case.screen("skip-c")
-    case.playlist(["skip-a", "skip-b", "skip-c"])
+    case.playlist(["skip-a", "skip-b", "skip-b", "skip-c"])
     case.assign("skip", playlist=True)
 
     def turn():
@@ -540,7 +543,9 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
     with forwarded(namespace, 8080, directory) as base:
         first = case.parallel(base)
         require(
-            first["status"] == 0 and turn().get("screenUID") == uid("skip-b"),
+            first["status"] == 0
+            and turn().get("screenUID") == uid("skip-b")
+            and turn().get("entryIndex") == 1,
             "Skip failed A did not select B",
         )
         committed = turn()
@@ -555,8 +560,29 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
         )
         case.expire()
         require(
+            case.parallel(base)["status"] == 0
+            and turn().get("screenUID") == uid("skip-b")
+            and turn().get("entryIndex") == 2,
+            "second B occurrence did not render as a new shared turn",
+        )
+        require(
+            turn()["servedAt"] != committed["servedAt"], "new occurrence reused turn"
+        )
+        later_jobs = {j["metadata"]["uid"] for j in case.get("jobs")["items"]}
+        require(
+            len(later_jobs - jobs) == 1,
+            "second occurrence did not create exactly one shared Job",
+        )
+        replay = case.display(base)
+    case.restart()
+    with forwarded(namespace, 8080, directory) as base:
+        require(case.display(base) == replay, "second B replay lost across restart")
+        require(turn().get("entryIndex") == 2, "restart lost repeated position")
+        case.expire()
+        require(
             case.display(base)["status"] == 0
-            and turn().get("screenUID") == uid("skip-c"),
+            and turn().get("screenUID") == uid("skip-c")
+            and turn().get("entryIndex") == 3,
             "next turn did not start after successful B",
         )
         case.expire()
@@ -595,7 +621,15 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
                     "spec": {"source": source},
                 }
             )
-        mixed = ["mixed-get", "mixed-post", "mixed-scheduled", "skip-c"]
+        mixed = [
+            "mixed-get",
+            "mixed-post",
+            "mixed-get",
+            "mixed-post",
+            "mixed-scheduled",
+            "skip-c",
+            "skip-c",
+        ]
         case.playlist(mixed)
         wait(
             lambda: any(
@@ -608,11 +642,13 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
             ),
             90,
         )
-        for name in mixed:
+        for index, name in enumerate(mixed):
             case.expire()
             response = case.display(base)
             require(
-                response["status"] == 0 and turn().get("screenUID") == uid(name),
+                response["status"] == 0
+                and turn().get("screenUID") == uid(name)
+                and turn().get("entryIndex") == index,
                 "mixed Skip selected the wrong source",
             )
             image_path = urllib.parse.urlsplit(response["image_url"]).path
@@ -649,5 +685,5 @@ def playlist(namespace, apply, headers, token, forwarded, directory, wait):
         )
         require(turn() == before, "budget exhaustion committed a successful turn")
     print(
-        "PASS: real Skip failed A/successful B/next C, wraparound, 24 shared waiters, restart replay, stale rejection, one-entry and absolute budgets"
+        "PASS: real Skip failed A/successful B/repeated B/next C, wraparound, 24 shared waiters per occurrence, restart replay, stale rejection, one-entry and absolute budgets"
     )

@@ -281,10 +281,16 @@ exploration without stale fallback. Skip-only `renderTimeout` defaults internall
 to `10s` and accepts integer `1s`–`10s`. Authentication and all candidate attempts
 consume that same admission-based budget. All failures or expiry return pending
 without advancing the successful turn. Storage, authorization, issuance and turn
-recording faults terminate the operation instead of trying another Screen.
+recording faults terminate the operation instead of trying another entry.
 Concurrent equivalent Skip requests share exploration and one durable turn;
 individual disconnects do not stop remaining waiters. Policy/budget edits
-invalidate replay. See [selection semantics](DESIGN.md#skip-playlists).
+invalidate replay. Repeated Screen names are separate turns identified by the
+required zero-based `status.screenCycle.entryIndex` (0–63); missing or deleting
+references are skipped without renumbering the remaining entries. A restart
+preserves the exact occurrence and replay window. Order, occurrence count, UID
+or existence changes reset to the first eligible entry; rendering edits alone
+preserve the cycle position. Scheduled work remains shared per Screen/Device
+pair, even when only some occurrences are removed. See [selection semantics](DESIGN.md#skip-playlists).
 
 Overlay timestamps use embedded IANA zoneinfo, including in the scratch image,
 and do not consult `TZ` or host local time. Set

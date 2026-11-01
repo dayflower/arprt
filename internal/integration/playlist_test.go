@@ -76,7 +76,7 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
 			return err
 		}
-		d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: "assignment", ScreenUID: string(listed.UID), InputRevision: "revision", Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: "fixture", Filename: "fixture.png", ServedAt: metav1.NewMicroTime(time.Now().UTC())}
+		d.Status.ScreenCycle = &api.ScreenCycleStatus{Assignment: "assignment", EntryIndex: 0, ScreenUID: string(listed.UID), InputRevision: "revision", Target: api.CycleTargetStatus{Width: 800, Height: 480, Palette: "gray4"}, ImageDigest: "fixture", Filename: "fixture.png", ServedAt: metav1.NewMicroTime(time.Now().UTC())}
 		return c.Status().Update(ctx, d)
 	}); err != nil {
 		t.Fatal(err)
@@ -110,6 +110,12 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 		}); err != nil {
 			t.Fatalf("valid entryIndex %d rejected: %v", index, err)
 		}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(d), raw); err != nil {
+			t.Fatal(err)
+		}
+		if got, found, err := unstructured.NestedInt64(raw.Object, "status", "screenCycle", "entryIndex"); err != nil || !found || got != int64(index) {
+			t.Fatal("entryIndex was pruned or changed", got, err)
+		}
 	}
 	if _, found, _ := unstructured.NestedFieldNoCopy(raw.Object, "status", "rotation"); found {
 		t.Fatal("sequence state still uses rotation")
@@ -126,12 +132,12 @@ func verifyPlaylistAPI(t *testing.T, c client.Client) {
 	applied := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": api.GroupVersion.String(), "kind": "ArprtPlaylist",
 		"metadata": map[string]any{"namespace": p.Namespace, "name": p.Name},
-		"spec":     map[string]any{"screens": []any{map[string]any{"name": "later"}, map[string]any{"name": "listed"}}},
+		"spec":     map[string]any{"screens": []any{map[string]any{"name": "later"}, map[string]any{"name": "listed"}, map[string]any{"name": "later"}}},
 	}}
 	if err := c.Apply(ctx, client.ApplyConfigurationFromUnstructured(applied), client.FieldOwner("playlist-test"), client.ForceOwnership); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil || p.Spec.Screens[0].Name != "later" {
+	if err := c.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil || len(p.Spec.Screens) != 3 || p.Spec.Screens[0].Name != "later" || p.Spec.Screens[2].Name != "later" {
 		t.Fatal("apply did not reorder playlist", err)
 	}
 	// A playlist edit can remove every locally resolvable reference.

@@ -625,6 +625,9 @@ make docker-build IMAGE=arprt:dev
 Envtest starts disposable API servers and uses the integration build tag; it
 does not use the configured cluster. It checks actual admission/defaulting,
 strict unknown-field rejection, status conflicts, watches and manager restart.
+Playlist admission accepts repeated names through the 64-entry limit, rejects
+empty/65-entry lists and invalid names, and enforces required `entryIndex` in
+0–63 on cycle status. Server-side apply preserves repeated ordered entries.
 It simulates renderer termination; actual container execution and mounts require
 cluster checks. Use `kubectl --validate=strict` or `fieldValidation=Strict` when
 testing unknown fields: structural CRDs otherwise prune them before CEL runs.
@@ -661,8 +664,9 @@ It exercises default 5s and explicit 10s first candidates under the default 10s
 playlist budget. Playlist envtest admission rejects invalid enums/combinations,
 fractions and out-of-range values including 11s/15s/25s; omitted/explicit defaults
 and existing-CR updates remain compatible. The Job watch suite also exercises
-failed A followed by completed B, concurrent display requests and restart replay
-against real API status/watch updates. Real-container/Helm and physical evidence
+a failed candidate followed by separate successful occurrences of one Screen,
+concurrent display requests and restart replay against real API status/watch
+updates. Real-container/Helm and physical evidence
 are collected separately below; envtest does not establish Pod startup or
 end-to-end delivery within the budgets.
 
@@ -768,8 +772,9 @@ using embedded Tokyo zoneinfo in the scratch container.
 Job checks add actual containers, token absence, same-node mounts, paths,
 immutable snapshots, rotation changes, interval refresh, recovery, failures and
 obsolete work, plus current overlay telemetry versus immutable Job snapshots.
-Playlist checks add mixed-source order, preparation before selection, retry/restart
-and membership edits, shared corner cycling and unchanged replay bytes. Before
+Playlist checks add repeated-entry mixed-source order with original indices,
+shared Scheduled pairs after partial occurrence removal, preparation before
+selection, retry/restart from a later occurrence and membership edits, shared corner cycling and unchanged replay bytes. Before
 restart, pre-render checks wait for the current Screen's published `ImageReady`
 condition as well as Job completion; Job completion alone can precede output
 collection and durable publication. Operations checks add corruption, capacity pressure,
@@ -808,8 +813,8 @@ request-dependent work without an autonomous retry. A production-chart config
 upgrade must preserve CR/PVC UIDs, authentication and the previously issued URL.
 The existing Scheduled scenarios retain their recovery and publication checks.
 
-The Playlist suite checks failed A, successful B, next C, wraparound, shared
-requests, replay across restart, mixed GET/POST/Scheduled/OnDemand turns, stale
+The Playlist suite checks failed A, successful B, repeated B, next C, wraparound,
+shared requests, replay across restart, mixed GET/POST/Scheduled/OnDemand turns, stale
 rejection, one-entry/all-failed pending and unchanged successful turns on failure.
 A default 5s first timeout must leave enough of the 10s budget for a fast warm
 second candidate; an explicit longer first timeout must respect the remaining

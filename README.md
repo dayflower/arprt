@@ -357,6 +357,7 @@ spec:
   screens:
     - name: photo
     - name: device-status
+    - name: photo
     - name: weather
 ```
 
@@ -365,16 +366,18 @@ See [playlist](examples/custom-resources/playlist.yaml),
 [playlist device](examples/custom-resources/device-playlist.yaml) and
 [discovery device](examples/custom-resources/device-discovery.yaml) samples.
 Playlists contain 1–64 ordered entries and may repeat screen names; discovery
-uses the first 64 screens.
+uses the first 64 screens. The example cycles `photo → device-status → photo →
+weather`; each occurrence is a separate turn.
 Missing playlist entries are skipped. No eligible screens means pending.
 
 Playlist `failurePolicy` defaults to `Hold`. Hold and discovery advance after a
-successful image response, including compatible stale output; a screen with no
+successful image response, including compatible stale output; an entry with no
 valid image holds its turn. Set `failurePolicy: Skip` to try each candidate at
 most once until a fresh image succeeds, without stale fallback. Skip-only
 `renderTimeout` defaults to `10s` (integer `1s`–`10s`) for all candidates from
 request admission. All failures or budget expiry return pending and preserve
-the last successful turn; the next new turn starts after the successful Screen.
+the last successful turn; the next new turn starts after the successful entry.
+Repeated occurrences are separate candidates, sharing the same total timeout.
 See the [mixed Skip example](examples/custom-resources/playlist-skip.yaml).
 
 Early polls within the configured device-refresh window replay the same image,
@@ -382,7 +385,10 @@ including across restart;
 POST and OnDemand render on a new turn. Equivalent concurrent Skip requests
 share exploration and one turn; replay starts no Job. A single `screenRef`
 retains per-request POST/OnDemand rendering.
-Membership/order changes reset to the first eligible screen. See
+Repeated entries share GET cache and Scheduled work per Screen/Device pair;
+Scheduled Jobs do not multiply with occurrences. A new occurrence can return the
+same image and filename. Changes to order, occurrence count, UID or reference
+availability reset to the first eligible entry; rendering edits preserve position. See
 [assignment and replay](notes/DESIGN.md#rendering-and-assignment) for full semantics.
 
 ## Documentation

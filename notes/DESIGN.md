@@ -67,7 +67,7 @@ With `screenRef`, one existing screen is selected. With `playlistRef`, missing
 or deleting entries are skipped while remaining order is preserved. With neither,
 discovery selects the first 64 nondeleting screens sorted by name. A missing
 playlist or empty eligible set returns initial pending. The default playlist
-`failurePolicy: Hold` and discovery do not skip a screen merely because its
+`failurePolicy: Hold` and discovery do not skip an entry merely because its
 renderer currently has no image.
 
 Playlist/discovery uses `status.screenCycle` to persist the successful turn,
@@ -105,7 +105,9 @@ Opt-in `spec.failurePolicy: Skip` visits each eligible candidate at most once,
 starting at the normal next position and wrapping at the end. It stops at the
 first fresh success, records only that position, and starts the next new turn
 at its successor. No success or an exhausted budget returns pending without
-changing the last successful turn. A one-entry playlist follows the same rules.
+changing the last successful turn. Repeated occurrences of the same Screen
+are attempted separately, each at most once, within the same total budget.
+A one-entry playlist follows the same rules.
 Failed candidates never supply stale output. Skip is not inferred from source
 mode, and adding OnDemand entries never implicitly selects Skip.
 
