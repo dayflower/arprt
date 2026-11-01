@@ -22,13 +22,24 @@ func (s *PVC) validateOverlayRetention(ctx context.Context) error {
 			}
 			p := filepath.Join(s.root, dir, e.Name())
 			if dir == "corners" {
-				var r CornerRecord
-				if err := readJSON(p, &r); err != nil {
+				var disk CornerRecord
+				if err := strictRead(p, MaxDeviceRecordBytes, &disk); err != nil {
 					return err
 				}
-				if !validCorner(r, r.DeviceUID) || digest([]byte(r.DeviceUID))+".json" != e.Name() {
+				if !validCorner(disk, disk.DeviceUID) {
 					return ErrCorrupt
 				}
+				r, err := s.corner(disk.DeviceUID)
+				if err != nil {
+					return err
+				}
+				if digest([]byte(r.DeviceUID))+".json" != e.Name() {
+					return ErrCorrupt
+				}
+				if r.Pending != nil && r.Pending.TransactionID != "" {
+					return ErrPending
+				}
+
 			} else {
 				var r derivedRecord
 				if err := readJSON(p, &r); err != nil {
@@ -78,6 +89,18 @@ func (s *PVC) collectOverlays(ctx context.Context, retained map[string]bool, uid
 			}
 			continue
 		}
+		for _, pair := range r.Pairs {
+			for _, ref := range []string{pair.StateRef, pair.CandidateRef} {
+				if ref == "" {
+					continue
+				}
+				m, err := s.manifest(ref)
+				if err != nil {
+					return err
+				}
+				retained[m.Metadata.ImageDigest] = true
+			}
+		}
 		if r.Pending != nil {
 			pending[r.Pending.Proposed.ImageDigest] = true
 			retained[r.Pending.Proposed.ImageDigest] = true
@@ -86,6 +109,9 @@ func (s *PVC) collectOverlays(ctx context.Context, retained map[string]bool, uid
 				retained[r.Pending.Previous.ImageDigest] = true
 			}
 		}
+	}
+	if err := syncDir(filepath.Join(s.root, "corners")); err != nil {
+		return err
 	}
 	entries, err = os.ReadDir(filepath.Join(s.root, "derived"))
 	if err != nil {

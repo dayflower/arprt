@@ -2,7 +2,6 @@ package jobrender
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -181,7 +180,7 @@ func (r *Reconciler) Execute(ctx context.Context, req ExecutionRequest) (metadat
 			}
 			snapshot = *req.Snapshot
 		}
-		b, err := json.Marshal(snapshot)
+		b, err := render.MarshalContext(snapshot)
 		if err != nil {
 			r.mu.Unlock()
 			return artifact.Metadata{}, err

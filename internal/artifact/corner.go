@@ -2,6 +2,7 @@ package artifact
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"path/filepath"
@@ -16,16 +17,30 @@ import (
 // Pending stores both complete turns to distinguish status commitment from a
 // retry or unrelated status edit. Public status carries no overlay counters.
 type CornerPending struct {
-	Next     overlay.Corner         `json:"next"`
-	Previous *api.ScreenCycleStatus `json:"previous,omitempty"`
-	Proposed *api.ScreenCycleStatus `json:"proposed"`
+	TransactionID  string                 `json:"transactionID,omitempty"`
+	RecordRevision uint64                 `json:"recordRevision,omitempty"`
+	PairKey        string                 `json:"pairKey,omitempty"`
+	CandidateRef   string                 `json:"candidateRef,omitempty"`
+	Epoch          uint64                 `json:"epoch,omitempty"`
+	Generation     uint64                 `json:"generation,omitempty"`
+	ImageDigest    string                 `json:"imageDigest,omitempty"`
+	Filename       string                 `json:"filename,omitempty"`
+	Next           overlay.Corner         `json:"next"`
+	Previous       *api.ScreenCycleStatus `json:"previous,omitempty"`
+	Proposed       *api.ScreenCycleStatus `json:"proposed"`
 }
+
+// CornerRecord is the common authoritative device record. Its original API is
+// retained for callers that advance only overlay corners.
 type CornerRecord struct {
-	Version   int            `json:"version"`
-	DeviceUID string         `json:"deviceUID"`
-	Revision  uint64         `json:"revision"`
-	Current   overlay.Corner `json:"current"`
-	Pending   *CornerPending `json:"pending,omitempty"`
+	Pairs           map[string]RendererPair `json:"pairs,omitempty"`
+	LastTransaction string                  `json:"lastTransaction,omitempty"`
+	LastCommitted   bool                    `json:"lastCommitted,omitempty"`
+	Version         int                     `json:"version"`
+	DeviceUID       string                  `json:"deviceUID"`
+	Revision        uint64                  `json:"revision"`
+	Current         overlay.Corner          `json:"current"`
+	Pending         *CornerPending          `json:"pending,omitempty"`
 }
 type CornerStore interface {
 	Corner(context.Context, string) (CornerRecord, error)
@@ -37,22 +52,43 @@ func validTurn(t *api.ScreenCycleStatus) bool {
 	return t != nil && t.EntryIndex >= 0 && t.EntryIndex <= 63 && (t.CompatibilityFingerprint == "" || digestPattern.MatchString(t.CompatibilityFingerprint)) && digestPattern.MatchString(t.Assignment) && t.ScreenUID != "" && digestPattern.MatchString(t.InputRevision) && digestPattern.MatchString(t.ImageDigest) && filenamePattern.MatchString(t.Filename) && !t.ServedAt.IsZero() && (imageprocessing.Target{Width: int(t.Target.Width), Height: int(t.Target.Height), Palette: imageprocessing.Palette(t.Target.Palette), PNGByteLimit: 1}).Validate() == nil
 }
 func validCorner(r CornerRecord, uid string) bool {
-	return r.Version == 1 && uid != "" && r.DeviceUID == uid && r.Current.Valid() && r.Revision < math.MaxUint64 && (r.Pending == nil || (r.Pending.Next == r.Current.Next() && validTurn(r.Pending.Proposed) && (r.Pending.Previous == nil || validTurn(r.Pending.Previous)) && !EqualCycle(r.Pending.Previous, r.Pending.Proposed)))
+	if r.Version != 2 || uid == "" || r.DeviceUID != uid || !r.Current.Valid() || r.Revision == math.MaxUint64 || len(r.Pairs) > MaxDevicePairs {
+		return false
+	}
+	for key, pair := range r.Pairs {
+		if !validPair(pair, uid) || key != PairKey(pair.Definition.Unit.Namespace, pair.Definition.Unit.ScreenUID) {
+			return false
+		}
+	}
+	if r.Pending != nil {
+		p := r.Pending
+		if p.TransactionID != "" {
+			if !validPending(r, *p) {
+				return false
+			}
+		} else if p.Next != r.Current.Next() || !validTurn(p.Proposed) || p.Previous != nil && !validTurn(p.Previous) || EqualCycle(p.Previous, p.Proposed) || p.PairKey != "" || p.CandidateRef != "" {
+			return false
+		}
+	}
+	return true
 }
 func (s *PVC) corner(uid string) (CornerRecord, error) {
 	if uid == "" {
 		return CornerRecord{}, errors.New("device UID required")
 	}
 	var r CornerRecord
-	err := readJSON(filepath.Join(s.root, "corners", digest([]byte(uid))+".json"), &r)
+	err := strictRead(filepath.Join(s.root, "corners", digest([]byte(uid))+".json"), MaxDeviceRecordBytes, &r)
 	if errors.Is(err, ErrNotFound) {
-		return CornerRecord{Version: 1, DeviceUID: uid, Current: overlay.TopRight}, nil
+		return CornerRecord{Version: 2, DeviceUID: uid, Current: overlay.TopRight}, nil
 	}
 	if err != nil {
 		return CornerRecord{}, err
 	}
 	if !validCorner(r, uid) {
 		return CornerRecord{}, ErrCorrupt
+	}
+	if err := s.validateDeviceReferences(r); err != nil {
+		return CornerRecord{}, err
 	}
 	return r, nil
 }
@@ -74,22 +110,22 @@ func (s *PVC) PrepareCorner(ctx context.Context, r CornerRecord, pending CornerP
 	if err != nil {
 		return err
 	}
+	if pending.TransactionID != "" {
+		return ErrObsolete
+	}
 	proposed := r
 	proposed.Pending = &pending
 	if !validCorner(proposed, r.DeviceUID) {
 		return errors.New("invalid corner proposal")
 	}
 	if equalCorner(current, proposed) {
-		return nil
+		return s.confirmDurable("corners")
 	}
 	if !equalCorner(current, r) || r.Pending != nil {
 		return ErrObsolete
 	}
 	r = proposed
-	if err := s.checkCapacity(ctx, 8192); err != nil {
-		return err
-	}
-	return writeJSON(filepath.Join(s.root, "corners", digest([]byte(r.DeviceUID))+".json"), r)
+	return s.writeDevice(ctx, r, false)
 }
 
 // ResolveCorner commits the next corner, or cancels an uncommitted proposal.
@@ -104,6 +140,9 @@ func (s *PVC) ResolveCorner(ctx context.Context, r CornerRecord, advance bool) e
 	if err != nil {
 		return err
 	}
+	if r.Pending != nil && r.Pending.TransactionID != "" {
+		return ErrObsolete
+	}
 	next := r
 	next.Pending = nil
 	if advance {
@@ -111,24 +150,13 @@ func (s *PVC) ResolveCorner(ctx context.Context, r CornerRecord, advance bool) e
 		next.Revision++
 	}
 	if equalCorner(current, next) {
-		return nil
+		return s.confirmDurable("corners")
 	}
 	if !equalCorner(current, r) || !validCorner(next, r.DeviceUID) {
 		return ErrObsolete
 	}
 	// Existing authoritative records can use the reserve to finalize delivery.
-	if r.Pending != nil || r.Revision > 0 {
-		_, free, err := s.Usage(ctx)
-		if err != nil {
-			return err
-		}
-		if free < 8192 {
-			return ErrCapacity
-		}
-	} else if err := s.checkCapacity(ctx, 8192); err != nil {
-		return err
-	}
-	return writeJSON(filepath.Join(s.root, "corners", digest([]byte(r.DeviceUID))+".json"), next)
+	return s.writeDevice(ctx, next, r.Pending != nil || r.Revision > 0)
 }
 
 // EqualCycle compares every persisted turn identity field while treating equal
@@ -143,11 +171,7 @@ func EqualCycle(a, b *api.ScreenCycleStatus) bool {
 	return reflect.DeepEqual(ac, bc)
 }
 func equalCorner(a, b CornerRecord) bool {
-	if a.Version != b.Version || a.DeviceUID != b.DeviceUID || a.Revision != b.Revision || a.Current != b.Current {
-		return false
-	}
-	if a.Pending == nil || b.Pending == nil {
-		return a.Pending == nil && b.Pending == nil
-	}
-	return a.Pending.Next == b.Pending.Next && EqualCycle(a.Pending.Previous, b.Pending.Previous) && EqualCycle(a.Pending.Proposed, b.Pending.Proposed)
+	ac, errA := json.Marshal(a)
+	bc, errB := json.Marshal(b)
+	return errA == nil && errB == nil && string(ac) == string(bc)
 }

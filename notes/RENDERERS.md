@@ -257,6 +257,21 @@ overlaid on valid known state, with query and JSON targets agreeing.
 
 ## Job example and container requirements
 
+The `source.job.state` object defines an opt-in contract with optional
+`resultPath` and `resetToken`. Its API and storage primitives are available;
+Job execution and display do not yet consume this contract. Do not rely on it
+for stateful rendering until those paths are connected. HTTP renderers and
+Jobs without the object retain their existing behavior.
+
+`resultPath` defaults internally to `result.json` beside `imagePath`, without
+adding a writable mount. It must be a clean absolute POSIX file path, share the
+image parent, and differ from both image and context, including ancestor-file
+collisions. Existing reserved/system mount restrictions apply. Omitted and
+explicit default result paths have the same input revision. `resetToken` is an
+optional string of at most 256 characters; changing it changes the definition
+revision. The [JSON contract](PROTOCOL.md#renderer-state-json) describes result
+omission, explicit null and limits.
+
 Job `executionMode` is `Scheduled` when omitted. Set `OnDemand` to start only
 on authenticated display requests, omit `refreshInterval`, and optionally set
 `timeout` to an integer from `1s` to `10s` (default `5s`). The candidate budget

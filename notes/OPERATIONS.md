@@ -605,6 +605,24 @@ remain outside the tested path.
 
 ## Recovery and troubleshooting
 
+Device records in `corners` now use version 2 and include renderer-state
+references and pending transactions. Version 1 corner records are unsupported;
+there is no automatic migration or supported downgrade. Preserve a consistent
+pre-upgrade backup and verify format compatibility before using an existing PVC.
+Do not delete authoritative records to bypass a format or integrity error.
+State manifests in `manifests` and their referenced images belong in the same
+backup. A device record admits at most 64 pairs and 64 KiB; manifests are at most
+48 KiB. Capacity admission never silently discards a retained pair.
+
+The state API/storage primitives are available, but Job and display integration
+are not connected yet. The defined reset mechanism is a change to
+`source.job.state.resetToken`; normalized Screen definition changes also reset
+state conservatively, including refresh interval and renderer configuration.
+State values may contain private renderer data: keep backups private and never
+paste Context/result contents into diagnostics. Pending state transactions and
+corrupt state roots stop destructive GC until the transaction is resolved or
+consistent storage is restored. Issued URL retention remains independent.
+
 Back up the PVC, CRs (including status and original UIDs), auth Secrets and any
 external identity Secrets as one consistent set. Include the installed CRD
 schemas, chart sources/revision or packages/versions, image index digest, private values,

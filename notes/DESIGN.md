@@ -261,9 +261,10 @@ retention accounting. Validate authoritative roots before destructive collection
 deleted-UID corner records have a 24-hour grace period so old API snapshots
 cannot remove new records. Caches are regenerable; corners and issuance are not.
 
-Existing base/issuance formats remain readable. Existing UIDs without
-corner records start at top-right and existing replay can still return its base
-image. Downgrading after numeric-percentage or new internal-record writes is
+Existing base/issuance formats remain readable. The authoritative device record
+uses version 2 in the existing `corners` directory; version 1 corner records are
+rejected without automatic migration. UIDs without a device record start at
+top-right and existing replay can still return its base image. Downgrading after numeric-percentage or new internal-record writes is
 unverified; older maintenance does not understand the new retention roots.
 
 ## Delivery observations and dashboard API
@@ -535,6 +536,65 @@ output or exit failure never becomes success. Recheck desired pair state after
 collection and before publication. The reconciliation/maintenance lock spans
 preparation, publication and durable bookkeeping so cleanup cannot remove work
 between stages. Kubernetes resource GC does not remove arbitrary PVC directories.
+
+### Renderer state persistence
+
+The [state store](../internal/artifact/state.go) provides internal primitives;
+Job collection and BYOS state delivery integration are not yet connected.
+The existing corner API uses the same authoritative device file as renderer
+pairs and a single pending delivery. Pair ownership uses namespace, Device UID
+and Screen UID. Definition revision and a separate compatibility fingerprint
+bind state to resolved target/output, rotation and processing policy. The caller
+must compute that fingerprint from the effective rendering constraints.
+
+Normalized Screen input changes, including renderer settings, result path,
+reset token, execution mode and refresh interval, reset state conservatively.
+Metadata, credentials and telemetry are excluded. Epochs fence resets and
+assignment departure; generations advance only when a candidate is consumed,
+even if its state and PNG bytes are unchanged. Candidate identity is the attempt
+ID, separate from image digest. A pair has at most one unconsumed candidate.
+
+Publication saves a content-addressed image and immutable candidate manifest,
+then atomically replaces the device record using a complete snapshot CAS.
+The manifest binds metadata, context digest, epoch, input generation and resolved
+next state. Repeated collection recognizes a published or consumed attempt and
+cannot resurrect it. `latest` is not an authoritative state root. Blobs and
+manifests are synced before publication; a failed intermediate write leaves only
+unreferenced objects. In-memory snapshots are copied before mutation.
+
+A pending transaction records its ID, prior record revision, complete previous
+and proposed turns, selected pair/candidate, expected epoch/generation, issued
+digest/filename and next corner. Single-screen proposals omit both turns;
+fixed/disabled corners can keep the current corner. Finalize atomically consumes
+the candidate, adopts its manifest as committed state, increments generation,
+updates corner and clears pending. Abort preserves candidate/state/corner.
+The last transaction decision makes retries idempotent after an ambiguous rename
+or directory fsync. Cycling callers must establish the decision by comparing
+complete API turns; issuance or equal image digests alone are insufficient.
+
+Repository operations hold only their mutex during filesystem operations. They
+never read Kubernetes, wait for Jobs, acquire the device gate/reconciler mutex,
+or enter image-processing admission. Callers may hold the device gate around
+storage operations and must release repository locks before external recovery
+work. Revision/snapshot checks reject publication concurrent with a transition.
+
+A device record admits at most 64 pairs and 64 KiB of serialized data; manifests
+are bounded at 48 KiB with state limits defined in PROTOCOL. Capacity failure
+preserves every existing pair. Finalization can use the storage reserve.
+Departure drops the candidate and retains committed state for 24 hours; compatible
+rejoining within that period reuses state. Expiry removes the payload and retains
+an epoch tombstone, so old work cannot become current. Tombstones count toward
+the pair limit; retained pairs are never silently evicted.
+
+Referenced manifests and their images are retention roots, independently of
+latest and issuance. Unreferenced manifests have a 24-hour diagnostic grace.
+An unresolved state delivery stops destructive collection until recovery;
+invalid/unknown records, missing referenced manifests and invalid image bindings
+fail closed. Old authoritative corner formats are not migrated, and downgrade
+after version 2 writes is unsupported. Test-only per-repository hooks inject
+failures after write, file fsync, rename and directory fsync; production exposes
+no arbitrary-stop interface. Filesystem restart tests do not establish power-loss
+or multi-node durability.
 
 ## Storage topology, retention and failure handling
 

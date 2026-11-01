@@ -3,7 +3,6 @@ package render
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"mime"
 	"net/http"
@@ -63,7 +62,9 @@ func (h HTTPPOST) Execute(ctx context.Context, input Request) (Output, error) {
 	if input.Context == nil || input.Context.Version != "v1" || input.Context.Device.Name == "" || input.Context.RenderTarget != input.Target {
 		return Output{}, errors.New("POST requires Render Context v1 with the same target as the query")
 	}
-	body, err := json.Marshal(input.Context)
+	snapshot := *input.Context
+	snapshot.RendererState = nil
+	body, err := MarshalContext(snapshot)
 	if err != nil {
 		return Output{}, errors.New("invalid renderer context")
 	}

@@ -484,6 +484,26 @@ spec:
                         required:
                         - image
                         type: object
+                      state:
+                        description: JobState opts a Job into renderer-owned JSON
+                          state.
+                        properties:
+                          resetToken:
+                            description: ResetToken changes invalidate previously
+                              generated state and candidates.
+                            maxLength: 256
+                            type: string
+                          resultPath:
+                            description: ResultPath defaults internally to result.json
+                              beside imagePath.
+                            maxLength: 512
+                            pattern: ^/([^/\x00]+/)*[^/\x00]+$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: path must be a clean absolute POSIX file path
+                              rule: '!self.split(''/'').exists(p, p == ''.'' || p
+                                == ''..'')'
+                        type: object
                       timeout:
                         description: |-
                           Timeout includes slot waiting, startup, collection and base-image storage.
@@ -514,6 +534,25 @@ spec:
                     - message: timeout is only supported for OnDemand Jobs
                       rule: '!has(self.timeout) || (has(self.executionMode) && self.executionMode
                         == ''OnDemand'')'
+                    - message: result and image must have the same parent directory
+                      rule: '!has(self.state) || !has(self.state.resultPath) || self.state.resultPath.substring(0,
+                        self.state.resultPath.lastIndexOf(''/'')) == self.imagePath.substring(0,
+                        self.imagePath.lastIndexOf(''/''))'
+                    - message: result must be distinct from context and image files
+                      rule: '!has(self.state) || !has(self.state.resultPath) || (self.state.resultPath
+                        != self.imagePath && self.state.resultPath != self.contextPath
+                        && !self.contextPath.startsWith(self.state.resultPath + ''/'')
+                        && !self.state.resultPath.startsWith(self.contextPath + ''/''))'
+                    - message: default result path must be distinct from context and
+                        image files
+                      rule: '!has(self.state) || has(self.state.resultPath) || (!self.imagePath.endsWith(''/result.json'')
+                        && self.contextPath != self.imagePath.substring(0, self.imagePath.lastIndexOf(''/''))
+                        + ''/result.json'' && !self.contextPath.startsWith(self.imagePath.substring(0,
+                        self.imagePath.lastIndexOf(''/'')) + ''/result.json/''))'
+                    - message: default result path exceeds the path length limit
+                      rule: '!has(self.state) || has(self.state.resultPath) || size(self.imagePath.substring(0,
+                        self.imagePath.lastIndexOf(''/'')) + ''/result.json'') <=
+                        512'
                 type: object
                 x-kubernetes-validations:
                 - message: exactly one of http or job is required

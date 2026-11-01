@@ -249,7 +249,9 @@ and assignment mode; see [DESIGN](DESIGN.md#rendering-and-assignment).
 
 ## Render Context v1
 
-The same JSON schema is used for POST bodies and immutable Job context files.
+POST bodies and immutable Job context files share the base JSON schema.
+The optional `rendererState` extension is reserved for explicitly opted-in Jobs
+and is never sent to HTTP renderers.
 The [complete fixture](../testdata/render-context/render-context-v1.json) and
 [no-telemetry fixture](../testdata/render-context/render-context-no-telemetry.json) are
 serialization examples used by tests; the [fractional-percentage fixture](../testdata/render-context/render-context-fractional-percent.json)
@@ -287,6 +289,30 @@ state without waiting for informer propagation. Scheduled Job snapshots are copi
 cannot change in flight; their telemetry may be older at display time. GET has
 no context. Optional fields may be added within v1; renderers ignore unknown
 fields. Removing fields or changing semantics requires a new context version.
+
+### Renderer state JSON
+
+The Job state API and persistence primitives are defined, but Job snapshot,
+collection and display integration do not yet use them. Configuring
+`source.job.state` does not currently enable stateful rendering.
+
+The extension is an optional JSON value named `rendererState`; initial or cleared
+state omits the field. The [state fixture](../testdata/render-context/render-context-state.json)
+contains a large integer cursor without precision loss. Renderers own the value's
+schema and internal version. Credentials and hardware identity remain excluded.
+
+The result envelope is `{"version":"v1","nextState":...}`. Missing result files
+or an omitted `nextState` preserve the input state; explicit null clears it.
+Objects, arrays, strings, numbers and booleans are allowed, including empty
+containers, false and zero. Empty files, invalid JSON, unknown envelope fields
+or versions, duplicate object keys, invalid UTF-8, invalid numbers and trailing
+JSON values are errors. Errors never include state contents or parser excerpts.
+
+Encoded limits are 48 KiB per result file and 32 KiB per state value, with at most
+32 nested containers (outermost object/array counts as one). The entire serialized
+Context remains bounded at 64 KiB, including JSON escaping. Numbers are retained
+as JSON bytes rather than converted to floating point. These limits and parsing
+rules are owned by [render/state.go](../internal/render/state.go).
 
 ## PNG contract
 
