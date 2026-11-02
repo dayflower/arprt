@@ -73,14 +73,26 @@ def main():
             )
             assert [p["port"] for p in service["spec"]["ports"]] == [8080]
 
+            dashboard_base_path = "/"
+
             def dashboard_image(expected_bytes):
                 device_before = resource("arprtdevice", "living-room")
                 with forwarded(namespace, 8083, directory) as base:
-                    status, _, html = smoke.request(base, "/", {})
-                    assert status == 200 and b"/assets/dashboard.js" in html
+                    status, _, html = smoke.request(base, dashboard_base_path, {})
+                    assert status == 200 and b"assets/dashboard.js" in html
                     for asset in ["dashboard.js", "dashboard.css", "mark.svg"]:
-                        assert smoke.request(base, "/assets/" + asset, {})[0] == 200
-                    status, _, body = smoke.request(base, "/api/devices", {})
+                        assert (
+                            smoke.request(
+                                base, dashboard_base_path + "assets/" + asset, {}
+                            )[0]
+                            == 200
+                        )
+                    status, _, body = smoke.request(
+                        base, dashboard_base_path + "api/devices", {}
+                    )
+                    if dashboard_base_path != "/":
+                        assert smoke.request(base, "/api/devices", {})[0] == 404
+                        assert smoke.request(base, "/", {})[0] == 404
                     assert status == 200
                     for sensitive in [
                         headers["ID"],
@@ -98,6 +110,9 @@ def main():
                     image = row["image"]
                     assert image["freshness"] == "last-recorded"
                     assert image["latestGuaranteed"] is False
+                    assert image["previewURL"].startswith(
+                        dashboard_base_path + "api/devices/"
+                    )
                     status, _, png = smoke.request(base, image["previewURL"], {})
                     assert status == 200 and png == expected_bytes
                 device_after = resource("arprtdevice", "living-room")
@@ -347,6 +362,9 @@ def main():
                     {"spec": {"screenRef": {"name": "device-status"}}},
                 )
                 assert fetch(base, composite_route) == composite_bytes
+            dashboard_base_path = "/ops/dashboard/"
+            installation.settings["dashboard"]["basePath"] = dashboard_base_path
+            installation.upgrade()
             image_before = dashboard_image(composite_bytes)
             assert image_before["generatedAt"] == recorded["renderedAt"]
             assert read_delivery() == recorded

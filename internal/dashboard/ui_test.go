@@ -80,6 +80,12 @@ func (r browserPageReader) List(ctx context.Context, list client.ObjectList, opt
 }
 
 func TestBrowserUI(t *testing.T) {
+	for _, basePath := range []string{"/", "/dashboard/", "/ops/dashboard/"} {
+		t.Run(basePath, func(t *testing.T) { testBrowserUI(t, basePath) })
+	}
+}
+
+func testBrowserUI(t *testing.T, basePath string) {
 	if os.Getenv("ARPRT_DASHBOARD_BROWSER") != "1" {
 		t.Skip("set ARPRT_DASHBOARD_BROWSER=1 with Playwright and Chromium installed")
 	}
@@ -145,6 +151,7 @@ func TestBrowserUI(t *testing.T) {
 	s.reader = browserPageReader{Reader: c}
 	// A five-minute device poll must not delay UI refreshes to five minutes.
 	s.config.RefreshSeconds = 300
+	s.config.BasePath = basePath
 	httpServer := httptest.NewServer(s)
 	defer httpServer.Close()
 	script, err := filepath.Abs("../../tools/dashboard-browser.cjs")
@@ -152,7 +159,7 @@ func TestBrowserUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.CommandContext(t.Context(), "node", script)
-	cmd.Env = append(os.Environ(), "ARPRT_DASHBOARD_URL="+httpServer.URL)
+	cmd.Env = append(os.Environ(), "ARPRT_DASHBOARD_URL="+httpServer.URL+basePath)
 	output, err := cmd.CombinedOutput()
 	t.Log(string(output))
 	if err != nil {

@@ -195,10 +195,24 @@ expose it. Direct execution can instead use
 listener. Setting `dashboard.enabled: false` and upgrading stops it without
 removing delivery observations or images.
 
+Set `dashboard.basePath: /dashboard/` (direct execution:
+`--dashboard-base-path=/dashboard/`) to serve the UI, assets, API and preview
+images under that path. The default is `/`. A missing trailing slash in the
+setting is added automatically; GET `/dashboard` redirects to `/dashboard/`
+with status 308. Nested paths such as `/ops/dashboard/` are supported. Paths
+must be absolute, unescaped ASCII using letters, digits, `-`, `.`, `_`, `~`
+and `/`, with no empty or dot segments, query or fragment. CLI/Go configuration
+also treats an empty value as the default; Helm rejects an explicitly empty value.
+Unknown paths and requests outside the configured base path return 404.
+The redirect accepts only GET without query parameters, like the UI.
+
 The dashboard has no built-in authentication or device-token checks. Restrict
 Pod/port-forward access to operators. External access requires an authenticating
 proxy in front of this separate listener; the BYOS public prefix and
-`proxyStripsPrefix` do not apply. All UI assets ship in the controller binary.
+`proxyStripsPrefix` do not apply. The proxy must forward the configured dashboard
+prefix unchanged; prefix stripping and forwarded-prefix headers are not supported.
+For example, external `/dashboard/api/devices` must reach the dashboard listener
+as `/dashboard/api/devices`. All UI assets ship in the controller binary.
 Startup/bind failures stop the manager; manager shutdown cancels request work
 and allows up to 15 seconds to drain the listener within its existing shutdown
 budget.
@@ -247,6 +261,7 @@ metrics on 8082.
 | `--health-probe-bind-address` | `:8081` | Health/readiness probes |
 | `--metrics-bind-address` | `0` locally; `:8082` in Deployment | Internal metrics listener; `0` disables it |
 | `--dashboard-bind-address` | `0`; `:8083` with `dashboard.enabled: true` | Separate read-only operator listener; `0` disables it |
+| `--dashboard-base-path` | `/` | Absolute dashboard UI/API path; configured by `dashboard.basePath` in Helm |
 | `--storage-max-bytes` | 805306368 (768 MiB) | Managed storage admission limit |
 | `--storage-min-free-bytes` | 67108864 (64 MiB) | Filesystem free-space reserve |
 

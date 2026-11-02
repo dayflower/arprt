@@ -40,7 +40,7 @@ func main() {
 }
 
 func run() error {
-	var namespace, root, probes, listen, publicURL, metricsAddress, dashboardAddress, overlayZone string
+	var namespace, root, probes, listen, publicURL, metricsAddress, dashboardAddress, dashboardBasePath, overlayZone string
 	var storageMax int64
 	var storageReserve uint64
 	var enableSetup, strips, showVersion bool
@@ -61,6 +61,7 @@ func run() error {
 	flag.IntVar(&jobConfig.MaxActive, "job-concurrency", 4, "Maximum active renderer Jobs")
 	flag.StringVar(&metricsAddress, "metrics-bind-address", "0", "Internal metrics listener; 0 disables it")
 	flag.StringVar(&dashboardAddress, "dashboard-bind-address", "0", "Read-only operator dashboard listener; 0 disables it")
+	flag.StringVar(&dashboardBasePath, "dashboard-base-path", "/", "Absolute path for the dashboard UI and API")
 	flag.Int64Var(&storageMax, "storage-max-bytes", 768<<20, "Managed storage admission limit")
 	flag.Uint64Var(&storageReserve, "storage-min-free-bytes", 64<<20, "Filesystem free-space reserve")
 	flag.BoolVar(&showVersion, "version", false, "Print controller version and source revision")
@@ -166,7 +167,7 @@ func run() error {
 		return err
 	}
 	if dashboardAddress != "0" {
-		dashboardServer, err := dashboard.NewServer(dashboard.Config{Namespace: namespace, RefreshSeconds: refresh}, mgr.GetAPIReader(), repo)
+		dashboardServer, err := dashboard.NewServer(dashboard.Config{BasePath: dashboardBasePath, Namespace: namespace, RefreshSeconds: refresh}, mgr.GetAPIReader(), repo)
 		if err != nil {
 			return err
 		}

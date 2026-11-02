@@ -201,8 +201,10 @@ For release `home` in namespace `arprt`, open a local tunnel:
 kubectl -n arprt port-forward deployment/home-arprt 8083:8083
 ```
 
-Open `http://127.0.0.1:8083/`. The dashboard is disabled by default and uses a
-separate listener; the BYOS Service exposes only device traffic. The dashboard
+Open `http://127.0.0.1:8083/`. To serve the UI and API under a subpath, set
+`dashboard.basePath: /dashboard/` and open `http://127.0.0.1:8083/dashboard/`.
+The dashboard is disabled by default and uses a separate listener; the BYOS
+Service exposes only device traffic. The dashboard
 has no built-in authentication. Keep access restricted to operators and use an
 authenticating proxy if exposing it externally. See
 [dashboard operations](notes/OPERATIONS.md#dashboard) for the observation,

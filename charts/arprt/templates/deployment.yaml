@@ -41,6 +41,7 @@ spec:
             - --artifact-root=/var/lib/arprt
             - --job-pvc={{ if .Values.jobs.enabled }}{{ include "arprt.claimName" . }}{{ end }}
             - --metrics-bind-address={{ ternary ":8082" "0" .Values.metrics.enabled }}
+            - {{ printf "--dashboard-base-path=%s" .Values.dashboard.basePath | quote }}
             - --dashboard-bind-address={{ ternary ":8083" "0" .Values.dashboard.enabled }}
             - --proxy-strips-prefix=$(PROXY_STRIPS_PREFIX)
             - --enable-setup=$(ENABLE_SETUP)

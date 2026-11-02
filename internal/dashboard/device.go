@@ -186,7 +186,7 @@ func (s *Server) device(ctx context.Context, reader client.Reader, d *api.ArprtD
 	}
 	if available {
 		row.Image.PreviewState = "available"
-		row.Image.PreviewURL = "/api/devices/" + d.Name + "/preview/" + record.ImageDigest + ".png"
+		row.Image.PreviewURL = s.config.BasePath + "api/devices/" + d.Name + "/preview/" + record.ImageDigest + ".png"
 	}
 	matching := record.DeviceUID == string(d.UID) && record.DeviceGeneration == d.Generation && record.Assignment == set.Fingerprint && record.Target == target
 	matchedScreen := false
