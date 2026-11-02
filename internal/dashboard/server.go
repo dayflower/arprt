@@ -21,6 +21,7 @@ import (
 )
 
 type Config struct {
+	BasePath       string
 	Namespace      string
 	RefreshSeconds int
 }
@@ -38,6 +39,11 @@ func NewServer(c Config, reader client.Reader, store artifact.DeliveryReader) (*
 	if c.Namespace == "" || len(validation.IsDNS1123Label(c.Namespace)) != 0 || reader == nil || store == nil {
 		return nil, errors.New("dashboard requires a namespace, reader and delivery store")
 	}
+	basePath, err := normalizeBasePath(c.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	c.BasePath = basePath
 	if c.RefreshSeconds == 0 {
 		c.RefreshSeconds = 300
 	}
@@ -59,10 +65,29 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable)
 		return
 	}
+	// Validate the original escaped path before removing the configured prefix.
 	if r.URL.RawPath != "" || strings.Contains(r.URL.EscapedPath(), "%") {
 		fail(w, http.StatusNotFound)
 		return
 	}
+	if s.config.BasePath != "/" && r.URL.Path == strings.TrimSuffix(s.config.BasePath, "/") {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			fail(w, http.StatusMethodNotAllowed)
+		} else if r.URL.RawQuery != "" || r.URL.ForceQuery {
+			fail(w, http.StatusBadRequest)
+		} else {
+			http.Redirect(w, r, s.config.BasePath, http.StatusPermanentRedirect)
+		}
+		return
+	}
+	if !strings.HasPrefix(r.URL.Path, s.config.BasePath) {
+		fail(w, http.StatusNotFound)
+		return
+	}
+	// Clone both request and URL; callers may retain the original request.
+	r = r.Clone(r.Context())
+	r.URL.Path = "/" + strings.TrimPrefix(r.URL.Path, s.config.BasePath)
 	if s.serveUI(w, r) {
 		return
 	}

@@ -721,9 +721,13 @@ generation/status scope, optional telemetry, UID replacement and read side effec
 The envtest API suite also checks real bounded pagination/continuation and
 namespace isolation through the dashboard handler. `internal/dashboard/ui_test.go`
 also checks embedded asset routing, read-only methods and security headers.
+`internal/dashboard/basepath_test.go` covers base-path validation, canonical
+redirects, prefix boundaries and preview URLs for root and nested mounts. Chart
+checks cover default/custom base-path arguments and invalid Helm values.
 
 The optional browser suite runs the embedded assets against the actual dashboard
-handler, namespaced Kubernetes object fixtures and a temporary PVC repository.
+handler at `/`, `/dashboard/` and `/ops/dashboard/`, namespaced Kubernetes object
+fixtures and a temporary PVC repository.
 Its 23-device fixture covers normal/stale/silent/never-seen/pending states,
 missing and collected images, unknown provenance and optional telemetry.
 `tools/dashboard-browser.cjs` checks lazy image requests, pagination, periodic
@@ -731,7 +735,9 @@ refresh, error/expired-token recovery, safe text, focus/expanded-state retention
 image enlargement and keyboard controls at desktop, tablet and phone widths.
 Backend failures are injected by the browser; fixture pagination is deterministic,
 while envtest covers real Kubernetes continuation behavior. This is not live
-cluster, physical display or production listener/Helm acceptance. The dashboard
+cluster, physical display or production listener/Helm acceptance. The operations
+smoke suite verifies root access followed by a Helm upgrade to a nested base
+path, including assets, list and image reads across restart. The dashboard
 TCP listener tests separately cover request-context cancellation, draining,
 closed sockets after shutdown and bind failures.
 

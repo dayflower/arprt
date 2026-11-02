@@ -337,7 +337,20 @@ and an artifact `DeliveryReader`, with
 no client writer, renderer or credential service. The handler is intended for a
 separate operator listener; it does not implement device-token authentication.
 
-| Route | Contract |
+The dashboard's `BasePath` (`--dashboard-base-path`, Helm `dashboard.basePath`)
+defaults to `/` and is normalized to include a trailing slash. Accepted path
+syntax and proxy setup are documented in [OPERATIONS](OPERATIONS.md#dashboard).
+All routes below are relative to that base: `/dashboard/` places the list at
+`/dashboard/api/devices` and prefixes
+returned `previewURL` values. Requests outside the base return 404. GET of the
+base without its trailing slash redirects with 308; queries return 400 and
+other methods return 405. Original escaped paths are rejected before prefix
+removal. Proxy forwarding must preserve the prefix; BYOS prefix settings and
+forwarded-prefix headers have no effect. The UI uses relative asset links and
+the canonical page path for API requests and exact preview URL validation,
+without a `<base>` element or weakening CSP.
+
+| Route (with the default base `/`) | Contract |
 | --- | --- |
 | `GET /` and `GET /assets/{dashboard.css,dashboard.js,mark.svg}` | Embedded UI and explicitly allowed assets; no frontend build or external asset service. Unknown paths return 404 rather than the HTML page. |
 | `GET /api/devices?limit=20&continue=...` | A bounded page of nondeleting declared Devices in the configured namespace, including never-seen Devices; `limit` is 1–100, default 20. `continue` is the opaque Kubernetes continuation token, URL-encoded by the caller. Expired tokens return 410; other backend list failures return 503. Deleting Devices may make a page shorter or empty while a continuation remains. |

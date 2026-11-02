@@ -12,6 +12,7 @@ async function run() {
     const page = await context.newPage();
     const errors = [];
     const previews = [];
+    const baseURL = new URL(process.env.ARPRT_DASHBOARD_URL);
     let requests = 0;
     let mode = "pass";
     let releaseInitial;
@@ -19,6 +20,9 @@ async function run() {
     let initialRequest = true;
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("request", (request) => {
+      const url = new URL(request.url());
+      assert.equal(url.origin, baseURL.origin, "requests must stay on the dashboard origin");
+      assert(url.pathname.startsWith(baseURL.pathname), "requests must stay under the dashboard base path");
       if (request.url().includes("/preview/")) previews.push(request.url());
     });
     await page.clock.install();
@@ -104,6 +108,8 @@ async function run() {
     await page.keyboard.press("Tab");
     assert(await page.evaluate(() => document.querySelector("dialog").contains(document.activeElement)), "modal must contain keyboard focus");
     await page.keyboard.press("Escape");
+    // The close event clears the preview after the native dialog restores focus.
+    await page.waitForFunction(() => document.getElementById("preview-content").childElementCount === 0);
     assert.equal(await enlarge.evaluate((el) => document.activeElement === el), true);
     assert.equal(await page.locator("#preview-content").textContent(), "");
 

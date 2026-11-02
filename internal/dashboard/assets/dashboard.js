@@ -1,6 +1,7 @@
 "use strict";
 
 (() => {
+  const basePath = window.location.pathname;
   const $ = (id) => document.getElementById(id);
   const list = $("devices");
   const dialog = $("preview-dialog");
@@ -69,7 +70,7 @@
   function previewURL(device) {
     const image = device.image;
     if (!image || image.previewState !== "available" || !/^[a-f0-9]{64}$/.test(image.digest)) return "";
-    const expected = `/api/devices/${encodeURIComponent(device.name)}/preview/${image.digest}.png`;
+    const expected = `${basePath}api/devices/${encodeURIComponent(device.name)}/preview/${image.digest}.png`;
     return image.previewURL === expected ? expected : "";
   }
 
@@ -280,7 +281,7 @@
     try {
       const query = new URLSearchParams({ limit: "20" });
       if (state.cursors[page]) query.set("continue", state.cursors[page]);
-      const response = await fetch(`/api/devices?${query}`, { signal: controller.signal, cache: "no-store", credentials: "same-origin" });
+      const response = await fetch(`${basePath}api/devices?${query}`, { signal: controller.signal, cache: "no-store", credentials: "same-origin" });
       if (!response.ok) {
         const error = new Error("Device page unavailable");
         error.expired = response.status === 410;

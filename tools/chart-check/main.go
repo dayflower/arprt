@@ -230,6 +230,28 @@ func run(helm, packages string) error {
 		{object{"credentials": object{"authSecrets": []any{object{"name": "same", "create": true}, object{"name": "same", "create": false}}}}, "duplicate"},
 		{object{"credentials": object{"authSecrets": []any{object{"name": "auth", "create": true, "apiKey": "forbidden"}}}}, "apiKey"},
 	}
+	for _, path := range []string{"", "dashboard", "//", "/a//", "/a/./b", "/a/../b", "/a?b", "/a#b", "/a%2fb", "/a b", "https://example.test/"} {
+		invalid = append(invalid, struct {
+			settings object
+			field    string
+		}{object{"dashboard": object{"basePath": path}}, "basePath"})
+	}
+	for _, path := range []string{"/dashboard", "/dashboard/", "/ops/dashboard/", "/A_1.~-/"} {
+		if err := write(object{"byos": object{"publicBaseURL": "https://byos.example.test/arprt"}, "dashboard": object{"enabled": true, "basePath": path}}); err != nil {
+			return err
+		}
+		objects, err := render(helm, "charts/arprt", "home", "custom-space", values)
+		if err != nil {
+			return err
+		}
+		var deployment appsv1.Deployment
+		if err := one(objects, "Deployment", &deployment); err != nil {
+			return err
+		}
+		if err := require(contains(deployment.Spec.Template.Spec.Containers[0].Args, "--dashboard-base-path="+path), "dashboard base path argument differs"); err != nil {
+			return err
+		}
+	}
 	for _, test := range invalid {
 		if _, ok := test.settings["byos"]; !ok {
 			test.settings["byos"] = object{"publicBaseURL": "https://byos.example.test/arprt"}
@@ -372,7 +394,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs,
 	if jobs {
 		jobClaim = claim
 	}
-	for _, arg := range []string{"--namespace=$(POD_NAMESPACE)", "--artifact-root=/var/lib/arprt", "--job-pvc=" + jobClaim, "--metrics-bind-address=:8082", "--dashboard-bind-address=" + dashboardAddress} {
+	for _, arg := range []string{"--namespace=$(POD_NAMESPACE)", "--artifact-root=/var/lib/arprt", "--job-pvc=" + jobClaim, "--metrics-bind-address=:8082", "--dashboard-bind-address=" + dashboardAddress, "--dashboard-base-path=/"} {
 		if !contains(controller.Args, arg) {
 			return fmt.Errorf("missing runtime argument %s", arg)
 		}
@@ -382,7 +404,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs,
 		return err
 	}
 	expectedConfig := map[string]string{"publicBaseURL": "https://byos.example.test/arprt", "proxyStripsPrefix": "false", "setupEnabled": "true", "deviceRefreshSeconds": "300", "overlayTimeZone": "UTC", "storageMaxBytes": "805306368", "storageMinFreeBytes": "67108864", "jobConcurrency": "4", "jobDeadlineSeconds": "120"}
-	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 12 || len(controller.Args) != 13 {
+	if !reflect.DeepEqual(config.Data, expectedConfig) || len(controller.Env) != 12 || len(controller.Args) != 14 {
 		return fmt.Errorf("runtime defaults or environment/argument set differs")
 	}
 	expectedEnvironment := map[string]corev1.EnvVarSource{

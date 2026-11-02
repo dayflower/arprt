@@ -74,3 +74,5 @@ metrics:
 # Operator listener only; access via Pod/Deployment port-forward, not BYOS Service.
 dashboard:
   enabled: false
+  # Absolute UI/API path; the proxy must preserve this prefix.
+  basePath: /
