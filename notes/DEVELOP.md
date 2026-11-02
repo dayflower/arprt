@@ -659,7 +659,12 @@ strict unknown-field rejection, status conflicts, watches and manager restart.
 Playlist admission accepts repeated names through the 64-entry limit, rejects
 empty/65-entry lists and invalid names, and enforces required `entryIndex` in
 0–63 on cycle status. Server-side apply preserves repeated ordered entries.
-It simulates renderer termination; actual container execution and mounts require
+File-input API tests cover standard-source rejection, read-only mounts, path
+conflicts and limits, and strictly apply the complete multi-resource example.
+The Job smoke suite also checks two ConfigMaps/two Secrets, all-key and selected-key
+mounts, renaming, modes under UID/GID/fsGroup 1000, optional objects/keys, new-Job
+updates and required missing-object/key `FailedMount`/timeout with stale retention.
+Envtest simulates renderer termination; actual container execution and mounts require
 cluster checks. Use `kubectl --validate=strict` or `fieldValidation=Strict` when
 testing unknown fields: structural CRDs otherwise prune them before CEL runs.
 See Kubernetes [field validation](https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation)

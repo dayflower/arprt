@@ -186,5 +186,8 @@ func NormalizeJob(source api.JobSource) (api.JobSource, error) {
 	if source.Renderer.Image == "" {
 		return source, errors.New("renderer image is required")
 	}
+	if err := validateJobInputs(source); err != nil {
+		return source, err
+	}
 	return source, nil
 }

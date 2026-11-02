@@ -25,8 +25,113 @@ type HTTPSource struct {
 	Method string `json:"method,omitempty"`
 }
 
+// JobVolume uses Kubernetes field names and rejects unsupported standard sources.
+// +kubebuilder:validation:XValidation:rule="has(self.configMap) != has(self.secret)",message="exactly one of configMap or secret is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.hostPath) && !has(self.emptyDir) && !has(self.gcePersistentDisk) && !has(self.awsElasticBlockStore) && !has(self.gitRepo) && !has(self.nfs) && !has(self.iscsi) && !has(self.glusterfs) && !has(self.persistentVolumeClaim) && !has(self.rbd) && !has(self.flexVolume) && !has(self.cinder) && !has(self.cephfs) && !has(self.flocker) && !has(self.downwardAPI) && !has(self.fc) && !has(self.azureFile) && !has(self.vsphereVolume) && !has(self.quobyte) && !has(self.azureDisk) && !has(self.photonPersistentDisk) && !has(self.projected) && !has(self.portworxVolume) && !has(self.scaleIO) && !has(self.storageos) && !has(self.csi) && !has(self.ephemeral) && !has(self.image)",message="only configMap and secret volume sources are supported"
+// +kubebuilder:validation:XValidation:rule="self.name != 'data'",message="data is reserved for ARPRT"
+// +kubebuilder:validation:XValidation:rule="!has(self.configMap) || (has(self.configMap.name) && size(self.configMap.name) > 0)",message="configMap.name is required"
+// +kubebuilder:validation:XValidation:rule="!has(self.secret) || (has(self.secret.secretName) && size(self.secret.secretName) > 0)",message="secret.secretName is required"
+type JobVolume struct {
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+	// Unsupported sources remain in the schema so even non-strict writes reject them.
+	HostPath              *corev1.HostPathVolumeSource              `json:"hostPath,omitempty"`
+	EmptyDir              *corev1.EmptyDirVolumeSource              `json:"emptyDir,omitempty"`
+	GCEPersistentDisk     *corev1.GCEPersistentDiskVolumeSource     `json:"gcePersistentDisk,omitempty"`
+	AWSElasticBlockStore  *corev1.AWSElasticBlockStoreVolumeSource  `json:"awsElasticBlockStore,omitempty"`
+	GitRepo               *corev1.GitRepoVolumeSource               `json:"gitRepo,omitempty"`
+	Secret                *JobSecretVolumeSource                    `json:"secret,omitempty"`
+	NFS                   *corev1.NFSVolumeSource                   `json:"nfs,omitempty"`
+	ISCSI                 *corev1.ISCSIVolumeSource                 `json:"iscsi,omitempty"`
+	Glusterfs             *corev1.GlusterfsVolumeSource             `json:"glusterfs,omitempty"`
+	PersistentVolumeClaim *corev1.PersistentVolumeClaimVolumeSource `json:"persistentVolumeClaim,omitempty"`
+	RBD                   *corev1.RBDVolumeSource                   `json:"rbd,omitempty"`
+	FlexVolume            *corev1.FlexVolumeSource                  `json:"flexVolume,omitempty"`
+	Cinder                *corev1.CinderVolumeSource                `json:"cinder,omitempty"`
+	CephFS                *corev1.CephFSVolumeSource                `json:"cephfs,omitempty"`
+	Flocker               *corev1.FlockerVolumeSource               `json:"flocker,omitempty"`
+	DownwardAPI           *corev1.DownwardAPIVolumeSource           `json:"downwardAPI,omitempty"`
+	FC                    *corev1.FCVolumeSource                    `json:"fc,omitempty"`
+	AzureFile             *corev1.AzureFileVolumeSource             `json:"azureFile,omitempty"`
+	ConfigMap             *JobConfigMapVolumeSource                 `json:"configMap,omitempty"`
+	VsphereVolume         *corev1.VsphereVirtualDiskVolumeSource    `json:"vsphereVolume,omitempty"`
+	Quobyte               *corev1.QuobyteVolumeSource               `json:"quobyte,omitempty"`
+	AzureDisk             *corev1.AzureDiskVolumeSource             `json:"azureDisk,omitempty"`
+	PhotonPersistentDisk  *corev1.PhotonPersistentDiskVolumeSource  `json:"photonPersistentDisk,omitempty"`
+	Projected             *corev1.ProjectedVolumeSource             `json:"projected,omitempty"`
+	PortworxVolume        *corev1.PortworxVolumeSource              `json:"portworxVolume,omitempty"`
+	ScaleIO               *corev1.ScaleIOVolumeSource               `json:"scaleIO,omitempty"`
+	StorageOS             *corev1.StorageOSVolumeSource             `json:"storageos,omitempty"`
+	CSI                   *corev1.CSIVolumeSource                   `json:"csi,omitempty"`
+	Ephemeral             *corev1.EphemeralVolumeSource             `json:"ephemeral,omitempty"`
+	Image                 *corev1.ImageVolumeSource                 `json:"image,omitempty"`
+}
+
+// JobVolumeMount retains the standard mount shape with a read-only subset.
+// +kubebuilder:validation:XValidation:rule="has(self.readOnly) && self.readOnly",message="input mounts require readOnly true"
+// +kubebuilder:validation:XValidation:rule="!has(self.subPath) && !has(self.subPathExpr) && !has(self.mountPropagation) && !has(self.recursiveReadOnly)",message="subPath, subPathExpr, mountPropagation and recursiveReadOnly are unsupported"
+type JobVolumeMount struct {
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^/([^/:\x00]+/)*[^/:\x00]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="mountPath must be a clean absolute POSIX path"
+	MountPath         string                        `json:"mountPath"`
+	ReadOnly          bool                          `json:"readOnly"`
+	SubPath           *string                       `json:"subPath,omitempty"`
+	SubPathExpr       *string                       `json:"subPathExpr,omitempty"`
+	MountPropagation  *corev1.MountPropagationMode  `json:"mountPropagation,omitempty"`
+	RecursiveReadOnly *corev1.RecursiveReadOnlyMode `json:"recursiveReadOnly,omitempty"`
+}
+
+// JobKeyToPath uses the Kubernetes key-to-file mapping and mode semantics.
+type JobKeyToPath struct {
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[-._a-zA-Z0-9]+$`
+	Key string `json:"key"`
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^[^\x00]+$`
+	// +kubebuilder:validation:XValidation:rule="!self.startsWith('/') && !self.matches('(^|/)[.][.](/|$)') && self != '.' && !self.startsWith('..')",message="path must be relative and must not escape or use a reserved dot prefix"
+	Path string `json:"path"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=511
+	Mode *int32 `json:"mode,omitempty"`
+}
+
+// JobConfigMapVolumeSource follows Kubernetes ConfigMap volume semantics.
+type JobConfigMapVolumeSource struct {
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxItems=128
+	Items []JobKeyToPath `json:"items,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=511
+	DefaultMode *int32 `json:"defaultMode,omitempty"`
+	Optional    *bool  `json:"optional,omitempty"`
+}
+
+// JobSecretVolumeSource follows Kubernetes Secret volume semantics.
+type JobSecretVolumeSource struct {
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	SecretName string `json:"secretName"`
+	// +kubebuilder:validation:MaxItems=128
+	Items []JobKeyToPath `json:"items,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=511
+	DefaultMode *int32 `json:"defaultMode,omitempty"`
+	Optional    *bool  `json:"optional,omitempty"`
+}
+
 // RendererContainer deliberately exposes only the reusable container interface.
 type RendererContainer struct {
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	VolumeMounts []JobVolumeMount `json:"volumeMounts,omitempty"`
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^\S+$`
@@ -54,6 +159,10 @@ type JobState struct {
 	ResetToken string `json:"resetToken,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.renderer.volumeMounts) || self.renderer.volumeMounts.all(m, has(self.volumes) && self.volumes.exists(v, v.name == m.name))",message="mounts must reference a defined input volume"
+// +kubebuilder:validation:XValidation:rule="!has(self.renderer.volumeMounts) || self.renderer.volumeMounts.all(m, self.renderer.volumeMounts.all(n, m.mountPath == n.mountPath || !(m.mountPath.startsWith(n.mountPath + '/') || n.mountPath.startsWith(m.mountPath + '/'))))",message="input mounts must not overlap"
+// +kubebuilder:validation:XValidation:rule="!has(self.renderer.volumeMounts) || self.renderer.volumeMounts.all(m, m.mountPath != self.contextPath && !m.mountPath.startsWith(self.contextPath + '/') && !self.contextPath.startsWith(m.mountPath + '/') && m.mountPath != self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) && !m.mountPath.startsWith(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/') && !self.imagePath.substring(0, self.imagePath.lastIndexOf('/')).startsWith(m.mountPath + '/'))",message="input mounts must not overlap context or output mounts"
+// +kubebuilder:validation:XValidation:rule="!has(self.renderer.volumeMounts) || self.renderer.volumeMounts.all(m, self.renderer.volumeMounts.filter(n, n.mountPath == m.mountPath).size() == 1)",message="mountPath must be unique"
 // JobSource paths designate files. Output's parent is a dedicated writable mount.
 // +kubebuilder:validation:XValidation:rule="self.contextPath != self.imagePath && !self.contextPath.startsWith(self.imagePath + '/') && !self.imagePath.startsWith(self.contextPath + '/')",message="context and image must be distinct files and neither may be an ancestor of the other"
 // +kubebuilder:validation:XValidation:rule="!self.imagePath.matches('^/[^/]+$')",message="output parent must not be the filesystem root"
@@ -66,7 +175,11 @@ type JobState struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || (!self.imagePath.endsWith('/result.json') && self.contextPath != self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json' && !self.contextPath.startsWith(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json/'))",message="default result path must be distinct from context and image files"
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || size(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json') <= 512",message="default result path exceeds the path length limit"
 type JobSource struct {
-	State *JobState `json:"state,omitempty"`
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	Volumes []JobVolume `json:"volumes,omitempty"`
+	State   *JobState   `json:"state,omitempty"`
 	// ExecutionMode omitted selects Scheduled. Defaults are normalized internally.
 	// +kubebuilder:validation:Enum=Scheduled;OnDemand
 	ExecutionMode string `json:"executionMode,omitempty"`

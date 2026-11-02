@@ -273,6 +273,9 @@ provenance are excluded from context v1.
 
 Existing integer JSON percentages remain readable; fractional measurements are
 preserved without rounding. No voltage-derived percentage is exported.
+Job ConfigMap/Secret [file inputs](RENDERERS.md#configmap-and-secret-file-inputs)
+are separate from Context; their references and contents are never added to it.
+
 Missing optional observations and empty optional objects are omitted, not null
 or fabricated zero. Actual valid zero measurements are retained. Hardware ID, credentials, Secret
 references, Kubernetes objects, namespace, arbitrary metadata and header dumps

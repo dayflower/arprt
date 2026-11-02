@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: file-render-config
+data:
+  config.json: |
+    {"calendars":[{"url":"https://calendar.example.invalid/team.ics","label":"Team"}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: file-render-image
+data:
+  image.png.b64: "iVBORw0KGgoAAAANSUhEUgAAAyAAAAHgAgAAAAAy3E6IAAABl0lEQVR4nO3PQQEAIAwAoZW0pCVnhnsLDZjJTnazzfpDRERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERERETk68gDTHTPZ9icOY4AAAAASUVORK5CYII="
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: file-render-basic
+type: Opaque
+stringData:
+  basic.json: '{"username":"demo-user","password":"synthetic-password"}'
+  unused: synthetic-unused-value
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: file-render-token
+type: Opaque
+stringData:
+  token: synthetic-bearer-token
+---
+apiVersion: arprt.dayflower.github.io/v1alpha1
+kind: ArprtScreen
+metadata:
+  name: file-inputs
+spec:
+  refreshInterval: 30m
+  source:
+    job:
+      contextPath: /arprt/context.json
+      imagePath: /arprt/output.png
+      volumes:
+        - name: config
+          configMap:
+            name: file-render-config
+            defaultMode: 0444
+            items:
+              - key: config.json
+                path: settings.json
+        - name: image
+          configMap:
+            name: file-render-image
+        - name: basic
+          secret:
+            secretName: file-render-basic
+            defaultMode: 0440
+            optional: false
+            items:
+              - key: basic.json
+                path: credentials/basic.json
+        - name: bearer
+          secret:
+            secretName: file-render-token
+      renderer:
+        image: busybox:1.37.0
+        command: [sh, -ec]
+        args:
+          - >-
+            test "$(id -u):$(id -g)" = 1000:1000;
+            test -r /arprt/context.json;
+            test -r /etc/demo/settings.json;
+            test -r /etc/demo-basic/credentials/basic.json;
+            test ! -e /etc/demo-basic/unused;
+            test -r /etc/demo-token/token;
+            test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token;
+            base64 -d /etc/demo-image/image.png.b64 > /arprt/output.png
+        volumeMounts:
+          - name: config
+            mountPath: /etc/demo
+            readOnly: true
+          - name: image
+            mountPath: /etc/demo-image
+            readOnly: true
+          - name: basic
+            mountPath: /etc/demo-basic
+            readOnly: true
+          - name: bearer
+            mountPath: /etc/demo-token
+            readOnly: true
