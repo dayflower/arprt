@@ -1,6 +1,6 @@
 dependencies:
 - name: arprt-crds
   repository: file://../arprt-crds
-  version: 0.3.0
-digest: sha256:1a218d3cea9d552ed624fe79be9ef85336bc617d2204a796d17551d9da5b8421
-generated: "2026-11-01T18:42:06.826311577+09:00"
+  version: 0.4.0
+digest: sha256:81c4cf8fc9c84cb7433ecd87981e016931db4985103cf876019646eea90fe14c
+generated: "2026-11-02T11:48:37.7799618+09:00"
