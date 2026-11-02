@@ -523,7 +523,16 @@ slows after seven consecutive failures to at least the screen interval and five
 minutes; success resets it. Definition changes can bypass obsolete backoff.
 
 Renderer Pods mount only their output directory writable and their immutable
-context file read-only. The entire output parent is hidden by the mount, so use
+context file read-only. Optional user input mounts use same-namespace ConfigMap
+and Secret volumes, always read-only; see the [file input contract](RENDERERS.md#configmap-and-secret-file-inputs).
+The API retains unsupported standard volume source fields so CEL can explicitly
+reject them even without strict field validation, rather than silently pruning
+them. Runtime normalization repeats source, reference, mode and path validation
+before preparation or durable-attempt recovery. Input references/mappings enter
+the existing source revision and attempt snapshot; their contents and resource
+versions do not. No input-content reads, copy step, informer or RBAC expansion
+is needed: kubelet resolves references in the Job namespace. These mutable inputs
+do not have the immutable Context snapshot guarantee. The entire output parent is hidden by the mount, so use
 a dedicated directory. Default and distinct/nested parents are supported;
 system paths, conflicting files and the reserved artifact root are rejected.
 There is no extra writable `/tmp`. Pods run as non-root with a read-only root,
@@ -680,7 +689,7 @@ into a single device RenderReady. `DeviceSeen` is independent of image usability
 Request concurrency, HTTP execution, metadata reads and retry counters are bounded.
 Metrics have fixed labels; logs/Events exclude keys, MACs, raw headers, arbitrary
 firmware messages and context/output contents. Screen authors are trusted namespace
-operators who can select endpoints, images and explicit renderer env/envFrom;
+operators who can select endpoints, images and explicit renderer env/envFrom and ConfigMap/Secret file inputs;
 these never implicitly receive device credentials. See
 [OPERATIONS](OPERATIONS.md#network-and-namespace-trust) for the network trust
 boundary and [recovery](OPERATIONS.md#recovery-and-troubleshooting) for backup/restore

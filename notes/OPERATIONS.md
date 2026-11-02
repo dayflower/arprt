@@ -696,8 +696,11 @@ is unverified; older binaries do not understand these records.
 The namespace is the trust boundary. Screen authors can choose HTTP endpoints,
 container images, commands and same-namespace Secret/ConfigMap references.
 Permission to create screens therefore permits running code and supplying
-Secret-backed renderer environment through controller-created Jobs, even when
-the controller's own direct Secret reads are restricted by `resourceNames`.
+Secret-backed renderer environment and read-only files through controller-created
+Jobs, even when the controller's own direct Secret reads are restricted by `resourceNames`.
+File inputs require no additional controller Secret/ConfigMap permissions.
+For supported fields, mutable-input semantics and `FailedMount` diagnostics, see
+[renderer file inputs](RENDERERS.md#configmap-and-secret-file-inputs).
 Grant CR write access only to trusted operators. Renderers do not receive the
 controller's ServiceAccount token, auth key, MAC or infrastructure credentials
 through Render Context. An explicitly configured renderer environment is an

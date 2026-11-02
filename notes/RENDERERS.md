@@ -381,6 +381,85 @@ Controller deadlines/concurrency and operator diagnostics are in
 [OPERATIONS](OPERATIONS.md#runtime-configuration); durable recovery, publication
 and PVC topology are in [DESIGN](DESIGN.md#job-lifecycle-and-collection).
 
+## ConfigMap and Secret file inputs
+
+Jobs can mount multiple same-namespace ConfigMaps and Secrets using Kubernetes
+`source.job.volumes` and `source.job.renderer.volumeMounts`. Values stay in the
+referenced objects; the Screen contains references and file mappings only.
+The [complete runnable example](../examples/renderers/job/file-inputs.yaml) uses
+two ConfigMaps and two Secrets with synthetic values. Apply it in the controller
+namespace, then assign `file-inputs` to an existing device:
+
+```sh
+kubectl -n arprt apply --validate=strict -f examples/renderers/job/file-inputs.yaml
+kubectl -n arprt patch arprtdevice living-room --type=merge \
+  -p '{"spec":{"screenRef":{"name":"file-inputs"}}}'
+```
+
+Its ordinary BusyBox command verifies readable configuration/authentication files
+and decodes a fixture PNG. It does not implement calendar fetching or authentication.
+Calendar JSON interpretation and Basic/Bearer authentication belong to the renderer.
+Use synthetic credentials only in checked-in examples.
+
+| Standard field | Supported behavior and restrictions |
+| --- | --- |
+| `volumes[].name` | Unique DNS label, at most 63 characters; `data` is reserved for ARPRT. At most 16 input volumes. |
+| `volumes[].configMap.name` | Required ConfigMap name in the Screen namespace. |
+| `volumes[].secret.secretName` | Required Secret name in the Screen namespace. |
+| `configMap.items`, `secret.items` | Omitted or empty mounts all keys. Otherwise mounts only the selected keys; at most 128 mappings per volume. |
+| `items[].key`, `items[].path` | Standard key and relative file path (including subdirectories and renaming). Keys are at most 253 characters; paths at most 512. Absolute paths, `..` components, initial `..` prefixes, a lone `.`, empty paths and NUL are rejected. |
+| `defaultMode`, `items[].mode` | Standard permission bits 0000–0777 (JSON decimal 0–511). Omitted `defaultMode` uses Kubernetes 0644; per-item `mode` overrides it. ARPRT passes modes through without rewriting them. |
+| `configMap.optional`, `secret.optional` | Omitted or false requires the object and every selected key. True permits a missing object (empty mount) or selected key (absent file). |
+| `volumeMounts[].name` | Must reference a declared input volume; an input volume may be mounted at multiple disjoint paths. |
+| `volumeMounts[].mountPath` | Clean absolute POSIX directory path, at most 512 characters; no NUL or colon. At most 16 mounts. Mounts cannot equal, contain or be contained by another input mount, the Context file mount or the output parent mount. |
+| `volumeMounts[].readOnly` | Explicit `true` is required. |
+
+Each volume must specify exactly one of `configMap` or `secret`. All other standard
+volume sources, including `projected`, `hostPath`, `persistentVolumeClaim`, CSI,
+`emptyDir` and image volumes, are explicitly rejected, including when combined
+with an allowed source. `subPath`, `subPathExpr`, `mountPropagation` and
+`recursiveReadOnly` are also rejected, even when explicitly empty or disabled.
+No namespace selector is supported. Use strict field validation as above to
+reject unknown fields rather than Kubernetes CRD pruning.
+
+The renderer remains UID/GID 1000 with fsGroup 1000, a read-only root filesystem,
+all capabilities dropped and no ServiceAccount token. Only the output parent is
+writable. Input mounts cannot add writable storage or Kubernetes API access.
+Default modes allow file reading by this identity. Kubernetes applies fsGroup to
+ConfigMap/Secret volumes, which can add group-read bits (for example, requested
+0400 can become 0440). Mode settings do not change the renderer UID or grant
+privileges; test the effective permissions on your cluster, and ensure every
+required file remains readable. Do not rely on restrictive modes alone to isolate
+files from the renderer. See the Kubernetes [volume API](https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/volume/)
+for permission and optional semantics.
+
+Kubelet supplies the files directly. ARPRT does not fetch the input contents,
+copy them into the output PVC, or include them in Context, status, logs or Events.
+No controller RBAC expansion is needed. Renderer code must keep credentials out
+of its logs, output image and renderer state. As with `env`/`envFrom`, permission
+to edit a Screen allows selecting same-namespace Secrets for a Job even without
+direct permission to read those Secrets; trust Screen editors and renderer images.
+See [namespace trust](OPERATIONS.md#network-and-namespace-trust).
+
+These inputs are **not** part of the immutable Context snapshot. Kubernetes may
+update files during execution with its usual eventual propagation; a strict
+Job-start snapshot is not guaranteed. ARPRT does not watch input object changes,
+include their resource versions/content in revisions, invalidate existing images
+or trigger immediate rendering. A subsequent newly created Job uses the current
+references and Kubernetes-supplied contents. Scheduled intervals/retries and
+eligible OnDemand execution keep their existing rules; retained state candidates
+and recorded turns may be reused without creating a Job. Change the Screen or
+use its normal execution policy when a new render is required.
+
+A required missing object or selected key normally leaves the Pod waiting before
+the renderer starts. Inspect `kubectl -n arprt describe pod <renderer-pod>` for
+`FailedMount` Events and the missing object/key, and inspect its owning Job.
+ARPRT reports `JobPending` while waiting and `JobTimedOut` when the existing Job
+deadline expires. An optional missing file does not block Pod startup, but a
+renderer that requires it may exit and produce `JobFailed`. Compatible previous
+images retain their existing fallback behavior. Avoid publishing renderer logs
+or Secret contents while diagnosing failures.
+
 ## Picsum Job renderer
 
 The [Picsum renderer](https://github.com/dayflower/arprt-renderers/blob/main/renderers/picsum/README.md)

@@ -95,7 +95,7 @@ func (c Config) job(st *state) *batchv1.Job {
 			resources.Requests[k] = v
 		}
 	}
-	return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
 		BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(deadlineSeconds), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false),
 			SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), FSGroup: ptr.To(int64(1000)), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
@@ -106,4 +106,30 @@ func (c Config) job(st *state) *batchv1.Job {
 			}}, Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: c.PVC}}}},
 		}},
 	}}
+	for _, v := range src.Volumes {
+		volume := corev1.Volume{Name: v.Name}
+		if v.ConfigMap != nil {
+			c := v.ConfigMap
+			volume.ConfigMap = &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: c.Name}, Items: inputItems(c.Items), DefaultMode: c.DefaultMode, Optional: c.Optional}
+		} else if v.Secret != nil {
+			s := v.Secret
+			volume.Secret = &corev1.SecretVolumeSource{SecretName: s.SecretName, Items: inputItems(s.Items), DefaultMode: s.DefaultMode, Optional: s.Optional}
+		}
+		job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, volume)
+	}
+	for _, m := range renderer.VolumeMounts {
+		job.Spec.Template.Spec.Containers[0].VolumeMounts = append(job.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: m.Name, MountPath: m.MountPath, ReadOnly: m.ReadOnly})
+	}
+	return job
+}
+
+func inputItems(items []api.JobKeyToPath) []corev1.KeyToPath {
+	if items == nil {
+		return nil
+	}
+	out := make([]corev1.KeyToPath, len(items))
+	for i, item := range items {
+		out[i] = corev1.KeyToPath{Key: item.Key, Path: item.Path, Mode: item.Mode}
+	}
+	return out
 }

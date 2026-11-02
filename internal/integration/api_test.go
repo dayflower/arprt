@@ -212,7 +212,7 @@ func TestAPIAndController(t *testing.T) {
 		}
 	}
 	// Apply every checked-in sample, preserving native Kubernetes container fields.
-	for _, file := range []string{"screens.yaml", "screen-overlay.yaml", "screen-ondemand.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
+	for _, file := range []string{"../renderers/job/file-inputs.yaml", "screens.yaml", "screen-overlay.yaml", "screen-ondemand.yaml", "device.yaml", "device-inline.yaml", "device-secret.yaml", "playlist.yaml", "device-playlist.yaml", "device-discovery.yaml"} {
 		b, err := os.ReadFile(filepath.Join("..", "..", "examples", "custom-resources", file))
 		if err != nil {
 			t.Fatal(err)
@@ -223,7 +223,7 @@ func TestAPIAndController(t *testing.T) {
 				t.Fatal(err)
 			}
 			obj.SetNamespace("arprt")
-			obj.SetName(fmt.Sprintf("sample-%s-%d", file[:len(file)-5], i))
+			obj.SetName(fmt.Sprintf("sample-%s-%d", filepath.Base(file)[:len(filepath.Base(file))-5], i))
 			if err := c.Create(ctx, &obj, client.FieldValidation(metav1.FieldValidationStrict)); err != nil {
 				t.Fatal("sample rejected", err)
 			}
@@ -367,6 +367,7 @@ func TestAPIAndController(t *testing.T) {
 	verifyDisplayAPI(t, c)
 	verifyDashboardAPI(t, c)
 	verifyOnDemandAPI(t, c)
+	verifyJobFilesAPI(t, c)
 	verifyJobStateAPI(t, c)
 	verifyRendererStateDelivery(t, c)
 	verifyOverlayAPI(t, c)

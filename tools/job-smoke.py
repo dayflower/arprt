@@ -17,6 +17,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+import file_input_smoke
 import helm_install
 import ondemand_smoke
 import overlay_checks
@@ -320,6 +321,9 @@ def main():
                 previous = latest()["sequence"]
                 apply(screen(custom, custom=True))
                 wait(lambda: latest().get("sequence", 0) > previous, 60)
+                file_input_smoke.run(
+                    apply, screen, state, latest, read, kubectl, wait, namespace
+                )
                 success = latest()
                 # Failed, missing, malformed and hanging executions retain success.
                 for command, reason in [
