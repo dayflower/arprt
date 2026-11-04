@@ -444,7 +444,7 @@ func check(objects []object, release, namespace string, bundled, existing, jobs,
 	// Exact grants are independent of installation manifests; deny additional
 	// resources, wildcard names/verbs and cluster-wide alternatives.
 	expectedRole := rbacv1.Role{Rules: []rbacv1.PolicyRule{
-		{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get", "list", "watch", "create", "delete"}},
+		{APIGroups: []string{"batch"}, Resources: []string{"jobs"}, Verbs: []string{"get", "list", "watch", "create", "patch", "delete"}},
 		{APIGroups: []string{""}, Resources: []string{"pods", "persistentvolumeclaims"}, Verbs: []string{"get", "list"}},
 		{APIGroups: []string{"", "events.k8s.io"}, Resources: []string{"events"}, Verbs: []string{"create", "patch"}},
 		{APIGroups: []string{""}, Resources: []string{"secrets"}, ResourceNames: []string{"living-room-auth"}, Verbs: []string{"get", "patch"}},

@@ -175,6 +175,12 @@ type JobState struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || (!self.imagePath.endsWith('/result.json') && self.contextPath != self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json' && !self.contextPath.startsWith(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json/'))",message="default result path must be distinct from context and image files"
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || size(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json') <= 512",message="default result path exceeds the path length limit"
 type JobSource struct {
+	// TTLSecondsAfterFinished controls finished Job/Pod retention from completion.
+	// Omission selects 600 seconds. TTL is applied only after durable collection
+	// or failure bookkeeping; zero permits immediate cleanup after that point.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=2147483647
+	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=map
 	// +listMapKey=name

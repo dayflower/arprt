@@ -459,6 +459,7 @@ func (r *Reconciler) advance(ctx context.Context, d *api.ArprtDevice, s *api.Arp
 }
 
 func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, reason string) (ctrl.Result, error) {
+	finished := st.Active
 	if st.Active != nil {
 		st.Active.TerminalReason = reason
 		if err := r.Store.save(st); err != nil {
@@ -470,7 +471,12 @@ func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.Arpr
 			return ctrl.Result{}, err
 		}
 		complete, failed := terminal(&job)
-		if st.Trigger == OnDemand || err != nil || (!complete && !failed) {
+		if err == nil {
+			if err := validateJobOwner(st, &job); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		if err != nil || (!complete && !failed) {
 			done, err := r.cancel(ctx, st)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -493,6 +499,9 @@ func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.Arpr
 		if err := r.Store.save(st); err != nil {
 			return ctrl.Result{}, err
 		}
+		if err := r.finishJobTTL(ctx, st, finished); err != nil {
+			return ctrl.Result{}, err
+		}
 		if err := r.report(ctx, d, s, false, reason); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -507,6 +516,9 @@ func (r *Reconciler) failed(ctx context.Context, d *api.ArprtDevice, s *api.Arpr
 	}
 	st.Due = r.now().Add(delay)
 	if err := r.Store.save(st); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.finishJobTTL(ctx, st, finished); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.report(ctx, d, s, false, reason); err != nil {
@@ -684,6 +696,10 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 		return err
 	}
 	observe.Queue.Set(float64(queued))
+	attempts := make(map[string]bool, len(active))
+	for id := range active {
+		attempts[id] = true
+	}
 	// Jobs can disappear before their Pods. Keep every remaining run mounted by
 	// a managed Pod visible to GC, even without a scheduler or Job record.
 	var pods corev1.PodList
@@ -708,24 +724,32 @@ func (r *Reconciler) maintenance(ctx context.Context) error {
 	for i := range jobs.Items {
 		job := &jobs.Items[i]
 		id := strings.TrimPrefix(job.Name, "arprt-render-")
-		if active[id] {
+		if !validID(id) {
+			continue
+		}
+		// Every existing Job protects its run until both Job and Pods disappear.
+		active[id] = true
+		if attempts[id] {
 			continue
 		}
 		complete, failed := terminal(job)
-		finished := job.CreationTimestamp.Time
-		for _, c := range job.Status.Conditions {
-			if c.Status == corev1.ConditionTrue && (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && !c.LastTransitionTime.IsZero() {
-				finished = c.LastTransitionTime.Time
+		if complete || failed {
+			if err := r.applyJobTTL(ctx, job); err != nil {
+				return err
 			}
-		}
-		if (complete || failed) && r.now().Sub(finished) < time.Hour {
-			active[id] = true
 			continue
 		}
-		if err = r.Client.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
+		// Untracked nonterminal work still needs explicit cancellation.
+		if err := validateManagedJob(job); err != nil {
 			return err
 		}
-		active[id] = true // Keep output until Job and Pods have disappeared.
+		options := []client.DeleteOption{client.PropagationPolicy(metav1.DeletePropagationForeground)}
+		if job.UID != "" {
+			options = append(options, client.Preconditions{UID: &job.UID})
+		}
+		if err := r.Client.Delete(ctx, job, options...); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
 	}
 	runs, err := os.ReadDir(filepath.Join(r.Store.Root, "runs"))
 	if err != nil {

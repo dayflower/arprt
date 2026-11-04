@@ -117,6 +117,9 @@ func TestJobWatchAndRestart(t *testing.T) {
 	if owner == nil || owner.APIVersion != api.GroupVersion.String() || owner.Kind != "ArprtDevice" || owner.Name != d.Name || owner.UID != d.UID {
 		t.Fatalf("Job controller must reference the current device: %+v", owner)
 	}
+	if job.Spec.TTLSecondsAfterFinished != nil {
+		t.Fatal("TTL enabled before collection")
+	}
 	originalUID := job.UID
 	id := strings.TrimPrefix(job.Name, "arprt-render-")
 	if _, err = os.Stat(filepath.Join(root, "runs", id, "context.json")); err != nil {
@@ -130,7 +133,7 @@ func TestJobWatchAndRestart(t *testing.T) {
 	})
 	// API integration emulates kubelet termination; cluster smoke exercises the
 	// actual scheduler, mounts, container and garbage collector separately.
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: job.Name, Namespace: d.Namespace, Labels: map[string]string{"batch.kubernetes.io/job-name": job.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID, Controller: ptr.To(true)}}}, Spec: *job.Spec.Template.Spec.DeepCopy()}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: job.Name, Namespace: d.Namespace, Labels: map[string]string{"arprt.dayflower.github.io/renderer": "true", "batch.kubernetes.io/job-name": job.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID, Controller: ptr.To(true)}}}, Spec: *job.Spec.Template.Spec.DeepCopy()}
 	if err = c.Create(ctx, pod); err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +161,10 @@ func TestJobWatchAndRestart(t *testing.T) {
 	u := artifact.Unit{Namespace: d.Namespace, ScreenUID: string(s.UID), DeviceUID: string(d.UID), Target: render.Target{Width: 800, Height: 480, Palette: "gray4"}, Output: render.CurrentTarget(render.Target{Width: 800, Height: 480, Palette: "gray4"}).Output}
 	var m artifact.Metadata
 	eventually(t, func() bool { m, err = repo.Latest(ctx, u); return err == nil })
+	eventually(t, func() bool {
+		var released batchv1.Job
+		return c.Get(ctx, client.ObjectKeyFromObject(&job), &released) == nil && released.Spec.TTLSecondsAfterFinished != nil && *released.Spec.TTLSecondsAfterFinished == 600
+	})
 	contextBytes, err := os.ReadFile(filepath.Join(root, "runs", id, "context.json"))
 	if err != nil {
 		t.Fatal(err)

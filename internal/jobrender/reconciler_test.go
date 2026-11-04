@@ -96,7 +96,7 @@ func finish(t *testing.T, r *Reconciler, d *api.ArprtDevice, output []byte, fail
 		t.Fatal(err)
 	}
 	if !failed {
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: job.Name, Namespace: d.Namespace, Labels: map[string]string{"batch.kubernetes.io/job-name": job.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID, Controller: ptr.To(true)}}}, Status: corev1.PodStatus{Phase: corev1.PodSucceeded, ContainerStatuses: []corev1.ContainerStatus{{Name: "renderer", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}}}}
+		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: job.Name, Namespace: d.Namespace, Labels: map[string]string{managedLabel: "true", deviceLabel: job.Labels[deviceLabel], "batch.kubernetes.io/job-name": job.Name}, OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID, Controller: ptr.To(true)}}}, Status: corev1.PodStatus{Phase: corev1.PodSucceeded, ContainerStatuses: []corev1.ContainerStatus{{Name: "renderer", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}}}}
 		if err := r.Client.Create(ctx, pod); err != nil {
 			t.Fatal(err)
 		}

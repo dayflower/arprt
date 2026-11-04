@@ -264,6 +264,14 @@ def main():
                 "--timeout=180s",
             )
             wait(lambda: latest().get("attemptID") == first_attempt, 60)
+            wait(
+                lambda: any(
+                    j["metadata"]["name"] == "arprt-render-" + first_attempt
+                    and j["spec"].get("ttlSecondsAfterFinished") == 600
+                    for j in jobs()
+                ),
+                30,
+            )
             first = latest()
             snapshot = read("runs/" + first_attempt + "/context.json")
             if (
@@ -380,11 +388,11 @@ def main():
                     raise RuntimeError("reassignment served obsolete output")
             # Complete a running Job while collection is offline, then recover
             # its durable run on controller startup without creating another Job.
-            apply(
-                screen(
-                    'sleep 10; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'
-                )
+            recovery_screen = screen(
+                'sleep 10; printf %s "$IMAGE_PNG" | base64 -d > /arprt/output.png'
             )
+            recovery_screen["spec"]["source"]["job"]["ttlSecondsAfterFinished"] = 0
+            apply(recovery_screen)
             kubectl(
                 "-n",
                 namespace,
@@ -443,6 +451,11 @@ def main():
             )
             if latest().get("attemptID") == recovery:
                 raise RuntimeError("offline collector unexpectedly published")
+            offline_job = next(
+                j for j in jobs() if j["metadata"]["name"] == recovery_name
+            )
+            if "ttlSecondsAfterFinished" in offline_job["spec"]:
+                raise RuntimeError("TTL enabled before offline collection recovered")
             kubectl("-n", namespace, "scale", "deployment/arprt-arprt", "--replicas=1")
             kubectl(
                 "-n",
@@ -455,9 +468,41 @@ def main():
             wait(lambda: latest().get("attemptID") == recovery, 60)
             if state().get("active"):
                 raise RuntimeError("completed recovery duplicated work")
+            # TTL zero must remove the real Job and Pods after recovery, while
+            # leaving its published image available for authenticated delivery.
+            wait(
+                lambda: all(j["metadata"]["name"] != recovery_name for j in jobs()),
+                90,
+            )
+            wait(
+                lambda: (
+                    not json.loads(
+                        kubectl(
+                            "-n",
+                            namespace,
+                            "get",
+                            "pods",
+                            "-l",
+                            "batch.kubernetes.io/job-name=" + recovery_name,
+                            "-o",
+                            "json",
+                        ).stdout
+                    )["items"]
+                ),
+                90,
+            )
             with forwarded(namespace, 8080, directory) as base:
-                if display(base)["status"] != 0:
+                recovered_display = display(base)
+                if recovered_display["status"] != 0:
                     raise RuntimeError("recovered artifact not delivered")
+                recovered_path = urllib.parse.urlsplit(
+                    recovered_display["image_url"]
+                ).path
+                if (
+                    fetch(base, recovered_path)
+                    != (ROOT / "testdata/png" / GRAY4_FIXTURE).read_bytes()
+                ):
+                    raise RuntimeError("Job TTL deleted published image")
             # Rotation schedules a fresh context, isolates old fallback and
             # preserves images already issued to the device.
             apply(
@@ -558,6 +603,8 @@ def main():
             account = "system:serviceaccount:" + namespace + ":arprt-arprt"
             for ns, verb, resource, allowed in [
                 (namespace, "create", "jobs", True),
+                (namespace, "patch", "jobs", True),
+                ("default", "patch", "jobs", False),
                 ("default", "create", "jobs", False),
                 (namespace, "list", "secrets", False),
                 (namespace, "create", "pods", False),
