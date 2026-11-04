@@ -192,3 +192,31 @@ func TestProcessingRevision(t *testing.T) {
 		}
 	}
 }
+
+func TestJobTTLValidationAndRevision(t *testing.T) {
+	spec := api.ArprtScreenSpec{Source: api.ScreenSource{Job: &api.JobSource{Renderer: api.RendererContainer{Image: "renderer:fixture"}}}}
+	revision, err := InputRevision(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if JobTTL(*spec.Source.Job) != 600 {
+		t.Fatal("wrong default TTL")
+	}
+	for _, ttl := range []int32{0, 30, 600, 7200, 2147483647} {
+		spec.Source.Job.TTLSecondsAfterFinished = &ttl
+		if _, err := NormalizeJob(*spec.Source.Job); err != nil {
+			t.Fatal(err)
+		}
+		if JobTTL(*spec.Source.Job) != ttl {
+			t.Fatal("explicit TTL lost")
+		}
+		if got, err := InputRevision(spec); err != nil || got != revision {
+			t.Fatal("retention invalidated render input", err)
+		}
+	}
+	negative := int32(-1)
+	spec.Source.Job.TTLSecondsAfterFinished = &negative
+	if _, err := NormalizeJob(*spec.Source.Job); err == nil {
+		t.Fatal("negative TTL accepted")
+	}
+}

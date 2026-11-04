@@ -364,6 +364,7 @@ func (r *Reconciler) publishCompleted(ctx context.Context, d *api.ArprtDevice, s
 }
 
 func (r *Reconciler) complete(ctx context.Context, d *api.ArprtDevice, s *api.ArprtScreen, st *state, m artifact.Metadata) (ctrl.Result, error) {
+	finished := st.Active
 	observe.Render("Job", st.Active.StartedAt, nil)
 	interval, _ := screen.EffectiveInterval(s.Spec)
 	st.Due = m.RenderedAt.Add(interval)
@@ -379,11 +380,13 @@ func (r *Reconciler) complete(ctx context.Context, d *api.ArprtDevice, s *api.Ar
 	if err := r.Store.save(st); err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := r.finishJobTTL(ctx, st, finished); err != nil {
+		return ctrl.Result{}, err
+	}
 	if err := r.report(ctx, d, s, true, "ImageReady"); err != nil {
 		return ctrl.Result{}, err
 	}
-	// Finished Jobs and logs remain for an hour after durable bookkeeping.
-	// No Kubernetes TTL may delete their output before collection can recover.
+	// Maintenance retries interrupted TTL writes after durable bookkeeping.
 	if st.Trigger == OnDemand {
 		return ctrl.Result{}, nil
 	}

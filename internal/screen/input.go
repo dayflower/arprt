@@ -63,6 +63,8 @@ func InputRevision(spec api.ArprtScreenSpec) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// Retention does not change renderer input or invalidate existing images.
+		job.TTLSecondsAfterFinished = nil
 		s.Source.Job = &job
 	}
 	interval, err := EffectiveInterval(*s)
@@ -148,6 +150,9 @@ func ProcessingPolicy(spec api.ArprtScreenSpec) (imageprocessing.Policy, error) 
 // It copies the source so callers cannot mutate another attempt's configuration.
 func NormalizeJob(source api.JobSource) (api.JobSource, error) {
 	source = *source.DeepCopy()
+	if source.TTLSecondsAfterFinished != nil && *source.TTLSecondsAfterFinished < 0 {
+		return source, errors.New("job TTL must be nonnegative")
+	}
 	if source.ContextPath == "" {
 		source.ContextPath = "/arprt/context.json"
 	}
@@ -190,4 +195,12 @@ func NormalizeJob(source api.JobSource) (api.JobSource, error) {
 		return source, err
 	}
 	return source, nil
+}
+
+// JobTTL resolves the diagnostic retention policy without changing snapshots.
+func JobTTL(source api.JobSource) int32 {
+	if source.TTLSecondsAfterFinished != nil {
+		return *source.TTLSecondsAfterFinished
+	}
+	return 600
 }

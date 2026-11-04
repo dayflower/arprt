@@ -558,6 +558,15 @@ spec:
                         maxLength: 3
                         pattern: ^([1-9]|10)s$
                         type: string
+                      ttlSecondsAfterFinished:
+                        description: |-
+                          TTLSecondsAfterFinished controls finished Job/Pod retention from completion.
+                          Omission selects 600 seconds. TTL is applied only after durable collection
+                          or failure bookkeeping; zero permits immediate cleanup after that point.
+                        format: int32
+                        maximum: 2147483647
+                        minimum: 0
+                        type: integer
                       volumes:
                         items:
                           description: JobVolume uses Kubernetes field names and rejects

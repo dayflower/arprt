@@ -528,6 +528,21 @@ of persisted pairs. The legacy one-record-per-device scheduler format migrates
 by durable rename to namespace/device/screen records, preserving active attempts
 and context bytes; conflicting or invalid records are rejected rather than guessed.
 
+Finished Jobs use Kubernetes TTL cleanup. `source.job.ttlSecondsAfterFinished`
+selects a nonnegative retention in seconds (default 600); zero makes a Job
+eligible immediately after safe release. Job creation records the policy in an
+internal annotation but leaves Kubernetes TTL unset. Only after successful image/
+renderer-state publication and durable completion bookkeeping, or durable terminal
+failure bookkeeping, does the controller set `spec.ttlSecondsAfterFinished`.
+TTL counts from the Job's terminal condition, not from collection; an elapsed
+TTL can delete the Job and its Pods immediately after release. Maintenance retries
+interrupted TTL writes and migrates inactive legacy terminal Jobs to 600 seconds,
+while preserving already configured TTLs. Active scheduler attempts remain
+protected regardless of elapsed time or remaining Pods. TTL policy is excluded
+from the render input revision; each new Job snapshots its own policy.
+Assignment changes, cancellation and untracked nonterminal Jobs still require
+explicit stopping. The controller does not time-delete terminal Jobs itself.
+
 Missing submitted Jobs become `JobLost`; unconfirmed execution output cannot be
 trusted merely because a file exists. Failed, timed-out or obsolete attempts use
 new directories. Cancellation accounts for old Jobs/Pods before replacement work.
@@ -678,8 +693,12 @@ Maintenance runs every minute in both HTTP-only and Job modes. Protect active
 attempts, all eligible per-screen successes and image bytes/issuance for at least
 24h after last issuance. Issuance writes coalesce within one minute, with an
 extra retention minute preserving the minimum. Abandoned atomic writes and unused
-filename reservations expire after 24h. Removed pairs stop scheduling; completed Jobs and unused run/context data
-have a diagnostic hour, with run deletion waiting for their Jobs to disappear.
+filename reservations expire after 24h. Removed pairs stop scheduling. Kubernetes
+TTL deletes released terminal Jobs and their Pods under the policy above.
+Unused run/context data has a diagnostic hour, with deletion waiting for both
+Jobs and Pods to disappear. Pod existence protects run data, not terminal Jobs
+from TTL release. Published images and renderer-state candidates have independent
+retention roots and do not depend on their originating Job or run directory.
 Unreferenced older blobs, issuance, filenames and deleted-device identities are
 collected. Old API snapshots must not collect newly established bindings.
 

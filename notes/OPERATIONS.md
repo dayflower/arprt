@@ -410,9 +410,18 @@ inode availability should also be monitored by the storage platform.
 
 Maintenance runs every minute in both HTTP-only and Job modes. Latest compatible successes remain
 protected; issued image bytes and access records remain for at least 24 hours
-after the last display response. Jobs and run directories retain their diagnostic
-hour and active attempts are never removed. Detailed bookkeeping/collection
-protection is described in
+after the last display response. Finished Jobs/Pods use Kubernetes TTL with a
+600-second default, configurable per Screen through
+`spec.source.job.ttlSecondsAfterFinished`. TTL is set only after durable collection
+or failure bookkeeping. Zero permits immediate cleanup at that point; TTL still
+counts from Job completion. Maintenance retries interrupted TTL writes and applies
+the default to inactive legacy terminal Jobs without TTL. Existing TTL values
+are preserved. Unused run directories retain their diagnostic hour and remain
+protected while their Job or Pods exist. Active attempts are never time-collected.
+Published images and issuance records are independent of Job TTL.
+The controller Role requires same-namespace Job `patch` permission to apply TTL;
+upgrade the controller chart/RBAC together with the controller binary.
+Detailed bookkeeping/collection protection is described in
 [DESIGN](DESIGN.md#storage-topology-retention-and-failure-handling). Seven consecutive
 Scheduled Job failures slow further retries to at least the screen interval and five
 minutes; success clears the counter. No manual reset is needed after recovery.
@@ -423,7 +432,7 @@ directories or nonterminal Jobs. Capacity admission also limits new scheduler
 metadata. [Recorded scale checks](DEVELOP.md#recorded-acceptance-baseline) establish
 bounded active work, not throughput. Scale and size the namespace, polling
 intervals and storage together. With four active Jobs
-and the one-hour diagnostic retention, short successful refresh intervals can
+and the default ten-minute Job retention, short successful refresh intervals can
 still retain many completed Jobs. Use an appropriate namespace ResourceQuota
 for a hard Kubernetes object ceiling; quota rejection retains prior output and
 uses bounded retries.

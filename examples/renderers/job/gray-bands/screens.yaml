@@ -6,6 +6,7 @@ spec:
   refreshInterval: 30m
   source:
     job:
+      ttlSecondsAfterFinished: 600
       renderer:
         image: busybox:1.37.0
         command: [sh, -ec]

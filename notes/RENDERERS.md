@@ -257,6 +257,30 @@ overlaid on valid known state, with query and JSON targets agreeing.
 
 ## Job example and container requirements
 
+Set `spec.source.job.ttlSecondsAfterFinished` to retain finished Jobs and their
+Pod logs for a chosen number of seconds; omission selects 600 (ten minutes).
+Both Scheduled and OnDemand support nonnegative values, including zero:
+
+```yaml
+spec:
+  source:
+    job:
+      ttlSecondsAfterFinished: 600
+      renderer:
+        image: registry.example.test/renderer:v1
+```
+
+The controller applies Kubernetes TTL only after image/renderer-state collection
+and durable completion bookkeeping, or durable terminal failure bookkeeping.
+TTL counts from Job completion, so collection delayed beyond the selected TTL
+makes the Job eligible for immediate deletion when released. Zero also permits
+immediate deletion and leaves little opportunity to inspect Pod logs. TTL does
+not delete saved images or renderer state, change issued-URL retention, or clean
+PVC work directories. New Jobs snapshot the configured value; maintenance gives
+inactive legacy terminal Jobs without TTL the 600-second default and preserves
+TTL values already present. Cancellation and obsolete execution stopping remain
+independent of diagnostic retention.
+
 The `source.job.state` object defines an opt-in contract with optional
 `resultPath` and `resetToken`. Jobs snapshot committed state and publish validated
 image/result candidates. An unconsumed candidate suppresses Scheduled updates

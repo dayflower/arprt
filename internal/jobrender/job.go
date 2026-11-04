@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path"
+	"strconv"
 	"time"
 
 	api "github.com/dayflower/arprt/api/v1alpha1"
@@ -95,7 +96,7 @@ func (c Config) job(st *state) *batchv1.Job {
 			resources.Requests[k] = v
 		}
 	}
-	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "arprt-render-" + a.ID, Namespace: st.Namespace, Labels: labels, Annotations: map[string]string{ttlAnnotation: strconv.FormatInt(int64(screen.JobTTL(src)), 10)}, OwnerReferences: []metav1.OwnerReference{{APIVersion: api.GroupVersion.String(), Kind: "ArprtDevice", Name: st.DeviceName, UID: types.UID(st.DeviceUID), Controller: ptr.To(true)}}}, Spec: batchv1.JobSpec{
 		BackoffLimit: ptr.To(int32(0)), ActiveDeadlineSeconds: ptr.To(deadlineSeconds), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false),
 			SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To(int64(1000)), RunAsGroup: ptr.To(int64(1000)), FSGroup: ptr.To(int64(1000)), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
