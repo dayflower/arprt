@@ -204,7 +204,7 @@ byte-addressed blobs and firmware filename reservations but never writes base
 latest, sequence, attempt, Context digest or `RenderedAt`. Internal provenance
 and cache references include the original unit/exact target and full success
 identity, original UTC render time, normalized visible timestamp/icon levels,
-actual corner, scale, the two active edge margins, rotation, charging-mark selection and bitmap/encoder
+actual corner, scale, safe-area target, rotation, charging-mark selection and bitmap/encoder
 version. Hidden observations, raw measurements within one icon level, credentials and MACs are excluded.
 Equivalent bytes share filenames while separate units/timestamps keep distinct
 provenance. Caches do not grant issuance authorization.
@@ -218,11 +218,15 @@ Kubernetes dependencies and draws a vendored CC0 Home Video font and original
 icons on validated PNGs. A clockwise arrow prefixes the render timestamp to
 identify image generation time; it is part of the timestamp item and does not
 change the UTC provenance or display time-zone rules. The content row has fixed two-pixel white padding on all sides, scaled with
-the bitmap. The padded row uses the Screen `top`/`bottom` and `left`/`right`
-margins adjoining the selected logical corner. Opposite margins are omitted from the
-drawing identity and fit check. The white background reaches both adjoining
-logical corner edges. Charging uses
-a valid current charging observation only; USB presence does not select the
+the bitmap. The padded row fits within all four Device safe-area boundaries and
+anchors to the selected logical corner. Insets are actual logical pixels and never scale
+with the bitmap. White background reaches both adjoining screen edges.
+Safe area belongs to `render.Target`, so GET sharing, POST and Job snapshots,
+artifact units, replay fingerprints and stale compatibility all distinguish it.
+This is a renderer recommendation rather than a controller crop: photos may
+remain full bleed while charts keep important content inside. Invalid resolved
+rectangles fail target resolution. There is no Screen overlay margin.
+Charging uses a valid current charging observation only; USB presence does not select the
 mark. False or unavailable charging keeps ordinary battery-level selection.
 Only the visible mark enters cache identity; hidden level measurements do not
 change a charging composite.
@@ -953,7 +957,7 @@ recompositing or advancing a corner.
 Active BYOS uses `NormalizeResolved`/`ComposeResolved` after base normalization.
 Legacy `Normalize`/`Compose` adapters and `EncodeLegacyGray4` retain the
 unresolved-target and 2-bit gray4 encoding rules. New composites use the
-`bitmap-v2` appearance, including fixed padding. Original `bitmap-v1` issued
+`bitmap-v3-safe-area` appearance, including fixed padding and Device safe-area placement. Original `bitmap-v1` issued
 bytes remain readable through the artifact repository. A compatible legacy fallback can supply a new derived image using current
 constraints without changing its original latest pointer or immutable bytes.
 Runtime compositing holds the shared admission lease and a processing deadline

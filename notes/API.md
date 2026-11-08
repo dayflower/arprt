@@ -68,6 +68,12 @@ Required fields in an optional nested object are required only when that object
 is present. An omitted value can be defaulted by Kubernetes admission or resolved
 by the controller; the reference distinguishes those cases.
 
+Device `spec.display.safeAreaInsets` defines a recommended content rectangle in
+logical viewing pixels. Renderers may honor it selectively, while controller
+overlays always place their padded content inside it. Insets default to zero,
+do not scale with overlay bitmaps and must leave positive resolved dimensions.
+See [safe area](PROTOCOL.md#safe-area). Screen overlays have no margin setting.
+
 For Screens, inspect conditions for reconciliation readiness. Image artifacts and
 execution history are not embedded in Screen status. For Playlists, conditions
 report reference validity; actual device progress belongs to Device status.

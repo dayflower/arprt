@@ -30,6 +30,11 @@ func verifyDisplayAPI(t *testing.T, c client.Client) {
 		{Width: ptr.To(int32(2049)), Height: ptr.To(int32(2049))},
 		{Palette: "bw"}, {Palette: "bwry"}, {Palette: "unknown"},
 		{PNGByteLimit: ptr.To(int32(0))}, {PNGByteLimit: ptr.To(int32(-1))},
+		{SafeAreaInsets: &api.SafeAreaInsets{Top: -1}},
+		{SafeAreaInsets: &api.SafeAreaInsets{Bottom: -1}},
+		{SafeAreaInsets: &api.SafeAreaInsets{Left: -1}},
+		{SafeAreaInsets: &api.SafeAreaInsets{Right: -1}},
+		{SafeAreaInsets: &api.SafeAreaInsets{Top: 4096}},
 	} {
 		if err := c.Create(ctx, newDevice(fmt.Sprintf("bad-display-%d", i), display)); !apierrors.IsInvalid(err) {
 			t.Fatalf("display override admitted: %+v %v", display, err)
@@ -88,6 +93,40 @@ func verifyDisplayAPI(t *testing.T, c client.Client) {
 	eventually(t, func() bool {
 		return c.Get(ctx, client.ObjectKeyFromObject(d), d) == nil && d.Status.Display != nil && d.Status.Display.Width == 600 && d.Status.Display.Height == 400 && d.Status.Display.Palette == "spectra6" && d.Status.Display.PNGByteLimit == 750000 && d.Status.Display.Sources.Dimensions == "reported" && meta.IsStatusConditionTrue(d.Status.Conditions, controller.ConditionTargetKnown)
 	})
+	// Safe-area geometry is validated against resolved dimensions, including rotation.
+	for _, config := range []struct {
+		rotation, left int32
+		valid          bool
+	}{
+		{0, 599, true}, {90, 599, false}, {90, 399, true}, {0, 600, false}, {0, 0, true},
+	} {
+		if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
+				return err
+			}
+			d.Spec.Rotation = config.rotation
+			d.Spec.Display = &api.DisplayOverride{SafeAreaInsets: &api.SafeAreaInsets{Left: config.left}}
+			return c.Update(ctx, d)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		eventually(t, func() bool {
+			if c.Get(ctx, client.ObjectKeyFromObject(d), d) != nil || d.Spec.Display.SafeAreaInsets.Left != config.left {
+				return false
+			}
+			condition := meta.FindStatusCondition(d.Status.Conditions, controller.ConditionTargetKnown)
+			return condition != nil && condition.ObservedGeneration == d.Generation && (condition.Status == metav1.ConditionTrue) == config.valid
+		})
+	}
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {
+			return err
+		}
+		d.Spec.Display = nil
+		return c.Update(ctx, d)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// Unsafe raw observations survive API validation but fall back to the profile.
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		if err := c.Get(ctx, client.ObjectKeyFromObject(d), d); err != nil {

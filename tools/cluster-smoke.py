@@ -406,6 +406,29 @@ def main():
                 )
                 if status != 200 or len(logo) != int(image_headers["Content-Length"]):
                     raise RuntimeError("anonymous setup image failed")
+                kubectl(
+                    "-n",
+                    namespace,
+                    "patch",
+                    "arprtdevice",
+                    "living-room",
+                    "--type=merge",
+                    "-p",
+                    json.dumps(
+                        {
+                            "spec": {
+                                "display": {
+                                    "safeAreaInsets": {
+                                        "top": 4,
+                                        "bottom": 4,
+                                        "left": 12,
+                                        "right": 12,
+                                    }
+                                }
+                            }
+                        }
+                    ),
+                )
                 render_start = datetime.datetime.now(datetime.timezone.utc)
                 first = display(base, prefix)
                 render_end = datetime.datetime.now(datetime.timezone.utc)
@@ -545,12 +568,6 @@ def main():
                             "spec": {
                                 "overlay": {
                                     "enabled": True,
-                                    "margin": {
-                                        "top": 4,
-                                        "bottom": 4,
-                                        "left": 12,
-                                        "right": 12,
-                                    },
                                 }
                             }
                         }
@@ -564,18 +581,18 @@ def main():
                 overlay_checks.assert_overlay(
                     image,
                     composite_bytes,
-                    margin_top=4,
-                    margin_bottom=4,
-                    margin_left=12,
-                    margin_right=12,
+                    safe_top=4,
+                    safe_bottom=4,
+                    safe_left=12,
+                    safe_right=12,
                 )
                 shown = datetime.datetime.strptime(
                     overlay_checks.timestamp(
                         composite_bytes,
-                        margin_top=4,
-                        margin_bottom=4,
-                        margin_left=12,
-                        margin_right=12,
+                        safe_top=4,
+                        safe_bottom=4,
+                        safe_left=12,
+                        safe_right=12,
                     ),
                     "%Y-%m-%d %H:%M",
                 )
@@ -627,10 +644,10 @@ def main():
                 overlay_checks.assert_overlay(
                     image,
                     charging_bytes,
-                    margin_top=4,
-                    margin_bottom=4,
-                    margin_left=12,
-                    margin_right=12,
+                    safe_top=4,
+                    safe_bottom=4,
+                    safe_left=12,
+                    safe_right=12,
                 )
                 if charging["filename"] == fractional["filename"]:
                     raise RuntimeError("known charging mark did not replace the level")

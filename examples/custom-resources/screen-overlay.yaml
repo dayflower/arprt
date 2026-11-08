@@ -11,10 +11,5 @@ spec:
     # Omit items for all three; [] disables drawing without changing enablement.
     items: [timestamp, battery, wifi]
     # Shared clockwise corner cycle for this device UID; do not set position.
-    # Foreground inset in bitmap pixels; the white background reaches the edges.
-    margin:
-      top: 4
-      bottom: 4
-      left: 12
-      right: 12
+    # Placement uses ArprtDevice.spec.display.safeAreaInsets.
     cycleCorners: true

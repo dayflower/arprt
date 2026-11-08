@@ -66,9 +66,6 @@ func (s *Server) overlayImageAdmitted(ctx context.Context, d *api.ArprtDevice, o
 		actual = corner.Current
 	}
 	settings := overlay.Settings{}
-	if effective.Margin != nil {
-		settings.Margin = overlay.Margins{Top: int(effective.Margin.Top), Bottom: int(effective.Margin.Bottom), Left: int(effective.Margin.Left), Right: int(effective.Margin.Right)}
-	}
 	if effective.Scale != nil {
 		settings.Scale = *effective.Scale
 	}

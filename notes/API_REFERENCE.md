@@ -69,7 +69,23 @@ Validation failure messages:
 | `height` | integer (int32) | No | — | Minimum: 1. Maximum: 4096. |
 | `palette` | string | No | — | Allowed: `"gray4"`, `"gray16"`, `"spectra6"`. |
 | `pngByteLimit` | integer (int32) | No | — | PNGByteLimit is exclusive: the complete encoded PNG must be smaller. Minimum: 1. |
+| [`safeAreaInsets`](#arprtdevice-v1alpha1-specdisplaysafeareainsets) | object | No | — | SafeAreaInsets recommends where renderers place important content and anchors controller overlays. Edges follow the logical viewing orientation after rotation. Insets are actual pixels independent of overlay scale; omitted edges mean zero. Renderers may ignore the recommendation. PNG dimensions remain unchanged. The resolved logical canvas must retain a positive width and height. |
 | `width` | integer (int32) | No | — | Minimum: 1. Maximum: 4096. |
+
+### ArprtDevice v1alpha1 spec.display.safeAreaInsets
+
+SafeAreaInsets recommends where renderers place important content and anchors
+controller overlays. Edges follow the logical viewing orientation after rotation.
+Insets are actual pixels independent of overlay scale; omitted edges mean zero.
+Renderers may ignore the recommendation. PNG dimensions remain unchanged.
+The resolved logical canvas must retain a positive width and height.
+
+| Field | Type | Required | Admission default | Description / constraints |
+| --- | --- | --- | --- | --- |
+| `bottom` | integer (int32) | No | — | Minimum: 0. Maximum: 4095. |
+| `left` | integer (int32) | No | — | Minimum: 0. Maximum: 4095. |
+| `right` | integer (int32) | No | — | Minimum: 0. Maximum: 4095. |
+| `top` | integer (int32) | No | — | Minimum: 0. Maximum: 4095. |
 
 ### ArprtDevice v1alpha1 spec.hardwareIDSecretRef
 
@@ -279,21 +295,8 @@ Validation failure messages:
 | `cycleCorners` | boolean | No | `false` | CycleCorners moves the overlay between corners on committed deliveries. |
 | `enabled` | boolean | No | `false` | Enabled opts new deliveries into controller-drawn overlays. |
 | `items` | array of string | No | — | Items omitted selects all items; an explicit empty array draws nothing. A pointer preserves empty arrays through JSON and Kubernetes round trips. Maximum items: 3. Each item: Allowed: `"timestamp"`, `"battery"`, `"wifi"`. |
-| [`margin`](#arprtscreen-v1alpha1-specoverlaymargin) | object | No | — | Margin insets the padded content row from the two edges adjoining the selected corner. The opaque background extends through each inset to the display edges. |
 | `position` | string | No | — | Position is defaulted to top-right internally, never by admission. Allowed: `"top-right"`, `"bottom-right"`, `"bottom-left"`, `"top-left"`. |
 | `scale` | integer (int32) | No | — | Scale omitted selects automatic scaling using physical dimensions. Minimum: 1. |
-
-### ArprtScreen v1alpha1 spec.overlay.margin
-
-Margin insets the padded content row from the two edges adjoining the selected corner.
-The opaque background extends through each inset to the display edges.
-
-| Field | Type | Required | Admission default | Description / constraints |
-| --- | --- | --- | --- | --- |
-| `bottom` | integer (int32) | No | — | Bottom is the inset when a bottom corner is selected. Minimum: 0. |
-| `left` | integer (int32) | No | — | Left is the inset when a left corner is selected. Minimum: 0. |
-| `right` | integer (int32) | No | — | Right is the inset when a right corner is selected. Minimum: 0. |
-| `top` | integer (int32) | No | — | Top is the inset when a top corner is selected. Minimum: 0. |
 
 ### ArprtScreen v1alpha1 spec.source
 

@@ -1398,7 +1398,7 @@ or interruption. An observer should report the first unexpected screen promptly.
    Verify mixed GET/POST/Job playlist order and name-sorted discovery; check Job
    preparation before selection and screen-cycle persistence across restart.
 4. Enable timestamp/battery/Wi-Fi overlays and check all rotations/corners, bitmap
-   readability, foreground margin/white background bleed, clockwise cycling, replay filename caching and retained issued
+   readability, safe-area foreground/white background bleed, clockwise cycling, replay filename caching and retained issued
    images after restart. Force stale base delivery and confirm its original render
    timestamp. OG voltage thresholds are provisional icon heuristics, not measured
    percentages or calibrated state-of-charge estimates.

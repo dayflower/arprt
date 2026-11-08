@@ -62,6 +62,10 @@ func Resolve(d *api.ArprtDevice) (render.ResolvedTarget, *api.DisplayStatus, err
 	}
 	t := render.ResolvedTarget{Target: render.Target{Width: v.Width, Height: v.Height, Palette: v.Palette, Rotation: d.Spec.Rotation},
 		Output: render.OutputConstraints{PNGByteLimit: int(v.PNGByteLimit), Compatibility: render.OutputCompatibilityVersion}}
+	if d.Spec.Display != nil && d.Spec.Display.SafeAreaInsets != nil {
+		i := d.Spec.Display.SafeAreaInsets
+		t.Target.SafeAreaInsets = render.Insets{Top: i.Top, Bottom: i.Bottom, Left: i.Left, Right: i.Right}
+	}
 	if err := t.Validate(); err != nil {
 		return render.ResolvedTarget{}, nil, err
 	}

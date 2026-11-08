@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -202,5 +203,40 @@ func TestHTTPPOSTExcludesRendererState(t *testing.T) {
 	}
 	if len(c.RendererState) == 0 {
 		t.Fatal("HTTP execution mutated original Job snapshot")
+	}
+}
+
+func TestSafeAreaQueryNormalizationAndContext(t *testing.T) {
+	target := og
+	target.SafeAreaInsets = Insets{Top: 4, Bottom: 8, Left: 12, Right: 16}
+	raw, err := TargetURL("http://renderer/render?key=a&key=b&safeAreaTop=1&safeAreaTop=2&safeAreaRight=0", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(raw)
+	q := u.Query()
+	for name, want := range map[string]string{"safeAreaTop": "4", "safeAreaBottom": "8", "safeAreaLeft": "12", "safeAreaRight": "16"} {
+		if len(q[name]) != 1 || q.Get(name) != want {
+			t.Fatal("safe area query not normalized", q)
+		}
+	}
+	if len(q["key"]) != 2 {
+		t.Fatal("non-target query lost")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var snapshot Context
+		if err := json.NewDecoder(r.Body).Decode(&snapshot); err != nil || snapshot.RenderTarget != target || r.URL.Query().Get("safeAreaBottom") != "8" {
+			t.Error("POST safe area JSON/query differ", snapshot, err)
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(fixture(t))
+	}))
+	defer server.Close()
+	snapshot, err := Build("living-room", target, Observation{}, Observation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (HTTPPOST{URL: server.URL}).Execute(t.Context(), Request{Target: target, Output: CurrentTarget(target).Output, Context: &snapshot}); err != nil {
+		t.Fatal(err)
 	}
 }

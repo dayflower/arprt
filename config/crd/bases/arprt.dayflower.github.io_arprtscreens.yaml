@@ -99,32 +99,6 @@ spec:
                     maxItems: 3
                     type: array
                     x-kubernetes-list-type: set
-                  margin:
-                    description: |-
-                      Margin insets the padded content row from the two edges adjoining the selected corner.
-                      The opaque background extends through each inset to the display edges.
-                    properties:
-                      bottom:
-                        description: Bottom is the inset when a bottom corner is selected.
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      left:
-                        description: Left is the inset when a left corner is selected.
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      right:
-                        description: Right is the inset when a right corner is selected.
-                        format: int32
-                        minimum: 0
-                        type: integer
-                      top:
-                        description: Top is the inset when a top corner is selected.
-                        format: int32
-                        minimum: 0
-                        type: integer
-                    type: object
                   position:
                     description: Position is defaulted to top-right internally, never
                       by admission.

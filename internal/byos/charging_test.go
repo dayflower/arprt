@@ -57,12 +57,12 @@ func TestPowerObservations(t *testing.T) {
 func TestChargingDeliveryCurrentInputsAndCache(t *testing.T) {
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	enableOverlay(t, c, false, "battery")
-	var screen api.ArprtScreen
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "screen"}, &screen); err != nil {
+	var device api.ArprtDevice
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "arprt", Name: "living-room"}, &device); err != nil {
 		t.Fatal(err)
 	}
-	screen.Spec.Overlay.Margin = &api.OverlayMargin{Left: 8, Right: 8, Top: 4, Bottom: 4}
-	if err := c.Update(context.Background(), &screen); err != nil {
+	device.Spec.Display = &api.DisplayOverride{SafeAreaInsets: &api.SafeAreaInsets{Left: 8, Right: 8, Top: 4, Bottom: 4}}
+	if err := c.Update(context.Background(), &device); err != nil {
 		t.Fatal(err)
 	}
 	b := pngFixture(t)
@@ -82,13 +82,13 @@ func TestChargingDeliveryCurrentInputsAndCache(t *testing.T) {
 	direct := poll(h)
 	base := baseImage(t, s, c, false)
 	yes := true
-	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery"}, Margin: overlay.Margins{Left: 8, Right: 8, Top: 4, Bottom: 4}}, base.RenderedAt, time.UTC, overlay.Telemetry{Charging: &yes}, overlay.TopRight)
+	drawing, err := overlay.NormalizeResolved(base.Unit.ResolvedTarget(), overlay.Settings{Items: []string{"battery"}}, base.RenderedAt, time.UTC, overlay.Telemetry{Charging: &yes}, overlay.TopRight)
 	if err != nil {
 		t.Fatal(err)
 	}
 	expected, err := overlay.ComposeResolved(context.Background(), b, base.Unit.ResolvedTarget(), drawing)
 	if err != nil || !bytes.Equal(imageBytes(t, s, direct), expected) {
-		t.Fatal("Screen margin/charging did not reach drawing", err)
+		t.Fatal("Device safe area/charging did not reach drawing", err)
 	}
 	if direct.Filename == baseline.Filename {
 		t.Fatal("charging mark not substituted")
