@@ -23,6 +23,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: ArprtScreen defines reusable rendering intent; generated images
+          live outside the CR.
         properties:
           apiVersion:
             description: |-
@@ -42,6 +44,8 @@ spec:
           metadata:
             type: object
           spec:
+            description: ArprtScreenSpec declares the source and processing policy
+              for a screen.
             properties:
               imageProcessing:
                 description: ImageProcessing controls normalization of renderer PNG
@@ -49,6 +53,8 @@ spec:
                 properties:
                   dithering:
                     default: atkinson
+                    description: Dithering selects palette quantization for inputs
+                      that require normalization.
                     enum:
                     - atkinson
                     - floyd-steinberg
@@ -57,6 +63,8 @@ spec:
                     type: string
                   resizeMode:
                     default: contain
+                    description: ResizeMode fits the complete image with contain or
+                      fills the target with stretch.
                     enum:
                     - contain
                     - stretch
@@ -68,9 +76,13 @@ spec:
                 properties:
                   cycleCorners:
                     default: false
+                    description: CycleCorners moves the overlay between corners on
+                      committed deliveries.
                     type: boolean
                   enabled:
                     default: false
+                    description: Enabled opts new deliveries into controller-drawn
+                      overlays.
                     type: boolean
                   items:
                     description: |-
@@ -143,11 +155,15 @@ spec:
                 - message: interval must be between 1s and 24h in whole seconds
                   rule: duration(self) >= duration('1s') && duration(self) <= duration('24h')
               source:
+                description: Source selects exactly one rendering backend.
                 properties:
                   http:
+                    description: HTTP fetches a PNG over HTTP GET or POST.
                     properties:
                       method:
                         default: GET
+                        description: Method selects GET for device-independent images
+                          or POST for current Render Context.
                         enum:
                         - GET
                         - POST
@@ -167,11 +183,12 @@ spec:
                     - url
                     type: object
                   job:
-                    description: JobSource paths designate files. Output's parent
-                      is a dedicated writable mount.
+                    description: Job renders a PNG in a temporary Kubernetes Job.
                     properties:
                       contextPath:
                         default: /arprt/context.json
+                        description: ContextPath is the read-only Render Context file
+                          supplied to the renderer.
                         maxLength: 512
                         pattern: ^/([^/\x00]+/)*[^/\x00]+$
                         type: string
@@ -187,6 +204,8 @@ spec:
                         type: string
                       imagePath:
                         default: /arprt/output.png
+                        description: ImagePath is the PNG file collected from the
+                          renderer output volume.
                         maxLength: 512
                         pattern: ^/([^/\x00]+/)*[^/\x00]+$
                         type: string
@@ -194,20 +213,26 @@ spec:
                         - message: path must be a clean absolute POSIX file path
                           rule: '!self.split(''/'').exists(p, p == ''.'' || p == ''..'')'
                       renderer:
-                        description: RendererContainer deliberately exposes only the
-                          reusable container interface.
+                        description: Renderer defines the image, command, environment
+                          and resources of the renderer.
                         properties:
                           args:
+                            description: Args supplies arguments without controller-side
+                              CLI interpretation.
                             items:
                               type: string
                             maxItems: 128
                             type: array
                           command:
+                            description: Command overrides the container entrypoint;
+                              omission uses the image entrypoint.
                             items:
                               type: string
                             maxItems: 128
                             type: array
                           env:
+                            description: Env supplies standard Kubernetes environment
+                              variables and value references.
                             items:
                               description: EnvVar represents an environment variable
                                 present in a Container.
@@ -367,6 +392,8 @@ spec:
                             maxItems: 128
                             type: array
                           envFrom:
+                            description: EnvFrom imports standard Kubernetes ConfigMap
+                              or Secret environment sources.
                             items:
                               description: EnvFromSource represents the source of
                                 a set of ConfigMaps or Secrets
@@ -416,6 +443,7 @@ spec:
                             maxItems: 128
                             type: array
                           image:
+                            description: Image selects the renderer container image.
                             maxLength: 512
                             minLength: 1
                             pattern: ^\S+$
@@ -482,6 +510,8 @@ spec:
                                 type: object
                             type: object
                           volumeMounts:
+                            description: VolumeMounts mounts declared ConfigMap or
+                              Secret inputs read-only.
                             items:
                               description: JobVolumeMount retains the standard mount
                                 shape with a read-only subset.
@@ -532,8 +562,8 @@ spec:
                         - image
                         type: object
                       state:
-                        description: JobState opts a Job into renderer-owned JSON
-                          state.
+                        description: State enables renderer-owned JSON state committed
+                          with display delivery.
                         properties:
                           resetToken:
                             description: ResetToken changes invalidate previously
@@ -568,6 +598,8 @@ spec:
                         minimum: 0
                         type: integer
                       volumes:
+                        description: Volumes declares same-namespace ConfigMap and
+                          Secret input volumes.
                         items:
                           description: JobVolume uses Kubernetes field names and rejects
                             unsupported standard sources.
@@ -2503,8 +2535,11 @@ spec:
               rule: '!has(self.refreshInterval) || !has(self.source.job) || !has(self.source.job.executionMode)
                 || self.source.job.executionMode != ''OnDemand'''
           status:
+            description: ArprtScreenStatus reports reconciliation readiness for a
+              Screen or Playlist.
             properties:
               conditions:
+                description: Conditions reports readiness and reconciliation failures.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -2564,6 +2599,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               observedGeneration:
+                description: ObservedGeneration is the metadata generation evaluated
+                  by the controller.
                 format: int64
                 minimum: 0
                 type: integer

@@ -7,12 +7,14 @@ import (
 
 // LocalReference always refers to a resource in the object's namespace.
 type LocalReference struct {
+	// Name identifies an object in this resource namespace.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	Name string `json:"name"`
 }
 
+// HTTPSource calls an operator-selected endpoint that returns a PNG image.
 type HTTPSource struct {
 	// URL is operator-controlled; credentials and redirects are not supported.
 	// +kubebuilder:validation:MaxLength=2048
@@ -20,6 +22,7 @@ type HTTPSource struct {
 	// +kubebuilder:validation:XValidation:rule="isURL(self)",message="renderer URL must be a valid absolute HTTP URL"
 	// +kubebuilder:validation:XValidation:rule="!self.matches('[?].*;')",message="query semicolons must be percent-encoded"
 	URL string `json:"url"`
+	// Method selects GET for device-independent images or POST for current Render Context.
 	// +kubebuilder:default=GET
 	// +kubebuilder:validation:Enum=GET;POST
 	Method string `json:"method,omitempty"`
@@ -129,19 +132,25 @@ type JobSecretVolumeSource struct {
 
 // RendererContainer deliberately exposes only the reusable container interface.
 type RendererContainer struct {
+	// VolumeMounts mounts declared ConfigMap or Secret inputs read-only.
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=atomic
 	VolumeMounts []JobVolumeMount `json:"volumeMounts,omitempty"`
+	// Image selects the renderer container image.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^\S+$`
 	Image string `json:"image"`
+	// Command overrides the container entrypoint; omission uses the image entrypoint.
 	// +kubebuilder:validation:MaxItems=128
 	Command []string `json:"command,omitempty"`
+	// Args supplies arguments without controller-side CLI interpretation.
 	// +kubebuilder:validation:MaxItems=128
 	Args []string `json:"args,omitempty"`
+	// Env supplies standard Kubernetes environment variables and value references.
 	// +kubebuilder:validation:MaxItems=128
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom imports standard Kubernetes ConfigMap or Secret environment sources.
 	// +kubebuilder:validation:MaxItems=128
 	EnvFrom   []corev1.EnvFromSource      `json:"envFrom,omitempty"`
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
@@ -174,6 +183,7 @@ type JobState struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || !has(self.state.resultPath) || (self.state.resultPath != self.imagePath && self.state.resultPath != self.contextPath && !self.contextPath.startsWith(self.state.resultPath + '/') && !self.state.resultPath.startsWith(self.contextPath + '/'))",message="result must be distinct from context and image files"
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || (!self.imagePath.endsWith('/result.json') && self.contextPath != self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json' && !self.contextPath.startsWith(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json/'))",message="default result path must be distinct from context and image files"
 // +kubebuilder:validation:XValidation:rule="!has(self.state) || has(self.state.resultPath) || size(self.imagePath.substring(0, self.imagePath.lastIndexOf('/')) + '/result.json') <= 512",message="default result path exceeds the path length limit"
+// JobSource runs a renderer container with a Context input file and a PNG output file.
 type JobSource struct {
 	// TTLSecondsAfterFinished controls finished Job/Pod retention from completion.
 	// Omission selects 600 seconds. TTL is applied only after durable collection
@@ -181,11 +191,13 @@ type JobSource struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=2147483647
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+	// Volumes declares same-namespace ConfigMap and Secret input volumes.
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=map
 	// +listMapKey=name
 	Volumes []JobVolume `json:"volumes,omitempty"`
-	State   *JobState   `json:"state,omitempty"`
+	// State enables renderer-owned JSON state committed with display delivery.
+	State *JobState `json:"state,omitempty"`
 	// ExecutionMode omitted selects Scheduled. Defaults are normalized internally.
 	// +kubebuilder:validation:Enum=Scheduled;OnDemand
 	ExecutionMode string `json:"executionMode,omitempty"`
@@ -193,13 +205,16 @@ type JobSource struct {
 	// Omission selects 5s for OnDemand; Scheduled has no request timeout.
 	// +kubebuilder:validation:Pattern=`^([1-9]|10)s$`
 	// +kubebuilder:validation:MaxLength=3
-	Timeout  string            `json:"timeout,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+	// Renderer defines the image, command, environment and resources of the renderer.
 	Renderer RendererContainer `json:"renderer"`
+	// ContextPath is the read-only Render Context file supplied to the renderer.
 	// +kubebuilder:default="/arprt/context.json"
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
 	// +kubebuilder:validation:XValidation:rule="!self.split('/').exists(p, p == '.' || p == '..')",message="path must be a clean absolute POSIX file path"
 	ContextPath string `json:"contextPath,omitempty"`
+	// ImagePath is the PNG file collected from the renderer output volume.
 	// +kubebuilder:default="/arprt/output.png"
 	// +kubebuilder:validation:MaxLength=512
 	// +kubebuilder:validation:Pattern=`^/([^/\x00]+/)*[^/\x00]+$`
@@ -208,19 +223,24 @@ type JobSource struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.http) != has(self.job)",message="exactly one of http or job is required"
+// ScreenSource selects exactly one HTTP endpoint or renderer Job.
 type ScreenSource struct {
+	// HTTP fetches a PNG over HTTP GET or POST.
 	HTTP *HTTPSource `json:"http,omitempty"`
-	Job  *JobSource  `json:"job,omitempty"`
+	// Job renders a PNG in a temporary Kubernetes Job.
+	Job *JobSource `json:"job,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.http) || self.source.http.method != 'POST'",message="refreshInterval must be omitted for HTTP POST"
 // +kubebuilder:validation:XValidation:rule="!has(self.refreshInterval) || !has(self.source.job) || !has(self.source.job.executionMode) || self.source.job.executionMode != 'OnDemand'",message="refreshInterval must be omitted for OnDemand Jobs"
+// ArprtScreenSpec declares the source and processing policy for a screen.
 type ArprtScreenSpec struct {
 	// ImageProcessing controls normalization of renderer PNG inputs.
 	ImageProcessing *ImageProcessing `json:"imageProcessing,omitempty"`
 	// Overlay controls optional controller bitmap drawing on new deliveries.
 	Overlay *ScreenOverlay `json:"overlay,omitempty"`
-	Source  ScreenSource   `json:"source"`
+	// Source selects exactly one rendering backend.
+	Source ScreenSource `json:"source"`
 	// RefreshInterval controls artifact freshness, not device polling. Effective
 	// defaults are 5m for GET and 30m for Scheduled Job; POST/OnDemand have no interval.
 	// +kubebuilder:validation:MaxLength=32
@@ -231,9 +251,11 @@ type ArprtScreenSpec struct {
 
 // ImageProcessing describes resizing and palette quantization intent.
 type ImageProcessing struct {
+	// ResizeMode fits the complete image with contain or fills the target with stretch.
 	// +kubebuilder:default=contain
 	// +kubebuilder:validation:Enum=contain;stretch
 	ResizeMode string `json:"resizeMode,omitempty"`
+	// Dithering selects palette quantization for inputs that require normalization.
 	// +kubebuilder:default=atkinson
 	// +kubebuilder:validation:Enum=atkinson;floyd-steinberg;bayer;none
 	Dithering string `json:"dithering,omitempty"`
@@ -263,6 +285,7 @@ type OverlayMargin struct {
 // ScreenOverlay describes display intent, independently of renderer execution.
 // +kubebuilder:validation:XValidation:rule="!self.cycleCorners || !has(self.position)",message="position must be omitted when cycleCorners is true"
 type ScreenOverlay struct {
+	// Enabled opts new deliveries into controller-drawn overlays.
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty"`
 	// Items omitted selects all items; an explicit empty array draws nothing.
@@ -273,6 +296,7 @@ type ScreenOverlay struct {
 	// Position is defaulted to top-right internally, never by admission.
 	// +kubebuilder:validation:Enum=top-right;bottom-right;bottom-left;top-left
 	Position string `json:"position,omitempty"`
+	// CycleCorners moves the overlay between corners on committed deliveries.
 	// +kubebuilder:default=false
 	CycleCorners bool `json:"cycleCorners,omitempty"`
 	// Scale omitted selects automatic scaling using physical dimensions.
@@ -283,9 +307,12 @@ type ScreenOverlay struct {
 	Margin *OverlayMargin `json:"margin,omitempty"`
 }
 
+// ArprtScreenStatus reports reconciliation readiness for a Screen or Playlist.
 type ArprtScreenStatus struct {
+	// ObservedGeneration is the metadata generation evaluated by the controller.
 	// +kubebuilder:validation:Minimum=0
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Conditions reports readiness and reconciliation failures.
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -295,6 +322,7 @@ type ArprtScreenStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=ascreen
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// ArprtScreen defines reusable rendering intent; generated images live outside the CR.
 type ArprtScreen struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -322,12 +350,14 @@ type ArprtPlaylistSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +listType=atomic
+	// Screens preserves order and repeated names; references stay in this namespace.
 	Screens []LocalReference `json:"screens"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=aplaylist
+// ArprtPlaylist defines an ordered screen cycle selected by a Device.
 type ArprtPlaylist struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -351,14 +381,21 @@ type ScreenCycleStatus struct {
 	// CompatibilityFingerprint binds replay to output constraints, rotation and
 	// processing semantics. Omission denotes a legacy turn, never current replay.
 	// +kubebuilder:validation:Pattern=`^[a-f0-9]{64}$`
-	CompatibilityFingerprint string            `json:"compatibilityFingerprint,omitempty"`
-	Assignment               string            `json:"assignment"`
-	ScreenUID                string            `json:"screenUID"`
-	InputRevision            string            `json:"inputRevision"`
-	Target                   CycleTargetStatus `json:"target"`
-	ImageDigest              string            `json:"imageDigest"`
-	Filename                 string            `json:"filename"`
-	ServedAt                 metav1.MicroTime  `json:"servedAt"`
+	CompatibilityFingerprint string `json:"compatibilityFingerprint,omitempty"`
+	// Assignment fingerprints the current assignment membership and order.
+	Assignment string `json:"assignment"`
+	// ScreenUID identifies the exact Screen object served in this turn.
+	ScreenUID string `json:"screenUID"`
+	// InputRevision identifies the rendering definition used for this turn.
+	InputRevision string `json:"inputRevision"`
+	// Target records the physical dimensions and palette of the served image.
+	Target CycleTargetStatus `json:"target"`
+	// ImageDigest identifies the immutable image bytes.
+	ImageDigest string `json:"imageDigest"`
+	// Filename is the filename returned in the successful display response.
+	Filename string `json:"filename"`
+	// ServedAt starts the replay window; replay does not extend it.
+	ServedAt metav1.MicroTime `json:"servedAt"`
 }
 
 // HardwareIDSecretReference selects a required key in a same-namespace Secret.
@@ -395,7 +432,9 @@ type DisplayOverride struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.hardwareID) && has(self.hardwareIDSecretRef))",message="at most one hardware identity source is permitted"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareID) == has(oldSelf.hardwareID) && (!has(self.hardwareID) || self.hardwareID == oldSelf.hardwareID)",message="hardwareID source is immutable; replace the device to change identity"
 // +kubebuilder:validation:XValidation:rule="has(self.hardwareIDSecretRef) == has(oldSelf.hardwareIDSecretRef) && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef == oldSelf.hardwareIDSecretRef)",message="hardwareIDSecretRef source is immutable; replace the device to change identity"
+// ArprtDeviceSpec declares authentication, assignment and desired display overrides.
 type ArprtDeviceSpec struct {
+	// Display overrides individual resolved capabilities; omitted fields use observations or model profiles.
 	Display *DisplayOverride `json:"display,omitempty"`
 	// Rotation requests clockwise content rotation in degrees. Renderers apply it
 	// while preserving the physical display dimensions of the output PNG.
@@ -408,8 +447,11 @@ type ArprtDeviceSpec struct {
 	HardwareID string `json:"hardwareID,omitempty"`
 	// HardwareIDSecretRef optionally restricts registration using a Secret value.
 	HardwareIDSecretRef *HardwareIDSecretReference `json:"hardwareIDSecretRef,omitempty"`
-	AuthSecretRef       LocalReference             `json:"authSecretRef"`
-	ScreenRef           *LocalReference            `json:"screenRef,omitempty"`
+	// AuthSecretRef names the same-namespace Secret holding the device API key.
+	AuthSecretRef LocalReference `json:"authSecretRef"`
+	// ScreenRef selects one same-namespace Screen, exclusively with playlistRef.
+	// Omitting both references enables name-sorted Screen discovery in this namespace.
+	ScreenRef *LocalReference `json:"screenRef,omitempty"`
 	// PlaylistRef selects an ordered same-namespace screen cycle.
 	PlaylistRef *LocalReference `json:"playlistRef,omitempty"`
 }
@@ -425,6 +467,7 @@ type CycleTargetStatus struct {
 	Palette string `json:"palette"`
 }
 
+// DisplaySources records where each effective capability was resolved.
 type DisplaySources struct {
 	// +kubebuilder:validation:Enum=explicit;reported;profile
 	Dimensions string `json:"dimensions"`
@@ -434,6 +477,7 @@ type DisplaySources struct {
 	PNGByteLimit string `json:"pngByteLimit"`
 }
 
+// DisplayStatus records effective physical output capabilities and their provenance.
 type DisplayStatus struct {
 	// +kubebuilder:validation:Minimum=1
 	Width int32 `json:"width"`
@@ -456,12 +500,16 @@ type ReportedDisplayStatus struct {
 	Height *int32 `json:"height,omitempty"`
 }
 
+// DeviceInfoStatus records model, firmware and display observations from device requests.
 type DeviceInfoStatus struct {
 	ReportedDisplay *ReportedDisplayStatus `json:"reportedDisplay,omitempty"`
-	Model           string                 `json:"model,omitempty"`
-	FirmwareVersion string                 `json:"firmwareVersion,omitempty"`
+	// Model retains the reported model identifier.
+	Model string `json:"model,omitempty"`
+	// FirmwareVersion retains the reported firmware version.
+	FirmwareVersion string `json:"firmwareVersion,omitempty"`
 }
 
+// BatteryStatus records reported battery measurements without derived estimates.
 type BatteryStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	Voltage *float64 `json:"voltage,omitempty"`
@@ -471,23 +519,34 @@ type BatteryStatus struct {
 	Percent *float64 `json:"percent,omitempty"`
 }
 
+// NetworkStatus records reported Wi-Fi signal strength in dBm.
 type NetworkStatus struct {
+	// RSSI is the reported Wi-Fi received signal strength in dBm.
 	RSSI *int32 `json:"rssi,omitempty"`
 }
 
+// ArprtDeviceStatus records controller observations and durable display-cycle progress.
 type ArprtDeviceStatus struct {
+	// ScreenCycle records the last successful Playlist/discovery turn for replay and advancement.
 	ScreenCycle *ScreenCycleStatus `json:"screenCycle,omitempty"`
 	// HardwareID mirrors the durable registration for this device UID.
 	// +kubebuilder:validation:MaxLength=17
 	// +kubebuilder:validation:Pattern=`^([0-9A-F]{2}:){5}[0-9A-F]{2}$`
 	HardwareID string `json:"hardwareID,omitempty"`
+	// ObservedGeneration is the metadata generation evaluated by the controller.
 	// +kubebuilder:validation:Minimum=0
-	ObservedGeneration int64             `json:"observedGeneration,omitempty"`
-	Display            *DisplayStatus    `json:"display,omitempty"`
-	Device             *DeviceInfoStatus `json:"device,omitempty"`
-	Battery            *BatteryStatus    `json:"battery,omitempty"`
-	Network            *NetworkStatus    `json:"network,omitempty"`
-	LastSeenAt         *metav1.Time      `json:"lastSeenAt,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Display contains resolved capabilities, independently of desired content rotation.
+	Display *DisplayStatus `json:"display,omitempty"`
+	// Device contains reported hardware information, distinct from resolved display capabilities.
+	Device *DeviceInfoStatus `json:"device,omitempty"`
+	// Battery contains the latest retained battery observations.
+	Battery *BatteryStatus `json:"battery,omitempty"`
+	// Network contains the latest retained Wi-Fi observations.
+	Network *NetworkStatus `json:"network,omitempty"`
+	// LastSeenAt records authenticated display activity; timestamp writes are throttled.
+	LastSeenAt *metav1.Time `json:"lastSeenAt,omitempty"`
+	// Conditions reports readiness and reconciliation failures.
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -497,6 +556,7 @@ type ArprtDeviceStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=adevice
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// ArprtDevice represents one physical device, its assignment and observed state.
 type ArprtDevice struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

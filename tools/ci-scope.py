@@ -45,7 +45,11 @@ def file_at(revision, path):
 
 def software_required(base, head):
     paths = changed_paths(base, head)
-    if not paths or not all(documentation(path) for path in paths):
+    if (
+        not paths
+        or "notes/API_REFERENCE.md" in paths
+        or not all(documentation(path) for path in paths)
+    ):
         return True
     return any(
         code_blocks(file_at(base, path)) != code_blocks(file_at(head, path))

@@ -19,6 +19,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: ArprtPlaylist defines an ordered screen cycle selected by a Device.
         properties:
           apiVersion:
             description: |-
@@ -55,11 +56,14 @@ spec:
                 pattern: ^([1-9]|10)s$
                 type: string
               screens:
+                description: Screens preserves order and repeated names; references
+                  stay in this namespace.
                 items:
                   description: LocalReference always refers to a resource in the object's
                     namespace.
                   properties:
                     name:
+                      description: Name identifies an object in this resource namespace.
                       maxLength: 253
                       minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
@@ -79,8 +83,11 @@ spec:
               rule: '!has(self.renderTimeout) || (has(self.failurePolicy) && self.failurePolicy
                 == ''Skip'')'
           status:
+            description: ArprtScreenStatus reports reconciliation readiness for a
+              Screen or Playlist.
             properties:
               conditions:
+                description: Conditions reports readiness and reconciliation failures.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -140,6 +147,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               observedGeneration:
+                description: ObservedGeneration is the metadata generation evaluated
+                  by the controller.
                 format: int64
                 minimum: 0
                 type: integer

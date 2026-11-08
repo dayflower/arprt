@@ -21,7 +21,7 @@ HELM_VERSION ?= v4.3.0
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
-.PHONY: generate manifests tools build test test-default test-gray4-native4 vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify verify-checks generation-check dependency-check integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-preflight release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
+.PHONY: api-docs api-docs-check generate manifests tools build test test-default test-gray4-native4 vet fmt lint lint-go lint-python format format-go format-python format-check format-check-go format-check-python verify verify-checks generation-check dependency-check integration docker-build cluster-smoke release-check disposable-cluster-smoke crd-chart-check chart-dependencies chart-lint chart-package chart-check helm-smoke helm-release-smoke helm-published-smoke image-benchmark release-preflight release-chart-metadata release-chart-prepare release-chart-login release-chart-publish release-chart-verify
 
 tools: bin/controller-gen
 
@@ -40,6 +40,13 @@ generate: bin/controller-gen
 manifests: generate
 	bin/controller-gen crd:allowDangerousTypes=true paths=./api/... output:crd:artifacts:config=config/crd/bases
 	$(GO) run ./tools/crd-chart
+
+api-docs: manifests
+	$(GO) run ./tools/api-docs
+
+# Read-only: useful after generation and for reviewing a reference-only edit.
+api-docs-check:
+	$(GO) run ./tools/api-docs --check
 
 $(HELM): tools/install-helm.py
 	python3 tools/install-helm.py $(HELM_VERSION) $@
@@ -146,8 +153,9 @@ test-default:
 test-gray4-native4:
 	$(GO) test -race -tags=gray4_native4 ./...
 
-generation-check: manifests
-	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds
+generation-check: api-docs
+	git diff --exit-code -- api/v1alpha1/zz_generated.deepcopy.go config/crd/bases charts/arprt-crds/files/crds notes/API_REFERENCE.md
+	git ls-files --error-unmatch notes/API_REFERENCE.md
 
 dependency-check:
 	$(GO) mod tidy -diff
