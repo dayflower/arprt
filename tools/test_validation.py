@@ -71,6 +71,10 @@ class ChangeSelectionTests(RepositoryTest):
         self.write("new-unknown-file", "anything")
         self.assertTrue(ci.software_required(self.base, self.commit()))
 
+    def test_generated_reference_changes_run_software(self):
+        self.write("notes/API_REFERENCE.md", "# API reference\n\nEdited prose.\n")
+        self.assertTrue(ci.software_required(self.base, self.commit()))
+
     def test_example_body_changes_run_software(self):
         self.write(
             "README.md",

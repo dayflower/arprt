@@ -10,7 +10,9 @@ rendering, validated persistent artifacts and authenticated BYOS delivery.
 
 ## Public API and boundaries
 
-The namespaced API is `arprt.dayflower.github.io/v1alpha1`:
+See the [API overview](API.md) and [generated field reference](API_REFERENCE.md)
+for configuration and recorded state. The namespaced API is
+`arprt.dayflower.github.io/v1alpha1`:
 
 - `ArprtScreen` defines exactly one HTTP or Job source, applicable freshness and
   optional display overlay intent.

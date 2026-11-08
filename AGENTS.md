@@ -7,6 +7,9 @@ preserve the contracts below.
 
 ## Read according to the change
 
+- Public resource configuration and recorded state: [notes/API.md](notes/API.md)
+  and [notes/API_REFERENCE.md](notes/API_REFERENCE.md).
+
 - Build, package ownership, generation and testing: [notes/DEVELOP.md](notes/DEVELOP.md).
 - Rendering, assignment, authentication, publication, recovery or GC:
   [notes/DESIGN.md](notes/DESIGN.md).

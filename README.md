@@ -247,6 +247,12 @@ operator-managed. Keep real hostnames, registry addresses, MACs and keys in priv
 configuration. See [operational security](notes/OPERATIONS.md#network-and-namespace-trust)
 and [dated acceptance evidence](notes/DEVELOP.md#recorded-acceptance-baseline).
 
+## Custom resources
+
+See the [API overview](notes/API.md) for the three resource kinds, their
+relationships and a minimal example, and the [API reference](notes/API_REFERENCE.md)
+for generated field descriptions, defaults and constraints.
+
 ## Hardware identity
 
 Use a direct `hardwareID`, a same-namespace `hardwareIDSecretRef`, or omit both

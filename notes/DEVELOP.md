@@ -25,7 +25,8 @@ other branches and tags do not trigger this workflow; version
 tags run the separate [distribution release workflow](../.github/workflows/release-image.yaml).
 The lightweight change/documentation job always runs. Changes limited to prose
 in README, AGENTS or Markdown under `notes/` skip Go, envtest, Docker and cluster
-jobs. Changed fenced/indented examples, other paths and unavailable history run the full
+jobs, except changes to the generated `notes/API_REFERENCE.md`, which always run
+software checks. Changed fenced/indented examples, other paths and unavailable history run the full
 software matrix. The existing `contracts` check remains active and propagates
 documentation/check-selection failures, including on prose-only changes.
 Controller Docker builds run in the native `cluster` and `helm_prepare` jobs; `contracts`
@@ -45,14 +46,14 @@ with the temporary `gray4_native4` build tag. Run `make test-default` or
 `make test-gray4-native4` to select one race suite. CI runs these targets on
 separate runners rather than concurrently on one runner.
 
-`make verify` regenerates deepcopy/CRDs and chart copies, checks their diff and
+`make verify` regenerates deepcopy/CRDs, chart copies and the API reference, checks their diff and
 module tidiness, checks release guards/digest wiring and both charts (including
 dependencies, templates and packages), then runs Go/Python lint and formatting
 checks, all race tests and the controller build. It does not run API integration
 or cluster tests. `make verify-checks` runs the same checks except race tests;
 `make generation-check` and `make dependency-check` select generated-file and
 module-tidiness checks individually. For API changes, edit types/validation
-markers in [types.go](../api/v1alpha1/types.go), then run `make manifests` and
+markers in [types.go](../api/v1alpha1/types.go), then run `make api-docs` and
 include both the types and generated files in the change. `make generate` only
 regenerates deepcopy code.
 
@@ -94,6 +95,36 @@ regression suites and adds all five profiles through GET, POST and real PVC-back
 Jobs. Integrated resource and physical acceptance have separate evidence
 requirements below. Context v1 profile fixtures are under
 [testdata/render-context](../testdata/render-context/README.md).
+
+### API documentation
+
+[API.md](API.md) owns the short resource overview and examples.
+[API_REFERENCE.md](API_REFERENCE.md) is generated from the canonical CRD schemas
+by [tools/api-docs](../tools/api-docs/main.go). Edit API descriptions in
+[types.go](../api/v1alpha1/types.go), including omission behavior and internal
+defaults that are not represented by admission defaults. Do not edit the generated
+reference or CRD descriptions directly.
+
+```sh
+make api-docs          # Regenerate deepcopy, CRDs, chart copies and API reference
+make api-docs-check    # Read-only comparison with the current canonical schemas
+```
+
+The reference expands ARPRT objects and summarizes enum values, bounds and CEL
+messages. It omits exact regular expressions and unsupported Job volume/mount
+fields, and stops at standard Kubernetes environment, resources and Condition
+structures. Presentation boundaries live in the generator; field explanations,
+defaults and validation remain in types/markers. Update those boundaries when
+adding support for more standard fields.
+
+`make generation-check` regenerates the reference and checks it against the Git
+index with the other generated outputs. Stage reviewed generated changes before
+running this check, as with CRDs. Reference-only changes always select software
+CI so hand edits cannot bypass generation checks. Review the document for readable
+tables and valid links as well as checking reproducibility. Type-comment changes
+also alter canonical CRD descriptions and chart copies; review those generated
+differences together. The usual CRD release compatibility and versioning rules
+still apply when packaging a release.
 
 ### CI cache ownership
 

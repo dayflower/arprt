@@ -23,6 +23,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: ArprtDevice represents one physical device, its assignment and
+          observed state.
         properties:
           apiVersion:
             description: |-
@@ -42,12 +44,15 @@ spec:
           metadata:
             type: object
           spec:
+            description: ArprtDeviceSpec declares authentication, assignment and desired
+              display overrides.
             properties:
               authSecretRef:
-                description: LocalReference always refers to a resource in the object's
-                  namespace.
+                description: AuthSecretRef names the same-namespace Secret holding
+                  the device API key.
                 properties:
                   name:
+                    description: Name identifies an object in this resource namespace.
                     maxLength: 253
                     minLength: 1
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
@@ -56,9 +61,8 @@ spec:
                 - name
                 type: object
               display:
-                description: |-
-                  DisplayOverride supplies optional operator-provided output capabilities.
-                  Dimensions are a complete pair and bounded before any image allocation.
+                description: Display overrides individual resolved capabilities; omitted
+                  fields use observations or model profiles.
                 properties:
                   height:
                     format: int32
@@ -118,6 +122,7 @@ spec:
                   cycle.
                 properties:
                   name:
+                    description: Name identifies an object in this resource namespace.
                     maxLength: 253
                     minLength: 1
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
@@ -138,10 +143,12 @@ spec:
                 format: int32
                 type: integer
               screenRef:
-                description: LocalReference always refers to a resource in the object's
-                  namespace.
+                description: |-
+                  ScreenRef selects one same-namespace Screen, exclusively with playlistRef.
+                  Omitting both references enables name-sorted Screen discovery in this namespace.
                 properties:
                   name:
+                    description: Name identifies an object in this resource namespace.
                     maxLength: 253
                     minLength: 1
                     pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
@@ -167,8 +174,11 @@ spec:
                 && (!has(self.hardwareIDSecretRef) || self.hardwareIDSecretRef ==
                 oldSelf.hardwareIDSecretRef)
           status:
+            description: ArprtDeviceStatus records controller observations and durable
+              display-cycle progress.
             properties:
               battery:
+                description: Battery contains the latest retained battery observations.
                 properties:
                   percent:
                     description: Percent is present only when measured, never inferred
@@ -181,6 +191,7 @@ spec:
                     type: number
                 type: object
               conditions:
+                description: Conditions reports readiness and reconciliation failures.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -240,10 +251,14 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               device:
+                description: Device contains reported hardware information, distinct
+                  from resolved display capabilities.
                 properties:
                   firmwareVersion:
+                    description: FirmwareVersion retains the reported firmware version.
                     type: string
                   model:
+                    description: Model retains the reported model identifier.
                     type: string
                   reportedDisplay:
                     description: |-
@@ -261,6 +276,8 @@ spec:
                     type: object
                 type: object
               display:
+                description: Display contains resolved capabilities, independently
+                  of desired content rotation.
                 properties:
                   height:
                     format: int32
@@ -281,6 +298,8 @@ spec:
                     minimum: 1
                     type: integer
                   sources:
+                    description: DisplaySources records where each effective capability
+                      was resolved.
                     properties:
                       dimensions:
                         enum:
@@ -319,23 +338,32 @@ spec:
                 pattern: ^([0-9A-F]{2}:){5}[0-9A-F]{2}$
                 type: string
               lastSeenAt:
+                description: LastSeenAt records authenticated display activity; timestamp
+                  writes are throttled.
                 format: date-time
                 type: string
               network:
+                description: Network contains the latest retained Wi-Fi observations.
                 properties:
                   rssi:
+                    description: RSSI is the reported Wi-Fi received signal strength
+                      in dBm.
                     format: int32
                     type: integer
                 type: object
               observedGeneration:
+                description: ObservedGeneration is the metadata generation evaluated
+                  by the controller.
                 format: int64
                 minimum: 0
                 type: integer
               screenCycle:
-                description: ScreenCycleStatus persists the last successful screen-cycle
-                  display response.
+                description: ScreenCycle records the last successful Playlist/discovery
+                  turn for replay and advancement.
                 properties:
                   assignment:
+                    description: Assignment fingerprints the current assignment membership
+                      and order.
                     type: string
                   compatibilityFingerprint:
                     description: |-
@@ -351,20 +379,28 @@ spec:
                     minimum: 0
                     type: integer
                   filename:
+                    description: Filename is the filename returned in the successful
+                      display response.
                     type: string
                   imageDigest:
+                    description: ImageDigest identifies the immutable image bytes.
                     type: string
                   inputRevision:
+                    description: InputRevision identifies the rendering definition
+                      used for this turn.
                     type: string
                   screenUID:
+                    description: ScreenUID identifies the exact Screen object served
+                      in this turn.
                     type: string
                   servedAt:
+                    description: ServedAt starts the replay window; replay does not
+                      extend it.
                     format: date-time
                     type: string
                   target:
-                    description: |-
-                      CycleTargetStatus preserves the compact persisted turn shape, independently
-                      of effective display provenance and output compatibility fingerprints.
+                    description: Target records the physical dimensions and palette
+                      of the served image.
                     properties:
                       height:
                         format: int32
