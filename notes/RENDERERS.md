@@ -69,11 +69,10 @@ GET image, set the Screen's `spec.overlay.enabled: true`. Select items with
 draws nothing. Use `cycleCorners: true` to share the device UID's durable clockwise
 corner cycle across Screens; omit `position` in that mode. Fixed mode defaults
 to top-right. An optional positive `scale` overrides automatic integer scaling.
-Use nonnegative `margin.top`, `.bottom`, `.left` and `.right` (each default 0) to
-independently inset the padded content row from each logical viewing edge. Top-right uses
-`top` and `right`; bottom-left uses `bottom` and `left`, with the same rule for
-the other corners. The content row has fixed 2px white padding on every side, scaled with the
-bitmaps. The white background reaches those two edges.
+Overlay placement uses the Device's `spec.display.safeAreaInsets`. The padded
+content row fits inside that logical rectangle; the white background reaches the
+adjoining screen edges. The fixed 2px content padding scales with the bitmaps,
+but safe-area insets are actual pixels and do not scale.
 The timestamp displays `↻ YYYY-MM-DD HH:mm` for image generation time. Home Video
 text cells are 12×18; the arrow and other icons use 18×18 cells matching the font
 height. Charging replaces the level icon only when current charging is known
@@ -87,6 +86,28 @@ displays voltage/RSSI as content; choose the controller timestamp alone for that
 example if you want only a render-time annotation. Job content uses its immutable
 snapshot while the overlay uses current display telemetry. Renderer rotation
 still owns the base; controller drawing rotates only its own bitmap coordinates.
+
+## Device safe area
+
+Set `ArprtDevice.spec.display.safeAreaInsets` to describe edges hidden by a bezel:
+
+```yaml
+spec:
+  display:
+    safeAreaInsets:
+      top: 4
+      bottom: 8
+      left: 12
+      right: 16
+```
+
+Renderers receive these logical viewing pixels through
+`renderTarget.safeAreaInsets` in POST/Job Context and the HTTP query parameters
+`safeAreaTop`, `safeAreaBottom`, `safeAreaLeft`, `safeAreaRight`. All query values
+are sent, including zero; omitted JSON edges mean zero. Keep important chart
+content inside the resulting rectangle, or deliberately use the full canvas
+for photos and backgrounds. The renderer still outputs a full-size PNG and
+applies rotation itself. See the [safe-area contract](PROTOCOL.md#safe-area).
 
 ## Device rotation
 
@@ -153,12 +174,12 @@ every ten pixels. Direction/corner labels and one-/two-pixel checkerboards help
 identify rotation and unintended scaling. White label backgrounds locally
 interrupt frame lines beside the rulers.
 
-The initial four Screen margins are zero; the controller still adds its fixed
-two-pixel padding around the content row. Change `spec.overlay.margin.top`,
-`.bottom`, `.left` and `.right` while measuring. These are unscaled bitmap
-pixels; choose `scale: 1` when comparing a nondefault overlay scale with the
-single-pixel ruler. The static base may be cached for 24 hours; overlay changes
-and corner selection remain controller-owned.
+The initial Device safe-area insets are zero; the controller still adds its
+fixed two-pixel padding around the content row. Adjust the Device's
+`spec.display.safeAreaInsets.top`, `.bottom`, `.left` and `.right` while measuring.
+These are logical viewing pixels independent of overlay scale. The renderer
+marks a nonzero safe-area boundary with a dashed line. Changing the insets
+selects a new base render even with the 24-hour refresh interval.
 
 Generate a local preview without a server:
 

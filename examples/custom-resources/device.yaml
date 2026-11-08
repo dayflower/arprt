@@ -3,6 +3,13 @@ kind: ArprtDevice
 metadata:
   name: living-room
 spec:
+  display:
+    # Logical viewing pixels; renderers may keep backgrounds full bleed.
+    safeAreaInsets:
+      top: 0
+      bottom: 0
+      left: 0
+      right: 0
   # Clockwise content rotation; omitted means 0. Renderer output stays 800x480.
   rotation: 0
   authSecretRef:

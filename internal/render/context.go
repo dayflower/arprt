@@ -11,10 +11,19 @@ import (
 	"github.com/dayflower/arprt/internal/imageprocessing"
 )
 
+// Insets are unscaled logical viewing pixels, independent of bitmap scale.
+type Insets struct {
+	Top    int32 `json:"top,omitempty"`
+	Bottom int32 `json:"bottom,omitempty"`
+	Left   int32 `json:"left,omitempty"`
+	Right  int32 `json:"right,omitempty"`
+}
+
 type Target struct {
-	Width   int32  `json:"width"`
-	Height  int32  `json:"height"`
-	Palette string `json:"palette"`
+	SafeAreaInsets Insets `json:"safeAreaInsets,omitzero"`
+	Width          int32  `json:"width"`
+	Height         int32  `json:"height"`
+	Palette        string `json:"palette"`
 	// Rotation is clockwise content rotation; zero is omitted for compatibility
 	// with existing v1 contexts and persisted artifact keys.
 	Rotation int32 `json:"rotation,omitempty"`
@@ -29,12 +38,27 @@ func (t Target) Validate() error {
 	default:
 		return errors.New("render target rotation must be 0, 90, 180 or 270")
 	}
+	w, h := t.LogicalSize()
+	i := t.SafeAreaInsets
+	if i.Top < 0 || i.Bottom < 0 || i.Left < 0 || i.Right < 0 ||
+		i.Top > 4095 || i.Bottom > 4095 || i.Left > 4095 || i.Right > 4095 ||
+		int64(i.Left)+int64(i.Right) >= int64(w) || int64(i.Top)+int64(i.Bottom) >= int64(h) {
+		return errors.New("safe area must have nonnegative insets and positive dimensions")
+	}
 	switch t.Palette {
 	case "bw", "gray4", "gray16", "bwry", "spectra6":
 		return nil
 	default:
 		return errors.New("unknown semantic palette")
 	}
+}
+
+// LogicalSize returns the upright canvas dimensions before clockwise rotation.
+func (t Target) LogicalSize() (int32, int32) {
+	if t.Rotation == 90 || t.Rotation == 270 {
+		return t.Height, t.Width
+	}
+	return t.Width, t.Height
 }
 
 type Context struct {

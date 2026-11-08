@@ -243,7 +243,7 @@ func TestNewCornerSurvivesOlderDeviceSnapshot(t *testing.T) {
 	}
 }
 
-func TestDerivedMarginAndChargingIdentity(t *testing.T) {
+func TestDerivedSafeAreaAndChargingIdentity(t *testing.T) {
 	repo, base, d, _ := derivedFixture(t)
 	b, err := repo.Read(context.Background(), base.ImageDigest)
 	if err != nil {
@@ -252,8 +252,8 @@ func TestDerivedMarginAndChargingIdentity(t *testing.T) {
 	d.Timestamp = ""
 	d.Battery = new(int)
 	var previous Metadata
-	for _, margin := range []overlay.Margins{{}, {Left: 4, Right: 4}, {Top: 4, Bottom: 4}, {Left: 8, Right: 8, Top: 4, Bottom: 4}} {
-		d.Margin = margin
+	for _, margin := range []render.Insets{{}, {Left: 4, Right: 4}, {Top: 4, Bottom: 4}, {Left: 8, Right: 8, Top: 4, Bottom: 4}} {
+		base.Unit.Target.SafeAreaInsets = margin
 		png, err := overlay.Compose(context.Background(), b, base.Unit.Target, d)
 		if err != nil {
 			t.Fatal(err)
@@ -264,11 +264,11 @@ func TestDerivedMarginAndChargingIdentity(t *testing.T) {
 		}
 		release()
 		if current.ImageDigest == previous.ImageDigest {
-			t.Fatal("margin reused another drawing")
+			t.Fatal("safe area reused another drawing")
 		}
 		cached, release, err := repo.FindDerived(context.Background(), base, d)
 		if err != nil || cached != current {
-			t.Fatal("margin cache miss", err)
+			t.Fatal("safe area cache miss", err)
 		}
 		release()
 		previous = current

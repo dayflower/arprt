@@ -265,23 +265,6 @@ type ImageProcessing struct {
 // +kubebuilder:validation:Enum=timestamp;battery;wifi
 type OverlayItem string
 
-// OverlayMargin independently insets the padded content row from each logical viewing edge.
-// Values are unscaled bitmap pixels; omitted components mean zero.
-type OverlayMargin struct {
-	// Top is the inset when a top corner is selected.
-	// +kubebuilder:validation:Minimum=0
-	Top int32 `json:"top,omitempty"`
-	// Bottom is the inset when a bottom corner is selected.
-	// +kubebuilder:validation:Minimum=0
-	Bottom int32 `json:"bottom,omitempty"`
-	// Left is the inset when a left corner is selected.
-	// +kubebuilder:validation:Minimum=0
-	Left int32 `json:"left,omitempty"`
-	// Right is the inset when a right corner is selected.
-	// +kubebuilder:validation:Minimum=0
-	Right int32 `json:"right,omitempty"`
-}
-
 // ScreenOverlay describes display intent, independently of renderer execution.
 // +kubebuilder:validation:XValidation:rule="!self.cycleCorners || !has(self.position)",message="position must be omitted when cycleCorners is true"
 type ScreenOverlay struct {
@@ -302,9 +285,6 @@ type ScreenOverlay struct {
 	// Scale omitted selects automatic scaling using physical dimensions.
 	// +kubebuilder:validation:Minimum=1
 	Scale *int32 `json:"scale,omitempty"`
-	// Margin insets the padded content row from the two edges adjoining the selected corner.
-	// The opaque background extends through each inset to the display edges.
-	Margin *OverlayMargin `json:"margin,omitempty"`
 }
 
 // ArprtScreenStatus reports reconciliation readiness for a Screen or Playlist.
@@ -410,11 +390,34 @@ type HardwareIDSecretReference struct {
 	Key string `json:"key"`
 }
 
+// SafeAreaInsets describes the recommended content area in logical viewing pixels.
+// Insets do not scale with overlay bitmaps; omitted edges mean zero.
+type SafeAreaInsets struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4095
+	Top int32 `json:"top,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4095
+	Bottom int32 `json:"bottom,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4095
+	Left int32 `json:"left,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=4095
+	Right int32 `json:"right,omitempty"`
+}
+
 // DisplayOverride supplies optional operator-provided output capabilities.
 // Dimensions are a complete pair and bounded before any image allocation.
 // +kubebuilder:validation:XValidation:rule="has(self.width) == has(self.height)",message="width and height must be specified together"
 // +kubebuilder:validation:XValidation:rule="!has(self.width) || !has(self.height) || self.width * self.height <= 4194304",message="display exceeds the output pixel limit"
 type DisplayOverride struct {
+	// SafeAreaInsets recommends where renderers place important content and anchors
+	// controller overlays. Edges follow the logical viewing orientation after rotation.
+	// Insets are actual pixels independent of overlay scale; omitted edges mean zero.
+	// Renderers may ignore the recommendation. PNG dimensions remain unchanged.
+	// The resolved logical canvas must retain a positive width and height.
+	SafeAreaInsets *SafeAreaInsets `json:"safeAreaInsets,omitempty"`
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=4096
 	Width *int32 `json:"width,omitempty"`

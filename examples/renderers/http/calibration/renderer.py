@@ -63,7 +63,9 @@ def chunk(kind, body):
 
 
 @lru_cache(maxsize=16, typed=True)
-def png(width, height, rotation=0):
+def png(
+    width, height, rotation=0, safe_top=0, safe_bottom=0, safe_left=0, safe_right=0
+):
     if (
         type(width) is not int
         or type(height) is not int
@@ -77,6 +79,15 @@ def png(width, height, rotation=0):
             "Expected 400..4096 pixel dimensions, at most 4194304 pixels, and a quarter-turn rotation"
         )
     lw, lh = (height, width) if rotation in (90, 270) else (width, height)
+    insets = (safe_top, safe_bottom, safe_left, safe_right)
+    if (
+        any(type(value) is not int or value < 0 for value in insets)
+        or safe_left + safe_right >= lw
+        or safe_top + safe_bottom >= lh
+    ):
+        raise ValueError(
+            "Safe area must have nonnegative insets and positive dimensions"
+        )
     pixels = [bytearray(b"\xff") * width for _ in range(height)]
 
     def put(x, y, value=0):
@@ -178,6 +189,18 @@ def png(width, height, rotation=0):
         text(value, (lw - (4 * len(value) - 1) * scale) // 2, y, scale)
         y += 22 if scale == 3 else 16
 
+    # A dashed boundary distinguishes the recommended safe area from the rulers.
+    if any(insets):
+        left, right = safe_left, lw - 1 - safe_right
+        top, bottom = safe_top, lh - 1 - safe_bottom
+        for x in range(left, right + 1):
+            if (x - left) % 6 < 3:
+                put(x, top)
+                put(x, bottom)
+        for y in range(top, bottom + 1):
+            if (y - top) % 6 < 3:
+                put(left, y)
+                put(right, y)
     # Exact target dimensions and pure black/white samples let controller
     # normalization preserve every ruler pixel without resizing or dithering.
     rows = b"".join(b"\0" + row for row in pixels)
@@ -209,8 +232,17 @@ class Renderer(BaseHTTPRequestHandler):
                 rotation = query.get("rotation", ["0"])
                 if len(rotation) != 1:
                     raise ValueError("Repeated rotation")
+                insets = []
+                for edge in ("Top", "Bottom", "Left", "Right"):
+                    values = query.get("safeArea" + edge, ["0"])
+                    if len(values) != 1:
+                        raise ValueError("Repeated safe area inset")
+                    insets.append(int(values[0]))
                 body = png(
-                    int(query["width"][0]), int(query["height"][0]), int(rotation[0])
+                    int(query["width"][0]),
+                    int(query["height"][0]),
+                    int(rotation[0]),
+                    *insets,
                 )
             except ValueError:
                 self.send_error(400, "Invalid calibration target")
@@ -236,8 +268,20 @@ if __name__ == "__main__":
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0)
+    for edge in ("top", "bottom", "left", "right"):
+        parser.add_argument("--safe-area-" + edge, type=int, default=0)
     args = parser.parse_args()
     if args.output:
-        args.output.write_bytes(png(args.width, args.height, args.rotation))
+        args.output.write_bytes(
+            png(
+                args.width,
+                args.height,
+                args.rotation,
+                args.safe_area_top,
+                args.safe_area_bottom,
+                args.safe_area_left,
+                args.safe_area_right,
+            )
+        )
     else:
         ThreadingHTTPServer(("0.0.0.0", args.port), Renderer).serve_forever()

@@ -314,6 +314,22 @@ def main():
             with forwarded(namespace, 8080, directory) as base:
                 original_bytes = fetch(base, image_route)
                 patch(
+                    "arprtdevice",
+                    "living-room",
+                    {
+                        "spec": {
+                            "display": {
+                                "safeAreaInsets": {
+                                    "top": 4,
+                                    "bottom": 4,
+                                    "left": 12,
+                                    "right": 12,
+                                },
+                            }
+                        }
+                    },
+                )
+                patch(
                     "arprtscreen",
                     "photo",
                     {
@@ -321,12 +337,6 @@ def main():
                             "overlay": {
                                 "enabled": True,
                                 "items": ["battery", "wifi"],
-                                "margin": {
-                                    "top": 4,
-                                    "bottom": 4,
-                                    "left": 12,
-                                    "right": 12,
-                                },
                             }
                         }
                     },
@@ -339,12 +349,19 @@ def main():
                     composite_bytes,
                     width=40,
                     height=18,
-                    margin_top=4,
-                    margin_bottom=4,
-                    margin_left=12,
-                    margin_right=12,
+                    safe_top=4,
+                    safe_bottom=4,
+                    safe_left=12,
+                    safe_right=12,
                 )
-                # Definition edit may refresh the base, but the pointer must still identify renderer bytes.
+                # Safe area selects a different base unit; composites must not replace it.
+                unit["target"] = {
+                    "safeAreaInsets": {"top": 4, "bottom": 4, "left": 12, "right": 12},
+                    **unit["target"],
+                }
+                key = hashlib.sha256(
+                    json.dumps(unit, separators=(",", ":")).encode()
+                ).hexdigest()
                 current_base = json.loads(inspect("cat /data/latest/" + key + ".json"))
                 assert current_base["imageDigest"] == base_record["imageDigest"]
                 assert (

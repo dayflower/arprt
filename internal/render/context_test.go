@@ -165,3 +165,29 @@ func TestProfileContextFixtures(t *testing.T) {
 		}
 	}
 }
+
+func TestSafeAreaContextFixture(t *testing.T) {
+	target := Target{Width: 800, Height: 480, Palette: "gray4", Rotation: 90, SafeAreaInsets: Insets{Top: 4, Bottom: 8, Left: 12, Right: 16}}
+	got, err := Build("living-room", target, Observation{Model: "og", FirmwareVersion: "1.8.17"}, Observation{Voltage: ptr(3.91), RSSI: ptr(int32(-48))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("../../testdata/render-context/render-context-safe-area.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b any
+	if err := json.Unmarshal(encoded, &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(fixture, &b); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("safe area Context differs from fixture: %s", encoded)
+	}
+}

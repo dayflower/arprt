@@ -16,7 +16,7 @@ import (
 
 const (
 	LegacyAppearanceVersion = "bitmap-v2-gray2-v1"
-	AppearanceVersion       = "bitmap-v2-" + imageprocessing.EncoderVersion + "-" + imageprocessing.PaletteVersion
+	AppearanceVersion       = "bitmap-v3-safe-area-" + imageprocessing.EncoderVersion + "-" + imageprocessing.PaletteVersion
 	contentPadding          = 2
 )
 
@@ -45,35 +45,9 @@ func (c Corner) Next() Corner {
 	}
 }
 
-// Margins are unscaled pixels in the logical viewing orientation.
-type Margins struct {
-	Top    int `json:"top,omitempty"`
-	Bottom int `json:"bottom,omitempty"`
-	Left   int `json:"left,omitempty"`
-	Right  int `json:"right,omitempty"`
-}
-
-func (m Margins) valid() bool { return m.Top >= 0 && m.Bottom >= 0 && m.Left >= 0 && m.Right >= 0 }
-
-// forCorner keeps only the two visible insets in the drawing identity.
-func (m Margins) forCorner(c Corner) Margins {
-	if c == TopRight || c == BottomRight {
-		m.Left = 0
-	} else {
-		m.Right = 0
-	}
-	if c == BottomRight || c == BottomLeft {
-		m.Top = 0
-	} else {
-		m.Bottom = 0
-	}
-	return m
-}
-
 type Settings struct {
-	Items  []string
-	Scale  int32
-	Margin Margins
+	Items []string
+	Scale int32
 }
 type Telemetry struct {
 	Percent, Voltage *float64
@@ -84,14 +58,13 @@ type Telemetry struct {
 // Drawing contains only visible inputs. Raw observations and hidden items never
 // enter cache keys. Render timestamp provenance is recorded separately.
 type Drawing struct {
-	Version   string  `json:"version"`
-	Timestamp string  `json:"timestamp,omitempty"`
-	Battery   *int    `json:"battery,omitempty"`
-	Charging  bool    `json:"charging,omitempty"`
-	WiFi      *int    `json:"wifi,omitempty"`
-	Corner    Corner  `json:"corner"`
-	Scale     int     `json:"scale"`
-	Margin    Margins `json:"margin"`
+	Version   string `json:"version"`
+	Timestamp string `json:"timestamp,omitempty"`
+	Battery   *int   `json:"battery,omitempty"`
+	Charging  bool   `json:"charging,omitempty"`
+	WiFi      *int   `json:"wifi,omitempty"`
+	Corner    Corner `json:"corner"`
+	Scale     int    `json:"scale"`
 }
 
 func valid(v *float64) bool { return v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 }
@@ -142,10 +115,10 @@ func AutoScale(width, height int32) int { return max(1, int(min(width, height)/4
 
 // Normalize retains the legacy drawing identity until runtime integration.
 func Normalize(t render.Target, s Settings, renderedAt time.Time, location *time.Location, telemetry Telemetry, corner Corner) (Drawing, error) {
-	if t.Validate() != nil || !corner.Valid() || location == nil || renderedAt.IsZero() || s.Scale < 0 || !s.Margin.valid() {
+	if t.Validate() != nil || !corner.Valid() || location == nil || renderedAt.IsZero() || s.Scale < 0 {
 		return Drawing{}, errors.New("invalid overlay inputs")
 	}
-	d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: AutoScale(t.Width, t.Height), Margin: s.Margin.forCorner(corner)}
+	d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: AutoScale(t.Width, t.Height)}
 	if s.Scale != 0 {
 		d.Scale = int(s.Scale)
 	}
@@ -192,10 +165,10 @@ func (d Drawing) Bounds(t render.Target) (x, y, width, height int, err error) {
 	return background.Min.X, background.Min.Y, background.Dx(), background.Dy(), err
 }
 
-// The content row has padding on all sides. Margin insets the padded row from
-// the selected corner edges, and the background bleeds through it to those edges.
+// The padded content row fits inside the safe area. Its background bleeds
+// through the adjoining insets to the physical corner edges.
 func (d Drawing) layout(t render.Target) (foreground, background image.Rectangle, err error) {
-	if t.Validate() != nil || !d.Corner.Valid() || d.Scale < 1 || !d.Margin.valid() || (d.Charging && d.Battery != nil) ||
+	if t.Validate() != nil || !d.Corner.Valid() || d.Scale < 1 || (d.Charging && d.Battery != nil) ||
 		(d.Timestamp != "" && len(d.Timestamp) != 16) || (d.Battery != nil && (*d.Battery < 0 || *d.Battery > 2)) || (d.WiFi != nil && (*d.WiFi < 0 || *d.WiFi > 4)) {
 		return foreground, background, errors.New("invalid drawing")
 	}
@@ -226,22 +199,20 @@ func (d Drawing) layout(t render.Target) (foreground, background image.Rectangle
 		return foreground, background, nil
 	}
 	width += (items - 1) * 4
-	// Subtract before adding or scaling to avoid overflow, even with MaxInt
-	// margin/scale on 32-bit platforms. Only fitting values are multiplied.
-	margin := d.Margin.forCorner(d.Corner)
-	mx, my := margin.Left+margin.Right, margin.Top+margin.Bottom
-	if width+2*contentPadding > lw/d.Scale-mx || height+2*contentPadding > lh/d.Scale-my {
-		return foreground, background, errors.New("overlay does not fit")
+	// Divide before multiplying to reject oversized scales without overflow.
+	i := t.SafeAreaInsets
+	sw, sh := lw-int(i.Left)-int(i.Right), lh-int(i.Top)-int(i.Bottom)
+	if width+2*contentPadding > sw/d.Scale || height+2*contentPadding > sh/d.Scale {
+		return foreground, background, errors.New("overlay does not fit safe area")
 	}
 	width, height = width*d.Scale, height*d.Scale
-	mx, my = mx*d.Scale, my*d.Scale
 	padding := contentPadding * d.Scale
-	x, y := mx+padding, my+padding
+	x, y := int(i.Left)+padding, int(i.Top)+padding
 	if d.Corner == TopRight || d.Corner == BottomRight {
-		x = lw - mx - padding - width
+		x = lw - int(i.Right) - padding - width
 	}
 	if d.Corner == BottomRight || d.Corner == BottomLeft {
-		y = lh - my - padding - height
+		y = lh - int(i.Bottom) - padding - height
 	}
 	foreground = image.Rect(x, y, x+width, y+height)
 	background = foreground.Inset(-padding)

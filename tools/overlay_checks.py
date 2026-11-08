@@ -40,10 +40,10 @@ def origin(
     width,
     rotation=0,
     height=18,
-    margin_top=0,
-    margin_bottom=0,
-    margin_left=0,
-    margin_right=0,
+    safe_top=0,
+    safe_bottom=0,
+    safe_left=0,
+    safe_right=0,
     scale=1,
     image_width=800,
     image_height=480,
@@ -53,15 +53,15 @@ def origin(
         if rotation in (90, 270)
         else (image_width, image_height)
     )
-    margin_horizontal = margin_right if corner.endswith("right") else margin_left
-    margin_vertical = margin_bottom if corner.startswith("bottom") else margin_top
+    safe_horizontal = safe_right if corner.endswith("right") else safe_left
+    safe_vertical = safe_bottom if corner.startswith("bottom") else safe_top
     return (
-        logical_width - (width + margin_horizontal + 2) * scale
+        logical_width - (width + 2) * scale - safe_horizontal
         if corner.endswith("right")
-        else (margin_horizontal + 2) * scale,
-        logical_height - (height + margin_vertical + 2) * scale
+        else safe_horizontal + 2 * scale,
+        logical_height - (height + 2) * scale - safe_vertical
         if corner.startswith("bottom")
-        else (margin_vertical + 2) * scale,
+        else safe_vertical + 2 * scale,
     )
 
 
@@ -72,10 +72,10 @@ def assert_overlay(
     width=258,
     rotation=0,
     height=18,
-    margin_top=0,
-    margin_bottom=0,
-    margin_left=0,
-    margin_right=0,
+    safe_top=0,
+    safe_bottom=0,
+    safe_left=0,
+    safe_right=0,
     scale=1,
     image_width=800,
     image_height=480,
@@ -94,30 +94,30 @@ def assert_overlay(
         width,
         rotation,
         height,
-        margin_top,
-        margin_bottom,
-        margin_left,
-        margin_right,
+        safe_top,
+        safe_bottom,
+        safe_left,
+        safe_right,
         scale,
         image_width,
         image_height,
     )
-    margin_horizontal = margin_right if corner.endswith("right") else margin_left
-    margin_vertical = margin_bottom if corner.startswith("bottom") else margin_top
+    safe_horizontal = safe_right if corner.endswith("right") else safe_left
+    safe_vertical = safe_bottom if corner.startswith("bottom") else safe_top
     x = fx - 2 * scale if corner.endswith("right") else 0
     y = fy - 2 * scale if corner.startswith("bottom") else 0
     region = {
         py * image_width + px
-        for ly in range(y, y + (height + margin_vertical + 4) * scale)
-        for lx in range(x, x + (width + margin_horizontal + 4) * scale)
+        for ly in range(y, y + (height + 4) * scale + safe_vertical)
+        for lx in range(x, x + (width + 4) * scale + safe_horizontal)
         for px, py in [physical(lx, ly, rotation, image_width, image_height)]
     }
     for i, (old, new) in enumerate(zip(original, drawn)):
         assert new in (0, white) if i in region else new == old, (
             "overlay changed unexpected pixels"
         )
-    for ly in range(y, y + (height + margin_vertical + 4) * scale):
-        for lx in range(x, x + (width + margin_horizontal + 4) * scale):
+    for ly in range(y, y + (height + 4) * scale + safe_vertical):
+        for lx in range(x, x + (width + 4) * scale + safe_horizontal):
             if (
                 lx < fx
                 or lx >= fx + width * scale
@@ -126,7 +126,7 @@ def assert_overlay(
             ):
                 px, py = physical(lx, ly, rotation, image_width, image_height)
                 assert drawn[py * image_width + px] == white, (
-                    "foreground entered padding or the edge margin"
+                    "foreground entered padding or the edge inset"
                 )
     assert any(original[i] != drawn[i] for i in region), "overlay was not drawn"
     return drawn
@@ -154,10 +154,10 @@ def timestamp(
     corner="top-right",
     width=258,
     rotation=0,
-    margin_top=0,
-    margin_bottom=0,
-    margin_left=0,
-    margin_right=0,
+    safe_top=0,
+    safe_bottom=0,
+    safe_left=0,
+    safe_right=0,
     scale=1,
 ):
     glyphs = font_glyphs()
@@ -167,10 +167,10 @@ def timestamp(
         width,
         rotation,
         18,
-        margin_top,
-        margin_bottom,
-        margin_left,
-        margin_right,
+        safe_top,
+        safe_bottom,
+        safe_left,
+        safe_right,
         scale,
     )
     # The render-time marker occupies the first 18 pixels, followed by a

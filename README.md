@@ -329,20 +329,31 @@ spec:
     enabled: true
     items: [timestamp, battery, wifi]  # omitted means all; [] means none
     cycleCorners: true               # omit position when cycling
-    margin:                          # white extends to the corner edges
-      top: 4                         # logical edge insets in bitmap pixels
-      bottom: 8
-      left: 12
-      right: 16
 ```
 
 A complete Screen example is in [screen-overlay.yaml](examples/custom-resources/screen-overlay.yaml).
 Fixed mode defaults to top-right; `position` also accepts bottom-right,
 bottom-left and top-left. Optional positive `scale` overrides automatic integer
-scaling. Nonnegative `margin.top`, `.bottom`, `.left` and `.right` (each default 0)
-independently inset the padded content row from each logical viewing edge. Only the two
-edges adjoining the selected corner apply, scaling with the bitmaps; white
-extends to those edges. The content row has a fixed 2px white padding on all
+scaling. Placement uses `ArprtDevice.spec.display.safeAreaInsets`:
+
+```yaml
+spec:
+  display:
+    safeAreaInsets:
+      top: 4
+      bottom: 8
+      left: 12
+      right: 16
+```
+
+These are logical viewing pixels, independent of overlay scale. Omitted edges
+mean zero. The padded overlay row must fit inside the resulting rectangle;
+white background extends to the adjoining screen edges. Renderers also receive
+this recommendation and choose whether to keep their content inside it. Photos
+can fill the entire canvas while charts keep labels visible. See the
+[safe-area contract](notes/PROTOCOL.md#safe-area).
+
+The content row has a fixed 2px white padding on all
 four sides, scaled with the bitmaps. Timestamp displays `↻ YYYY-MM-DD HH:mm` for the image generation
 time, using the 12×18 Home Video bitmap font; icons use matching 18×18 cells.
 Wi-Fi strength appears as four rising vertical bars, with more bars filled for

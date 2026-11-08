@@ -518,7 +518,21 @@ def main():
                 "living-room",
                 "--type=merge",
                 "-p",
-                json.dumps({"spec": {"rotation": 90}}),
+                json.dumps(
+                    {
+                        "spec": {
+                            "rotation": 90,
+                            "display": {
+                                "safeAreaInsets": {
+                                    "top": 4,
+                                    "bottom": 4,
+                                    "left": 12,
+                                    "right": 12,
+                                }
+                            },
+                        }
+                    }
+                ),
             )
             wait(
                 lambda: (
@@ -543,6 +557,7 @@ def main():
                     "height": 480,
                     "palette": "gray4",
                     "rotation": 90,
+                    "safeAreaInsets": {"top": 4, "bottom": 4, "left": 12, "right": 12},
                 }:
                     raise RuntimeError("Job rotation or physical dimensions differ")
                 if display(base)["status"] != 0:
@@ -564,12 +579,6 @@ def main():
                             "overlay": {
                                 "enabled": True,
                                 "items": ["battery", "wifi"],
-                                "margin": {
-                                    "top": 4,
-                                    "bottom": 4,
-                                    "left": 12,
-                                    "right": 12,
-                                },
                             }
                         }
                     }
@@ -587,10 +596,10 @@ def main():
                     width=40,
                     height=18,
                     rotation=90,
-                    margin_top=4,
-                    margin_bottom=4,
-                    margin_left=12,
-                    margin_right=12,
+                    safe_top=4,
+                    safe_bottom=4,
+                    safe_left=12,
+                    safe_right=12,
                 )
             if (
                 latest() != original

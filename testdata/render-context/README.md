@@ -7,6 +7,7 @@ in [PROTOCOL](../../notes/PROTOCOL.md#render-context-v1).
 
 | Fixture | Purpose |
 | --- | --- |
+| [render-context-safe-area.json](render-context-safe-area.json) | Asymmetric logical viewing insets with rotation; renderers may selectively honor the recommendation |
 | [render-context-state-initial.json](render-context-state-initial.json) | Initial or cleared Job state: the extension is absent |
 | [render-context-state.json](render-context-state.json) | Job-only optional renderer state with an integer cursor larger than the exact floating-point range |
 | [render-context-v1.json](render-context-v1.json) | Complete Context corresponding to the [display request](../protocol/display-request.http), including `renderTarget.rotation: 90` |

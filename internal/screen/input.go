@@ -125,9 +125,6 @@ func EffectiveOverlay(in *api.ScreenOverlay) *api.ScreenOverlay {
 		}
 	}
 	out.Items = &items
-	if out.Margin != nil && *out.Margin == (api.OverlayMargin{}) {
-		out.Margin = nil
-	}
 	if out.CycleCorners {
 		out.Position = ""
 	} else if out.Position == "" {

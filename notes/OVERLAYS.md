@@ -24,7 +24,7 @@ introduced. Configuration uses `ArprtScreen.spec.overlay` and the controller opt
 | Position | `ArprtScreen` | Select top-right, bottom-right, bottom-left or top-left; default to fixed top-right. |
 | Corner cycling | `ArprtScreen` | Select a fixed corner or cycling through all four corners; fixed is the default. |
 | Scale | `ArprtScreen` | Select automatic scaling or an explicit positive integer; default to automatic. |
-| Margin | `ArprtScreen` | Nonnegative `margin.top`, `.bottom`, `.left` and `.right` in unscaled bitmap pixels independently inset the padded content row from each logical viewing edge; each defaults to 0. Only the two edges adjoining the selected corner apply, and the white background extends to those edges. |
+| Safe area | `ArprtDevice` | `spec.display.safeAreaInsets` anchors the padded row inside the recommended content area. Insets are logical viewing pixels independent of bitmap scale; omitted edges mean zero. |
 | Timestamp format | Fixed | `↻ YYYY-MM-DD HH:mm`, showing image generation time with a 24-hour clock and no seconds. |
 | Display time zone | Controller | An explicit IANA time-zone name, such as `Asia/Tokyo`; default to `UTC`. |
 
@@ -51,7 +51,7 @@ For a new, authenticated `/api/display` delivery:
 
 Identical base image and overlay inputs may reuse a composite. Inputs include
 the displayed timestamp, battery/RSSI levels, selected items, position, scale,
-the two active edge margins, charging-mark selection and appearance. Margins on the opposite edges do not enter the composite identity. Bytes determine
+the safe-area target, charging-mark selection and appearance. All four insets participate in target identity. Bytes determine
 image digests and firmware filenames under the existing protocol contract. Even when devices reuse identical bytes, each
 receiving device UID still needs its own issuance authorization.
 
@@ -184,7 +184,7 @@ Use bitmap assets for both icons and text. At scale 1:
 | Space between visible items | 4 pixels |
 | Foreground/background | Black on opaque white |
 | Padding | Fixed 2 pixels on all four sides of the content row, scaled with the bitmaps; preserve font cell whitespace |
-| Margin outside the padded content row | `spec.overlay.margin.top`, `.bottom`, `.left` and `.right`, each default 0; the two adjoining edge margins apply and contain white background |
+| Safe area outside the padded content row | Device `spec.display.safeAreaInsets`, each edge default 0; white background extends to the adjoining screen edges |
 
 Use the 13 timestamp glyphs from
 [home-video-font-bitmap](https://github.com/dayflower/home-video-font-bitmap)
@@ -204,12 +204,12 @@ this icon; its shape does not indicate a cellular connection.
 
 The content row has two white pixels of padding on every side, including after
 the rightmost Wi-Fi bar. Padding applies to every item selection and corner,
-independently of the Screen margin. Margin insets the padded row from the two
-edges adjoining the selected corner; white continues through that margin to the
-display edges. The other two margins do not affect layout or its fit check.
+inside the Device safe area. Anchor the padded row to the selected safe-area
+corner, with white continuing through the adjoining insets to the screen edges.
+All four insets constrain the padded row's fit; they are never multiplied by scale.
 
 At scale 1, all three items have 258×18 pixels of content in a 262×22 padded row.
-`margin: {top: 4, bottom: 8, left: 12, right: 16}` produces a 278×26 white
+Device `safeAreaInsets: {top: 4, bottom: 8, left: 12, right: 16}` produces a 278×26 white
 rectangle at top-right and a 274×30 rectangle at bottom-left. The timestamp
 alone, including its arrow, has 214×18 content in a 218×22 padded row. Battery
 and Wi-Fi together have 40×18 content in a 44×22 padded row. If no items are
@@ -217,10 +217,10 @@ visible, neither padding nor a white rectangle is drawn.
 
 Omit hidden items and their gaps. Covering the screen's underlying content is
 allowed; no renderer-reserved area or collision avoidance is required. Negative
-margins are rejected by the API; a layout exceeding the logical canvas uses
+insets are rejected by the API; a layout exceeding the safe area uses
 the existing validated-base fallback rather than clipping or shrinking.
 
-Scale text, icons, padding, the active edge margins and inter-item spacing by the same
+Scale text, icons, padding and inter-item spacing by the same
 positive integer. Replicate bitmap pixels without interpolation or antialiasing.
 For automatic scaling, use physical output dimensions and the following rule:
 

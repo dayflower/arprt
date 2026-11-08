@@ -200,12 +200,6 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                             "overlay": {
                                 "enabled": True,
                                 "cycleCorners": True,
-                                "margin": {
-                                    "top": 4,
-                                    "bottom": 4,
-                                    "left": 12,
-                                    "right": 12,
-                                },
                             },
                         },
                     }
@@ -239,6 +233,14 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                     "spec": {
                         "authSecretRef": {"name": "living-room-auth"},
                         "playlistRef": {"name": "cycle"},
+                        "display": {
+                            "safeAreaInsets": {
+                                "top": 4,
+                                "bottom": 4,
+                                "left": 12,
+                                "right": 12,
+                            }
+                        },
                     },
                 }
             )
@@ -332,10 +334,10 @@ HTTPServer(('0.0.0.0',8080),Handler).serve_forever()
                         base64.b64decode(image),
                         fetch(base, image_path),
                         corner,
-                        margin_top=4,
-                        margin_bottom=4,
-                        margin_left=12,
-                        margin_right=12,
+                        safe_top=4,
+                        safe_bottom=4,
+                        safe_left=12,
+                        safe_right=12,
                     )
                     corner_index += 1
                     last_turn = committed

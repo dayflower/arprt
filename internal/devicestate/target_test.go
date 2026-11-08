@@ -133,3 +133,40 @@ func TestEffectiveIdentityExcludesProvenance(t *testing.T) {
 		t.Fatal("different output constraints share identity")
 	}
 }
+
+func TestSafeAreaResolutionValidationAndRemoval(t *testing.T) {
+	for _, rotation := range []int32{0, 90, 180, 270} {
+		d := &api.ArprtDevice{Spec: api.ArprtDeviceSpec{Rotation: rotation, Display: &api.DisplayOverride{
+			SafeAreaInsets: &api.SafeAreaInsets{Top: 4, Bottom: 8, Left: 12, Right: 16},
+		}}, Status: api.ArprtDeviceStatus{Device: &api.DeviceInfoStatus{Model: "og"}}}
+		got, _, err := Resolve(d)
+		if err != nil || got.Target.SafeAreaInsets.Top != 4 || got.Target.SafeAreaInsets.Bottom != 8 || got.Target.SafeAreaInsets.Left != 12 || got.Target.SafeAreaInsets.Right != 16 {
+			t.Fatal("insets lost or rotated twice", rotation, got, err)
+		}
+		// Resolution copies configuration; in-flight snapshots must remain immutable.
+		d.Spec.Display.SafeAreaInsets.Top++
+		if got.Target.SafeAreaInsets.Top != 4 {
+			t.Fatal("snapshot aliases Device")
+		}
+		w, h := got.Target.LogicalSize()
+		for _, invalid := range []api.SafeAreaInsets{
+			{Top: -1}, {Bottom: -1}, {Left: -1}, {Right: -1},
+			{Left: w}, {Top: h}, {Left: w - 1, Right: 1}, {Top: h - 1, Bottom: 1},
+			{Left: 2147483647, Right: 2147483647},
+		} {
+			d.Spec.Display.SafeAreaInsets = &invalid
+			if _, _, err := Resolve(d); err == nil {
+				t.Fatal("invalid safe area accepted", rotation, invalid)
+			}
+		}
+		d.Spec.Display.SafeAreaInsets = &api.SafeAreaInsets{Left: w - 1, Top: h - 1}
+		if _, _, err := Resolve(d); err != nil {
+			t.Fatal("one pixel safe area rejected", err)
+		}
+		d.Spec.Display = nil
+		full, _, err := Resolve(d)
+		if err != nil || full.Target.SafeAreaInsets.Top != 0 || full.Target.SafeAreaInsets.Left != 0 || full == got {
+			t.Fatal("removal did not restore full canvas", full, err)
+		}
+	}
+}

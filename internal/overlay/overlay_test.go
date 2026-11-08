@@ -67,13 +67,14 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							t.Parallel()
 							rt := target
 							rt.Rotation = rotation
-							d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: scale, Margin: []Margins{{}, {Top: 4, Bottom: 8, Left: 12, Right: 16}, {Left: 4, Right: 2}, {Top: 8, Bottom: 12}}[(selection+scale)%4]}
-							mx, my := d.Margin.Left, d.Margin.Top
+							rt.SafeAreaInsets = []render.Insets{{}, {Top: 4, Bottom: 8, Left: 12, Right: 16}, {Left: 4, Right: 2}, {Top: 8, Bottom: 12}}[(selection+scale)%4]
+							d := Drawing{Version: LegacyAppearanceVersion, Corner: corner, Scale: scale}
+							mx, my := int(rt.SafeAreaInsets.Left), int(rt.SafeAreaInsets.Top)
 							if strings.HasSuffix(string(corner), "right") {
-								mx = d.Margin.Right
+								mx = int(rt.SafeAreaInsets.Right)
 							}
 							if strings.HasPrefix(string(corner), "bottom") {
-								my = d.Margin.Bottom
+								my = int(rt.SafeAreaInsets.Bottom)
 							}
 							if selection&1 != 0 {
 								d.Timestamp = "2026-10-09 12:34"
@@ -93,7 +94,7 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							// Including padding, timestamp plus both icons spans 262;
 							// with one icon it spans 240, leaving no room for inset.
 							if scale == 2 && (rotation == 90 || rotation == 270) &&
-								(selection == 7 || ((selection == 3 || selection == 5) && mx > 0)) {
+								(selection == 7 || ((selection == 3 || selection == 5) && rt.SafeAreaInsets.Left+rt.SafeAreaInsets.Right > 0)) {
 								if err == nil {
 									t.Fatal("oversized rotated overlay accepted")
 								}
@@ -133,7 +134,6 @@ func TestPixelsRotationsCornersItemsAndScaling(t *testing.T) {
 							}
 							cw += (items - 1) * 4
 							cw, ch = cw*scale, ch*scale
-							mx, my = mx*scale, my*scale
 							w, h := cw+mx+4*scale, ch+my+4*scale
 							lw, lh := 800, 480
 							if rotation == 90 || rotation == 270 {
@@ -391,8 +391,10 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 	}
 	base := patternedPNG(t, false)
 	for _, scale := range []int{1, 2} {
-		d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale, Margin: Margins{Left: 12, Right: 12, Top: 4, Bottom: 4}}
-		out, err := Compose(context.Background(), base, target, d)
+		d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Charging: true, WiFi: pointer(4), Corner: TopRight, Scale: scale}
+		rt := target
+		rt.SafeAreaInsets = render.Insets{Left: 12, Right: 12, Top: 4, Bottom: 4}
+		out, err := Compose(context.Background(), base, rt, d)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -401,7 +403,7 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Include the right margin and two-pixel padding; text follows the arrow.
-		ox, oy := 800-272*scale, 6*scale
+		ox, oy := 800-12-260*scale, 4+2*scale
 		for cell, ch := range d.Timestamp {
 			for y, row := range glyphs[ch] {
 				for x := 0; x < 12; x++ {
@@ -438,64 +440,44 @@ func TestHomeVideoPixelsAndIconAlignment(t *testing.T) {
 	}
 }
 
-func TestMarginLimitsAndEmptyLayout(t *testing.T) {
-	d := Drawing{Version: LegacyAppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1, Margin: Margins{Left: 778, Right: 778, Top: 458, Bottom: 458}}
-	// Margins plus the padded 22-pixel icon exactly fill the 800x480 canvas.
-	if _, _, w, h, err := d.Bounds(target); err != nil || w != 800 || h != 480 {
-		t.Fatal("exact fit rejected", w, h, err)
+func TestSafeAreaFitAndEmptyLayout(t *testing.T) {
+	rt := target
+	rt.SafeAreaInsets = render.Insets{Left: 400, Right: 378, Top: 200, Bottom: 258}
+	d := Drawing{Version: LegacyAppearanceVersion, Charging: true, Corner: BottomLeft, Scale: 1}
+	if _, _, _, _, err := d.Bounds(rt); err != nil {
+		t.Fatal("exact safe area fit rejected", err)
 	}
-	for _, mutation := range []func(*Drawing){func(d *Drawing) { d.Margin.Left++ }, func(d *Drawing) { d.Margin.Bottom++ }, func(d *Drawing) { d.Margin.Top = -1 }, func(d *Drawing) { d.Margin.Bottom = -1 }, func(d *Drawing) { d.Margin.Left = -1 }, func(d *Drawing) { d.Margin.Right = -1 }, func(d *Drawing) { d.Margin.Left = math.MaxInt32 }, func(d *Drawing) { d.Margin.Bottom = math.MaxInt32 }, func(d *Drawing) { d.Scale = math.MaxInt32 }, func(d *Drawing) { d.Battery = pointer(1) }} {
-		bad := d
-		mutation(&bad)
-		if _, _, _, _, err := bad.Bounds(target); err == nil {
-			t.Fatal("invalid/overflow drawing accepted", bad)
-		}
-	}
-	d.Charging = false
-	if x, y, w, h, err := d.Bounds(target); err != nil || x != 0 || y != 0 || w != 0 || h != 0 {
-		t.Fatal("empty margin draws background", x, y, w, h, err)
-	}
-	for _, margin := range []Margins{{Top: -1}, {Bottom: -1}, {Left: -1}, {Right: -1}} {
-		if _, err := Normalize(target, Settings{Margin: margin}, time.Now(), time.UTC, Telemetry{}, TopRight); err == nil {
-			t.Fatal("negative setting accepted", margin)
-		}
-	}
-}
-
-func TestCornerMarginsNormalized(t *testing.T) {
-	for _, tt := range []struct {
-		corner Corner
-		want   Margins
-	}{
-		{TopRight, Margins{Top: 4, Right: 16}},
-		{BottomRight, Margins{Bottom: 8, Right: 16}},
-		{BottomLeft, Margins{Bottom: 8, Left: 12}},
-		{TopLeft, Margins{Top: 4, Left: 12}},
+	for _, mutate := range []func(*render.Target){
+		func(t *render.Target) { t.SafeAreaInsets.Left++ },
+		func(t *render.Target) { t.SafeAreaInsets.Right++ },
+		func(t *render.Target) { t.SafeAreaInsets.Top++ },
+		func(t *render.Target) { t.SafeAreaInsets.Bottom++ },
 	} {
-		settings := Settings{Items: []string{"battery"}, Margin: Margins{Top: 4, Bottom: 8, Left: 12, Right: 16}}
-		now := time.Now()
-		d, err := Normalize(target, settings, now, time.UTC, Telemetry{Percent: pointer(50.0)}, tt.corner)
-		if err != nil || d.Margin != tt.want {
-			t.Fatal("wrong visible corner margins", tt.corner, d.Margin, err)
+		bad := rt
+		mutate(&bad)
+		if _, _, _, _, err := d.Bounds(bad); err == nil {
+			t.Fatal("overflowing safe area overlay accepted", bad)
 		}
-		// Opposite edges neither affect layout nor enter the derived cache key.
-		settings.Margin = tt.want
-		same, err := Normalize(target, settings, now, time.UTC, Telemetry{Percent: pointer(50.0)}, tt.corner)
-		same.Battery = d.Battery
-		if err != nil || same != d {
-			t.Fatal("unused edges changed drawing identity", tt.corner, same, d, err)
-		}
+	}
+	d.Scale = math.MaxInt32
+	if _, _, _, _, err := d.Bounds(rt); err == nil {
+		t.Fatal("overflow scale accepted")
+	}
+	d.Scale, d.Charging = 1, false
+	if x, y, w, h, err := d.Bounds(rt); err != nil || x != 0 || y != 0 || w != 0 || h != 0 {
+		t.Fatal("empty overlay draws background", x, y, w, h, err)
 	}
 }
 
-func TestAllMarginBounds(t *testing.T) {
+func TestAllSafeAreaBounds(t *testing.T) {
 	for _, rotation := range []int32{0, 90, 180, 270} {
 		for _, corner := range []Corner{TopRight, BottomRight, BottomLeft, TopLeft} {
 			for _, scale := range []int{1, 2} {
-				for _, margin := range []Margins{{}, {Top: 4}, {Bottom: 8}, {Left: 12}, {Right: 16}, {Top: 4, Bottom: 8, Left: 12, Right: 16}} {
+				for _, margin := range []render.Insets{{}, {Top: 4}, {Bottom: 8}, {Left: 12}, {Right: 16}, {Top: 4, Bottom: 8, Left: 12, Right: 16}} {
 					rt := target
 					rt.Rotation = rotation
-					d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(2), WiFi: pointer(4), Corner: corner, Scale: scale, Margin: margin}
+					rt.SafeAreaInsets = margin
+					d := Drawing{Version: LegacyAppearanceVersion, Timestamp: "2026-10-09 12:34", Battery: pointer(2), WiFi: pointer(4), Corner: corner, Scale: scale}
 					x, y, w, h, err := d.Bounds(rt)
 					if scale == 2 && (rotation == 90 || rotation == 270) {
 						if err == nil {
@@ -511,16 +493,16 @@ func TestAllMarginBounds(t *testing.T) {
 						lw, lh = lh, lw
 					}
 					wx, wy := 0, 0
-					mx, my := margin.Left, margin.Top
+					mx, my := int(margin.Left), int(margin.Top)
 					if strings.HasSuffix(string(corner), "right") {
-						mx = margin.Right
-						wx = lw - (262+mx)*scale
+						mx = int(margin.Right)
+						wx = lw - 262*scale - mx
 					}
 					if strings.HasPrefix(string(corner), "bottom") {
-						my = margin.Bottom
-						wy = lh - (22+my)*scale
+						my = int(margin.Bottom)
+						wy = lh - 22*scale - my
 					}
-					if x != wx || y != wy || w != (262+mx)*scale || h != (22+my)*scale {
+					if x != wx || y != wy || w != 262*scale+mx || h != 22*scale+my {
 						t.Fatal("wrong margin bounds", d, x, y, w, h)
 					}
 				}
@@ -533,7 +515,7 @@ func TestAllMarginBounds(t *testing.T) {
 	if _, _, w, _, err := d.Bounds(rt); err != nil || w != 480 {
 		t.Fatal("exact rotated fit rejected", w, err)
 	}
-	d.Margin.Right++
+	rt.SafeAreaInsets.Right++
 	if _, _, _, _, err := d.Bounds(rt); err == nil {
 		t.Fatal("one-pixel overflow margin accepted")
 	}

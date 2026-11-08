@@ -81,6 +81,35 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  safeAreaInsets:
+                    description: |-
+                      SafeAreaInsets recommends where renderers place important content and anchors
+                      controller overlays. Edges follow the logical viewing orientation after rotation.
+                      Insets are actual pixels independent of overlay scale; omitted edges mean zero.
+                      Renderers may ignore the recommendation. PNG dimensions remain unchanged.
+                      The resolved logical canvas must retain a positive width and height.
+                    properties:
+                      bottom:
+                        format: int32
+                        maximum: 4095
+                        minimum: 0
+                        type: integer
+                      left:
+                        format: int32
+                        maximum: 4095
+                        minimum: 0
+                        type: integer
+                      right:
+                        format: int32
+                        maximum: 4095
+                        minimum: 0
+                        type: integer
+                      top:
+                        format: int32
+                        maximum: 4095
+                        minimum: 0
+                        type: integer
+                    type: object
                   width:
                     format: int32
                     maximum: 4096

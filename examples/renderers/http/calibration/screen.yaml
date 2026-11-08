@@ -15,10 +15,3 @@ spec:
     enabled: true
     cycleCorners: true
     items: [timestamp, battery, wifi]
-    # Start at zero to measure the physical edge; adjust each side independently.
-    # The controller also adds its fixed 2px padding around the content row.
-    margin:
-      top: 0
-      bottom: 0
-      left: 0
-      right: 0

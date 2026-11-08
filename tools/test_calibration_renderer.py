@@ -18,8 +18,8 @@ spec.loader.exec_module(renderer)
 
 
 class CalibrationTests(unittest.TestCase):
-    def pixels(self, width=800, height=480, rotation=0):
-        data = renderer.png(width, height, rotation)
+    def pixels(self, width=800, height=480, rotation=0, *insets):
+        data = renderer.png(width, height, rotation, *insets)
         self.assertLess(len(data), 90000)
         self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
         self.assertEqual(
@@ -74,6 +74,24 @@ class CalibrationTests(unittest.TestCase):
                 self.assertEqual(at(lw // 2 - 52, 1), 255)
                 self.assertEqual(at(lw // 2 - 52, 2), 0)
 
+    def test_safe_area_boundary_uses_unscaled_logical_pixels(self):
+        for rotation in (0, 90, 180, 270):
+            pixels = self.pixels(800, 480, rotation, 3, 7, 11, 13)
+            for x, y in ((101, 3), (11, 99)):
+                px, py = (
+                    (x, y)
+                    if rotation == 0
+                    else (799 - y, x)
+                    if rotation == 90
+                    else (799 - x, 479 - y)
+                    if rotation == 180
+                    else (y, 479 - x)
+                )
+                self.assertEqual(pixels[py * 800 + px], 0)
+        for insets in ((-1, 0, 0, 0), (0, 0, 400, 400), (240, 240, 0, 0)):
+            with self.assertRaises(ValueError):
+                renderer.png(800, 480, 0, *insets)
+
     def test_other_target_sizes_and_bounds(self):
         for width, height in ((640, 400), (1872, 1404), (1200, 1600)):
             with self.subTest(size=(width, height)):
@@ -104,7 +122,18 @@ class CalibrationTests(unittest.TestCase):
                 ) as response:
                     self.assertEqual(response.headers["Content-Type"], "image/png")
                     self.assertEqual(response.read(), renderer.png(800, 480))
+            with urlopen(
+                base + "/render?width=800&height=480&palette=gray4"
+                "&rotation=90&safeAreaTop=3&safeAreaBottom=7&safeAreaLeft=11&safeAreaRight=13",
+                timeout=5,
+            ) as response:
+                self.assertEqual(
+                    response.read(), renderer.png(800, 480, 90, 3, 7, 11, 13)
+                )
             for query in (
+                "width=800&height=480&palette=gray4&safeAreaTop=-1",
+                "width=800&height=480&palette=gray4&safeAreaLeft=800",
+                "width=800&height=480&palette=gray4&safeAreaRight=1&safeAreaRight=2",
                 "width=800&height=480",
                 "width=800&height=480&palette=rgb",
                 "width=800&height=480&palette=bw",

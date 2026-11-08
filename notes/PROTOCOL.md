@@ -235,8 +235,10 @@ and scheduled Job behavior unchanged.
 
 GET receives target query parameters and `Accept: image/png` only. POST receives
 the same query plus `Content-Type: application/json` and Render Context v1.
-Preserve non-target query values, including repeated values; replace all lowercase
-`width`, `height`, `palette`, `rotation` values. `rotation` is always sent as
+Preserve non-target query values, including repeated values; replace all values for
+`width`, `height`, `palette`, `rotation`, `safeAreaTop`, `safeAreaBottom`,
+`safeAreaLeft` and `safeAreaRight` values. The four safe-area insets are always
+sent as nonnegative decimal pixel counts. `rotation` is always sent as
 `0`, `90`, `180` or `270`. Query and JSON targets must agree. Never
 forward device headers, credentials, cookies or arbitrary inbound headers.
 
@@ -265,6 +267,7 @@ provenance are excluded from context v1.
 | --- | --- |
 | `version` | Required `"v1"` |
 | `renderTarget.width`, `.height`, `.palette` | Required dimensions and semantic palette |
+| `renderTarget.safeAreaInsets` | Optional `top`, `bottom`, `left`, `right` in logical viewing pixels; omitted edges and an omitted object mean zero |
 | `renderTarget.rotation` | Optional clockwise content rotation in degrees: `0`, `90`, `180`, `270`; omitted means `0` |
 | `device.name` | Required device resource name |
 | `device.model`, `.firmware.version` | Optional known observations |
@@ -292,6 +295,24 @@ state without waiting for informer propagation. Scheduled Job snapshots are copi
 cannot change in flight; their telemetry may be older at display time. GET has
 no context. Optional fields may be added within v1; renderers ignore unknown
 fields. Removing fields or changing semantics requires a new context version.
+
+### Safe area
+
+`ArprtDevice.spec.display.safeAreaInsets` supplies the target's recommended
+content area. Insets use logical viewing coordinates: top is the top edge when
+viewed upright, and 90/270-degree rotation swaps logical width and height.
+Each inset is 0..4095 physical-resolution pixels, independent of overlay scale;
+omitted edges mean zero. The resolved canvas must retain positive width and
+height after subtracting both opposing insets. Invalid resolved safe areas fail
+target resolution rather than being clamped.
+
+Renderers choose how to use the recommendation: charts can keep labels inside
+it while photos or backgrounds can fill the entire canvas. Output PNG dimensions
+remain the full physical target dimensions. No controller resize or crop is
+introduced by safe area. Insets do not reserve space for controller overlays.
+Changing them changes render identity, invalidates replay and schedules new work;
+an image for another safe area is not a stale fallback. Already-issued image
+URLs remain retained under the usual rules.
 
 ### Renderer state JSON
 
@@ -457,11 +478,10 @@ selects a charging mark; false or unavailable charging keeps the level icon.
 USB connection never selects the mark. A mark needs no level measurement. Configuration,
 thresholds and bitmap dimensions are in [OVERLAYS](OVERLAYS.md).
 
-Nonnegative Screen `margin.top`, `.bottom`, `.left` and `.right` independently
-inset the padded content row from each logical viewing edge, scaling with the bitmap pixels;
-each defaults to zero. Only the two edges adjoining the selected corner apply.
-The content row has fixed 2px padding on all sides, scaled with the bitmap.
-The opaque white background extends through the margin to the corner edges.
+The padded content row is anchored to the selected corner of the Device safe
+area. Its fixed 2px padding scales with the bitmap; safe-area insets do not.
+The complete padded row must fit inside all four safe-area boundaries. The
+opaque white background extends through the adjoining insets to the screen edges.
 Corners follow the logical viewing orientation; only overlay coordinates are
 rotated, preserving the already rotated base. Playlist/discovery replay returns
 the committed digest/filename/bytes and serving time even if telemetry, zone or
