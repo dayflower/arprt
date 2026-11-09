@@ -83,13 +83,10 @@ func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	// Bound the local operand before computing the packed allocation size.
-	width := t.Width
-	if width < 1 || width > MaxOutputAxis {
-		_ = z.Close()
-		return nil, errors.New("invalid image output width")
-	}
-	row := make([]byte, 1+(width*int(depth)+7)/8)
+	// Widen packed-size arithmetic before multiplication. Target validation
+	// bounds this to at most 2049 bytes, including the filter byte.
+	rowSize := 1 + (int64(t.Width)*int64(depth)+7)/8
+	row := make([]byte, rowSize)
 	for y := range t.Height {
 		if err := ctx.Err(); err != nil {
 			_ = z.Close()
