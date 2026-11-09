@@ -33,10 +33,11 @@ func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := t.Validate(); err != nil {
+	pixels, err := t.pixelCount()
+	if err != nil {
 		return nil, err
 	}
-	if len(indices) != t.Width*t.Height {
+	if len(indices) != pixels {
 		return nil, errors.New("invalid palette index dimensions")
 	}
 	colors := t.Palette.Colors()
@@ -82,7 +83,13 @@ func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	row := make([]byte, 1+(t.Width*int(depth)+7)/8)
+	// Bound the local operand before computing the packed allocation size.
+	width := t.Width
+	if width < 1 || width > MaxOutputAxis {
+		_ = z.Close()
+		return nil, errors.New("invalid image output width")
+	}
+	row := make([]byte, 1+(width*int(depth)+7)/8)
 	for y := range t.Height {
 		if err := ctx.Err(); err != nil {
 			_ = z.Close()

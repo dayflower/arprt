@@ -19,11 +19,14 @@ CRDS = [
 ]
 
 
-def kubectl(*args, check=True):
+def kubectl(*args, check=True, input=None):
     result = subprocess.run(
-        ["kubectl", *map(str, args)], capture_output=True, text=True
+        ["kubectl", *map(str, args)], capture_output=True, text=True, input=input
     )
     if check and result.returncode:
+        if input is not None:
+            # API validation errors may echo the submitted Secret contents.
+            raise RuntimeError("kubectl failed while processing standard input")
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
     return result
 

@@ -52,10 +52,17 @@ type Target struct {
 }
 
 func (t Target) Validate() error {
-	if !dimensionsValid(t.Width, t.Height, MaxOutputAxis, MaxOutputPixels) || len(t.Palette.Colors()) == 0 || t.PNGByteLimit <= 0 {
-		return errors.New("invalid image output target")
+	_, err := t.pixelCount()
+	return err
+}
+
+// pixelCount validates the target before multiplying dimensions for allocation.
+func (t Target) pixelCount() (int, error) {
+	w, h := t.Width, t.Height
+	if w < 1 || h < 1 || w > MaxOutputAxis || h > MaxOutputAxis || w > MaxOutputPixels/h || len(t.Palette.Colors()) == 0 || t.PNGByteLimit <= 0 {
+		return 0, errors.New("invalid image output target")
 	}
-	return nil
+	return w * h, nil
 }
 
 func dimensionsValid(w, h, axis, pixels int) bool {

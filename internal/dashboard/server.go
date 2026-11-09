@@ -136,7 +136,7 @@ func (s *Server) devices(ctx context.Context, w http.ResponseWriter, r *http.Req
 		}
 		return
 	}
-	if len(list.Items) > int(query.limit) {
+	if int64(len(list.Items)) > query.limit {
 		// The reader must honor server-side pagination (use an uncached reader).
 		fail(w, http.StatusServiceUnavailable)
 		return
