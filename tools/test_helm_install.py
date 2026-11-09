@@ -13,6 +13,28 @@ import helm_install as install
 
 
 class InstallationTests(unittest.TestCase):
+    def test_kubectl_submits_sensitive_input_without_echoing_errors(self):
+        payload = json.dumps({"stringData": {"key": "synthetic-private-value"}})
+        for code in (0, 1):
+            with (
+                self.subTest(returncode=code),
+                patch.object(
+                    install.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess(
+                        ["kubectl"], code, payload, payload
+                    ),
+                ) as run,
+            ):
+                if code:
+                    with self.assertRaises(RuntimeError) as failure:
+                        install.kubectl("apply", "-f", "-", input=payload)
+                    self.assertNotIn("synthetic-private-value", str(failure.exception))
+                else:
+                    install.kubectl("apply", "-f", "-", input=payload)
+                self.assertEqual(run.call_args.args[0], ["kubectl", "apply", "-f", "-"])
+                self.assertEqual(run.call_args.kwargs["input"], payload)
+
     def installation(self, directory):
         return install.Installation(
             argparse.Namespace(

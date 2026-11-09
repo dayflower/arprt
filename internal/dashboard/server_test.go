@@ -282,7 +282,7 @@ func (s unavailableStore) Delivery(context.Context, string) (artifact.DeliveryRe
 
 func TestRoutingLimitsFailuresAndEmptyList(t *testing.T) {
 	s, _, c, d, _ := fixture(t)
-	for _, path := range []string{"/api/devices?limit=0", "/api/devices?limit=101", "/api/devices?limit=wat", "/api/devices?limit=1&limit=2", "/api/devices?namespace=other", "/api/devices?continue=%zz"} {
+	for _, path := range []string{"/api/devices?limit=0", "/api/devices?limit=101", "/api/devices?limit=-1", "/api/devices?limit=2147483648", "/api/devices?limit=9223372036854775807", "/api/devices?limit=9223372036854775808", "/api/devices?limit=wat", "/api/devices?limit=1&limit=2", "/api/devices?namespace=other", "/api/devices?continue=%zz"} {
 		if w := get(t, s, path); w.Code != 400 {
 			t.Fatal(path, w.Code, w.Body.String())
 		}

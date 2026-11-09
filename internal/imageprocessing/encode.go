@@ -33,10 +33,11 @@ func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := t.Validate(); err != nil {
+	pixels, err := t.pixelCount()
+	if err != nil {
 		return nil, err
 	}
-	if len(indices) != t.Width*t.Height {
+	if len(indices) != pixels {
 		return nil, errors.New("invalid palette index dimensions")
 	}
 	colors := t.Palette.Colors()
@@ -82,7 +83,10 @@ func encode(ctx context.Context, indices []byte, t Target, legacy bool) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	row := make([]byte, 1+(t.Width*int(depth)+7)/8)
+	// Widen packed-size arithmetic before multiplication. Target validation
+	// bounds this to at most 2049 bytes, including the filter byte.
+	rowSize := 1 + (int64(t.Width)*int64(depth)+7)/8
+	row := make([]byte, rowSize)
 	for y := range t.Height {
 		if err := ctx.Err(); err != nil {
 			_ = z.Close()

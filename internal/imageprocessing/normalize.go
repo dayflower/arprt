@@ -44,10 +44,11 @@ func (d *Decoded) Quantize(ctx context.Context, t Target, policy Policy) ([]byte
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := t.Validate(); err != nil {
+	pixels, err := t.pixelCount()
+	if err != nil {
 		return nil, err
 	}
-	policy, err := policy.Normalize()
+	policy, err = policy.Normalize()
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +65,7 @@ func (d *Decoded) Quantize(ctx context.Context, t Target, policy Policy) ([]byte
 			whiteIndex = byte(i)
 		}
 	}
-	out := make([]byte, t.Width*t.Height)
+	out := make([]byte, pixels)
 	for i := range out {
 		out[i] = whiteIndex
 	}

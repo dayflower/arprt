@@ -94,10 +94,15 @@ def main():
             )
 
             def apply(obj):
-                file = directory / "resource.json"
-                file.write_text(json.dumps(obj))
-                kubectl("-n", namespace, "apply", "--validate=strict", "-f", str(file))
-                file.unlink()
+                kubectl(
+                    "-n",
+                    namespace,
+                    "apply",
+                    "--validate=strict",
+                    "-f",
+                    "-",
+                    input=json.dumps(obj),
+                )
 
             apply(
                 {
