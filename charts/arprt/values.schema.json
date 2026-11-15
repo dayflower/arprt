@@ -429,11 +429,219 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "enabled"
+        "enabled",
+        "podMonitor",
+        "prometheusRule"
       ],
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "podMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "interval",
+            "additionalLabels"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "interval": {
+              "$ref": "#/definitions/prometheusDuration"
+            },
+            "additionalLabels": {
+              "$ref": "#/definitions/monitoringLabels"
+            }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "additionalLabels",
+            "metricSelector",
+            "labels",
+            "rules"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "additionalLabels": {
+              "$ref": "#/definitions/monitoringLabels"
+            },
+            "metricSelector": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+                "not": {
+                  "enum": [
+                    "__name__",
+                    "result",
+                    "state"
+                  ]
+                }
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "labels": {
+              "type": "object",
+              "propertyNames": {
+                "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+                "not": {
+                  "enum": [
+                    "__name__",
+                    "alertname"
+                  ]
+                }
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "maintenanceStalled",
+                "storageErrors",
+                "collectionFailures",
+                "devicesSilent",
+                "staleDeliveries"
+              ],
+              "properties": {
+                "maintenanceStalled": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled",
+                    "threshold",
+                    "for"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "for": {
+                      "$ref": "#/definitions/alertDuration"
+                    }
+                  }
+                },
+                "storageErrors": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled",
+                    "threshold",
+                    "for",
+                    "window"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "for": {
+                      "$ref": "#/definitions/alertDuration"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/prometheusDuration"
+                    }
+                  }
+                },
+                "collectionFailures": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled",
+                    "threshold",
+                    "for",
+                    "window"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "for": {
+                      "$ref": "#/definitions/alertDuration"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/prometheusDuration"
+                    }
+                  }
+                },
+                "devicesSilent": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled",
+                    "threshold",
+                    "for"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "for": {
+                      "$ref": "#/definitions/alertDuration"
+                    }
+                  }
+                },
+                "staleDeliveries": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled",
+                    "threshold",
+                    "for",
+                    "window",
+                    "minimumDeliveries"
+                  ],
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "for": {
+                      "$ref": "#/definitions/alertDuration"
+                    },
+                    "window": {
+                      "$ref": "#/definitions/prometheusDuration"
+                    },
+                    "minimumDeliveries": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -468,6 +676,50 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^(\\+)?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+|[numkKMGTPE]i?)?$"
+    },
+    "monitoringLabels": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)(\\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$",
+        "maxLength": 317,
+        "not": {
+          "enum": [
+            "app.kubernetes.io/name",
+            "app.kubernetes.io/instance",
+            "app.kubernetes.io/managed-by",
+            "app.kubernetes.io/version",
+            "helm.sh/chart"
+          ]
+        },
+        "allOf": [
+          {
+            "pattern": "^([^/]{1,253}/)?[^/]+$"
+          }
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 63,
+        "pattern": "^$|^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$"
+      }
+    },
+    "prometheusDuration": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^([0-9]+y)?([0-9]+w)?([0-9]+d)?([0-9]+h)?([0-9]+m)?([0-9]+s)?([0-9]+ms)?$",
+      "not": {
+        "pattern": "^(0+(y|w|d|h|m|s|ms))+$"
+      }
+    },
+    "alertDuration": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/prometheusDuration"
+        },
+        {
+          "const": "0s"
+        }
+      ]
     }
   }
 }

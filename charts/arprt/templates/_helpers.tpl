@@ -27,6 +27,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 {{- end -}}
 
 {{- define "arprt.validate" -}}
+{{- if and (not .Values.metrics.enabled) (or .Values.metrics.podMonitor.enabled .Values.metrics.prometheusRule.enabled) -}}
+{{- fail "metrics.enabled must be true when metrics.podMonitor.enabled or metrics.prometheusRule.enabled is true" -}}
+{{- end -}}
 {{- $raw := required "byos.publicBaseURL is required" .Values.byos.publicBaseURL -}}
 {{- $url := urlParse $raw -}}
 {{- if or (not (has $url.scheme (list "http" "https"))) (empty $url.host) (not (empty $url.userinfo)) (contains "?" $raw) (contains "#" $raw) -}}
@@ -48,5 +51,16 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 {{- fail (printf "credentials.authSecrets contains duplicate name %s" .name) -}}
 {{- end -}}
 {{- $_ := set $seen .name true -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Go's quoted strings escape PromQL label values, including control characters. */}}
+{{- define "arprt.metricSelector" -}}
+{{- $selector := .Values.metrics.prometheusRule.metricSelector -}}
+{{- if empty $selector -}}
+{{- $selector = dict "namespace" .Release.Namespace "arprt_release" .Release.Name -}}
+{{- end -}}
+{{- range $key := keys $selector | sortAlpha -}}
+{{- printf "%s=%s," $key (get $selector $key | quote) -}}
 {{- end -}}
 {{- end -}}

@@ -604,19 +604,28 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		if err := r.maintenance(ctx); err != nil && ctx.Err() == nil {
-			observe.Maintenance.WithLabelValues("failure").Inc()
-			observe.StorageErrors.WithLabelValues("maintenance").Inc()
-			ctrl.LoggerFrom(ctx).Info("Job storage maintenance failed; retained data is protected", "reason", "StorageMaintenanceFailed")
-		} else if ctx.Err() == nil {
-			observe.Maintenance.WithLabelValues("success").Inc()
-		}
+		r.runMaintenance(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 		}
 	}
+}
+
+// runMaintenance observes the full Job cleanup and storage collection pass.
+func (r *Reconciler) runMaintenance(ctx context.Context) {
+	err := r.maintenance(ctx)
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		observe.Maintenance.WithLabelValues("failure").Inc()
+		observe.StorageErrors.WithLabelValues("maintenance").Inc()
+		ctrl.LoggerFrom(ctx).Info("Job storage maintenance failed; retained data is protected", "reason", "StorageMaintenanceFailed")
+		return
+	}
+	observe.MaintenanceSucceeded(r.now())
 }
 
 func (r *Reconciler) maintenance(ctx context.Context) error {

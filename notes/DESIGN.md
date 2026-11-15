@@ -301,6 +301,17 @@ An equal digest or a newer latest-success pointer cannot supply that provenance.
 New render successes with equal bytes retain their own original render times.
 Overlay composition and stale fallback use the selected base success's time.
 
+Delivery-response metrics reuse the delivery record's result classification.
+The internal response carries that result without changing BYOS JSON or Render
+Context. Replay inherits recorded provenance only for a matching committed turn,
+Screen, target and input revision; digest equality is insufficient. Missing
+provenance yields `unknown`. Recording remains best effort and returns the known
+classification even if saving fails. The counter increments at each request's
+final response, after authorization and required writes, rather than inside
+recording or shared Skip/OnDemand work. Candidate exploration and background
+renders therefore do not inflate response counts; joined requests count each
+response independently. Pending replies are counted without a delivery record.
+
 Observation writes use capacity admission, file/directory fsync and atomic
 rename under the repository lock. A delayed writer with an equal/older issuance
 timestamp is rejected rather than guessing order; a backward clock can therefore

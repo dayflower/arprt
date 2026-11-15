@@ -356,6 +356,8 @@ access with your network policy. Do not expose this endpoint on the BYOS proxy.
 | Metric | Meaning |
 | --- | --- |
 | `arprt_requests_total` | BYOS requests by fixed route and HTTP result; pending is HTTP success |
+| `arprt_deliveries_total` | Display responses by `result`: `ready`, `stale`, `pending`, `unknown` |
+| `arprt_maintenance_last_success_timestamp_seconds` | Completion time of the last fully successful maintenance pass; zero before first success |
 | `arprt_request_rejections_total` | Requests rejected by the 64-request admission limit |
 | `arprt_render_duration_seconds` | GET, POST and Job attempt duration, with success/failure labels |
 | `arprt_http_render_active`, `arprt_jobs_active` | Current execution slots/Jobs |
@@ -377,6 +379,103 @@ independently of whether a previously delivered e-paper image remains usable.
 Device counts, queue depth, artifact age and storage usage refresh each minute;
 render/request counters update on activity. Alert on increasing failure counters,
 old artifacts, silent devices and a queue that does not drain.
+
+### Delivery and maintenance health
+
+`arprt_deliveries_total` counts each authenticated, routed display response once.
+Image responses count after final authorization and required persistence. `ready` includes normal cache
+reuse; `stale` means a previous compatible image was offered after a render failure
+or while an update was pending. `pending` means HTTP 200 with body `status: 202`
+and no image: capabilities or assignment may be unresolved, so it does not promise
+that a Job is running or configuration is correct. `unknown` means an image was
+offered without confirmed rendering provenance. Replay carries `ready`/`stale`
+only when the recorded committed turn proves it; equal image bytes alone do not.
+All four series start at zero and reset on process restart.
+
+Joined Skip/OnDemand requests count separately, while internal exploration,
+background rendering, failed authentication, HTTP errors, admission rejections
+and image downloads do not count. A best-effort delivery-record write failure
+preserves the known classification. No pending observation is written to storage.
+These counters have a different population from `arprt_requests_total`; neither
+counter confirms TCP receipt, download or the device's physical display.
+
+`arprt_maintenance_last_success_timestamp_seconds` advances at completion only
+when the whole minute-scheduled maintenance pass succeeds. With Jobs enabled,
+this includes Job cleanup before storage collection; with Jobs disabled, the
+standalone storage pass supplies the same metric. Failure or cancellation preserves its previous value. It is in-memory
+and returns to zero after restart. Device/storage/age gauges can be partly updated
+or old during failures; they are not an atomic snapshot at this timestamp.
+
+### Collection and notifications
+
+The chart can independently create a PodMonitor and a PrometheusRule; both are
+disabled by default. See [chart monitoring settings](../charts/arprt/README.md#monitoring).
+Install Prometheus Operator and the relevant `monitoring.coreos.com/v1` CRDs
+before enabling these resources. arprt does not install or manage Operator,
+Prometheus, Alertmanager or Grafana. Without the optional resources, those CRDs
+are unnecessary. Missing CRDs fail normal resource application; local
+`helm template` still renders without a cluster.
+
+Prometheus must select the PodMonitor and its namespace, and separately select
+the PrometheusRule and its namespace. Allow scrape network access to the private
+Pod listener. PodMonitor adds target labels `namespace` and `arprt_release` from
+the Pod's namespace and release label; these are separate from resource metadata
+labels and bounded application labels. Rules default to that exact namespace and
+release. External scrapers must supply equivalent target labels or configure
+`metrics.prometheusRule.metricSelector` to match their labels. All expressions
+retain controller instance labels; stale ratios aggregate only the `result` label.
+
+Creating a rule does not send a notification. Configure Prometheus collection,
+rule selectors, Alertmanager integration and notification destinations separately.
+Use the Prometheus targets/rules/alerts views to verify discovery, scrape success,
+rule loading and firing/recovery. Test notification routing without sending to
+production destinations. Applying CRDs alone does not verify this integration.
+
+### Alert examples and response
+
+The chart's thresholds are starting points to tune for the installation. Rules
+carry `severity: warning` by default; `metrics.prometheusRule.labels` adds or
+changes notification routing labels. Each entry under `.rules.<ruleKey>` supports
+`enabled`, `threshold` and `for`; counter-based entries also support `window`.
+
+| Rule key / alert | Default condition | Hold / enabled | Response |
+| --- | --- | --- | --- |
+| `maintenanceStalled` / `ArprtMaintenanceStalled` | Last full success more than 300 seconds ago | `5m` / yes | Check controller health, PVC access and maintenance logs |
+| `storageErrors` / `ArprtStorageErrors` | `increase` over `10m` greater than 0, per operation | `0s` / yes | Check the operation label, Ready/StorageCapacityExceeded, capacity and controller logs |
+| `collectionFailures` / `ArprtCollectionFailures` | `increase` over `10m` greater than 0 | `0s` / yes | Check Job output, RenderReady, PNG format and PVC access |
+| `devicesSilent` / `ArprtDevicesSilent` | Silent device count greater than 0 | `10m` / no | Check DeviceSeen, power and connectivity; planned power-off also qualifies |
+| `staleDeliveries` / `ArprtStaleDeliveries` | Stale ratio greater than 0.5 over `15m`, at least 10 image responses | `0s` / no | Check RenderReady and renderer/Job health |
+
+Maintenance uses `time() - arprt_maintenance_last_success_timestamp_seconds`.
+Zero is an abnormal candidate with the `for` interval allowing initial startup;
+after a successful pass the defaults fire about ten minutes after the last success.
+Missing timestamp series cannot trigger this comparison. Pair it with existing
+scrape failure/target disappearance alerts. Error counters use `increase` to handle
+resets and recover when errors leave the window, rather than at the next success.
+The stale denominator includes `ready`, `stale` and `unknown`, excluding `pending`;
+zero/low traffic does not fire. `unknown` does not prove successful generation.
+Silent counts can become old if maintenance stalls and do not identify a cause.
+
+Additional expressions below are examples only. Replace target selectors with
+your scrape labels; tune windows and hold times to expected update intervals and
+normal traffic. The chart does not create these rules:
+
+```promql
+# Example: artifacts older than an expected one-hour update budget.
+arprt_artifact_oldest_age_seconds{namespace="arprt",arprt_release="home"} > 3600
+# Example: queued work persists for 15 minutes (use an additional for: 15m).
+min_over_time(arprt_job_queue_depth{namespace="arprt",arprt_release="home"}[15m]) > 0
+# Example: render failures within ten minutes, retaining transport/instance labels.
+increase(arprt_render_duration_seconds_count{namespace="arprt",arprt_release="home",outcome="failure"}[10m]) > 0
+# Example only: job/instance labels depend on your collection infrastructure.
+up{job="arprt"} == 0
+```
+
+Old artifacts alone do not prove a render fault: schedules and cache reuse can
+make them intentional. A nonempty queue alone does not prove a stall: compare
+normal concurrency, render duration and throughput. Use an appropriate `for` for
+scrape failures, and an `absent`/target inventory rule for vanished targets.
+
 
 ## Capacity and retention
 

@@ -27,22 +27,23 @@ type object map[string]any
 
 func main() {
 	helm := flag.String("helm", "helm", "Helm executable")
+	promtool := flag.String("promtool", "promtool", "pinned Prometheus rule checker")
 	packages := flag.String("packages", "dist/charts", "assembled chart packages")
 	flag.Parse()
-	if err := run(*helm, *packages); err != nil {
+	if err := run(*helm, *packages, *promtool); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Println("PASS: chart render matrix, invalid values, deployment contracts and self-contained packages")
+	fmt.Println("PASS: chart render matrix, invalid values, deployment contracts, self-contained packages and generated Prometheus rules")
 }
 
-func command(helm string, args ...string) ([]byte, error) {
-	cmd := exec.Command(helm, args...)
+func command(executable string, args ...string) ([]byte, error) {
+	cmd := exec.Command(executable, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("helm %s: %w\n%s", strings.Join(args, " "), err, stderr.String())
+		return nil, fmt.Errorf("%s %s: %w\n%s", filepath.Base(executable), strings.Join(args, " "), err, stderr.String())
 	}
 	return output, nil
 }
@@ -104,7 +105,7 @@ func render(helm, chart, release, namespace, values string, extra ...string) ([]
 	return decode(output)
 }
 
-func run(helm, packages string) error {
+func run(helm, packages, promtool string) error {
 	dir, err := os.MkdirTemp("", "arprt-chart-check-")
 	if err != nil {
 		return err
@@ -167,6 +168,9 @@ func run(helm, packages string) error {
 		return err
 	}
 	for _, obj := range original {
+		if obj["kind"] == "PodMonitor" || obj["kind"] == "PrometheusRule" {
+			return fmt.Errorf("default chart creates monitoring resources")
+		}
 		if obj["kind"] == "Secret" {
 			return fmt.Errorf("default chart creates credentials")
 		}
@@ -307,7 +311,7 @@ func run(helm, packages string) error {
 			}
 		}
 	}
-	return nil
+	return checkMonitoring(helm, packages, promtool, dir)
 }
 
 func contains(values []string, value string) bool {

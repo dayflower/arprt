@@ -195,6 +195,8 @@ func TestSkipSharesExplorationIssuanceAndTurn(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
+	counts := deliveryCounts(t)
+	defer assertDeliveries(t, counts, map[string]float64{"ready": 2})
 	first := asyncDisplay(s, ctx, auth())
 	<-started
 	second := asyncDisplay(s, t.Context(), auth())

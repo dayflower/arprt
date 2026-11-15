@@ -163,6 +163,7 @@ func Observe(h map[string]string) Observation {
 }
 
 type DisplayResponse struct {
+	deliveryResult  string // Internal provenance, never serialized.
 	Status          int    `json:"status"`
 	ImageURL        string `json:"image_url"`
 	Filename        string `json:"filename"`

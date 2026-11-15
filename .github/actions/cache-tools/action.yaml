@@ -14,7 +14,7 @@ runs:
       if: inputs.tools != ''
       shell: bash
       run: |
-        make --no-print-directory --eval='ci-cache-versions:;@$(foreach name,CONTROLLER_GEN_VERSION ENVTEST_VERSION STATICCHECK_VERSION KIND_VERSION HELM_VERSION ENVTEST_K8S_VERSION GOTOOLCHAIN,echo "$(name)=$($(name))";)' ci-cache-versions >> "$GITHUB_OUTPUT"
+        make --no-print-directory --eval='ci-cache-versions:;@$(foreach name,CONTROLLER_GEN_VERSION ENVTEST_VERSION STATICCHECK_VERSION KIND_VERSION HELM_VERSION PROMETHEUS_VERSION ENVTEST_K8S_VERSION GOTOOLCHAIN,echo "$(name)=$($(name))";)' ci-cache-versions >> "$GITHUB_OUTPUT"
         case "$RUNNER_ARCH" in
           X64) echo "arch=amd64" >> "$GITHUB_OUTPUT" ;;
           ARM64) echo "arch=arm64" >> "$GITHUB_OUTPUT" ;;
@@ -52,6 +52,12 @@ runs:
         key: ${{ steps.versions.outputs.platform }}-helm-${{ steps.versions.outputs.HELM_VERSION }}-${{ hashFiles('tools/install-helm.py') }}
         writer: ${{ github.job == 'helm_prepare' }}
     - uses: ./.ci-actions/.github/actions/cache
+      if: contains(format(' {0} ', inputs.tools), ' promtool ')
+      with:
+        path: bin/promtool-${{ steps.versions.outputs.PROMETHEUS_VERSION }}
+        key: ${{ steps.versions.outputs.platform }}-promtool-${{ steps.versions.outputs.PROMETHEUS_VERSION }}-${{ hashFiles('tools/install-promtool.py') }}
+        writer: ${{ github.job == 'helm_prepare' }}
+    - uses: ./.ci-actions/.github/actions/cache
       if: contains(format(' {0} ', inputs.tools), ' envtest ')
       with:
         path: bin/k8s/k8s/${{ steps.versions.outputs.ENVTEST_K8S_VERSION }}-linux-${{ steps.versions.outputs.arch }}
@@ -62,6 +68,9 @@ runs:
     - if: contains(format(' {0} ', inputs.tools), ' helm ')
       shell: bash
       run: touch -c "bin/helm-${{ steps.versions.outputs.HELM_VERSION }}"
+    - if: contains(format(' {0} ', inputs.tools), ' promtool ')
+      shell: bash
+      run: touch -c "bin/promtool-${{ steps.versions.outputs.PROMETHEUS_VERSION }}"
     # PR/main software checks run on amd64. Warm the pinned arm64 linter here
     # so native release software jobs can restore it from main as well.
     - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.job == 'helm_prepare' && runner.arch == 'ARM64'

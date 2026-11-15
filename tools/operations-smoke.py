@@ -41,6 +41,22 @@ def main():
         try:
             installation.install()
 
+            def maintenance_completed(base):
+                samples = (
+                    urllib.request.urlopen(base + "/metrics", timeout=10)
+                    .read()
+                    .decode()
+                )
+                return any(
+                    line.startswith("arprt_maintenance_last_success_timestamp_seconds ")
+                    and float(line.split()[-1]) > 0
+                    for line in samples.splitlines()
+                )
+
+            # Check a full successful pass before introducing storage faults.
+            with forwarded(namespace, 8082, directory) as base:
+                wait(lambda: maintenance_completed(base), 90)
+
             def dashboard_disabled():
                 deployment = json.loads(
                     kubectl(
@@ -432,6 +448,24 @@ def main():
                 assert (
                     'arprt_storage_errors_total{operation="delivery_record"}' in metrics
                 )
+                for result in ("ready", "stale", "pending", "unknown"):
+                    assert f'arprt_deliveries_total{{result="{result}"}}' in metrics
+                stale = next(
+                    line
+                    for line in metrics.splitlines()
+                    if line.startswith('arprt_deliveries_total{result="stale"}')
+                )
+                assert float(stale.split()[-1]) > 0
+                last_success = next(
+                    line
+                    for line in metrics.splitlines()
+                    if line.startswith(
+                        "arprt_maintenance_last_success_timestamp_seconds "
+                    )
+                )
+                # This process started with the injected capacity fault and may
+                # not have completed any maintenance pass yet.
+                assert float(last_success.split()[-1]) >= 0
                 for sensitive in [
                     headers["ID"],
                     headers["Access-Token"],
@@ -489,6 +523,8 @@ def main():
                 "PASS: graceful restart, HTTP-only GC, base/composite issued URL retention and redacted logs",
                 flush=True,
             )
+            with forwarded(namespace, 8082, directory) as base:
+                wait(lambda: maintenance_completed(base), 90)
             installation.settings["jobs"] = {"enabled": True}
             installation.upgrade()
             state_smoke.run(

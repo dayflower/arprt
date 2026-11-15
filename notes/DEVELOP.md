@@ -13,7 +13,8 @@ and Docker for images. Install uv and make it available on `PATH` before running
 Python lint or formatting targets; set `UV=/path/to/uv` to select another binary.
 The [Makefile](../Makefile) selects the Go toolchain and
 pins controller-gen/setup-envtest/kind and the kind node image;
-it also pins Staticcheck, Ruff and the Helm 4 client used for chart checks.
+it also pins Staticcheck, Ruff, the Helm 4 client and Prometheus promtool used
+for chart checks.
 [go.mod](../go.mod) pins dependencies and [CI](../.github/workflows/ci.yaml)
 defines the Kubernetes test version and pins the uv version used by CI.
 Use those files when changing versions rather than adding another version list.
@@ -151,15 +152,15 @@ See [GitHub's cache matching and access rules](https://docs.github.com/en/action
 and the pinned [cache Action](https://github.com/actions/cache/tree/a7833574556fa59680c1b7cb190c1735db73ebf0).
 
 The [tool helper](../.github/actions/cache-tools/action.yaml) caches only the
-selected controller-gen, setup-envtest, Staticcheck, kind and Helm binaries, plus
-the exact Kubernetes envtest version directory. Keys use versions evaluated from
+selected controller-gen, setup-envtest, Staticcheck, kind, Helm and promtool
+binaries, plus the exact Kubernetes envtest version directory. Keys use versions evaluated from
 the target Makefile, OS image and architecture; Go-built tools also include the
 pinned Go toolchain. Tools have no version fallback. `helm_prepare` owns
-controller-gen, setup-envtest, Helm and envtest saves on both architectures;
+controller-gen, setup-envtest, Helm, promtool and envtest saves on both architectures;
 `software` owns amd64 Staticcheck, and arm64 `helm_prepare` warms/saves the pinned
 Staticcheck binary for releases. Only the `functional` lane of each native main
-`helm_smoke` job saves kind. Helm keys include the installer hash; a restored
-binary's timestamp is refreshed so Make does not redownload it just because the
+`helm_smoke` job saves kind. Helm and promtool keys include their installer
+hashes; a restored binary's timestamp is refreshed so Make does not redownload it just because the
 installer was checked out later. Neither the whole `bin/` tree nor controller
 executables, credentials or test evidence are cached. Ruff retains its separate
 uv-managed cache.
@@ -250,6 +251,23 @@ read-only CRD source/render checks and [chart-check](../tools/chart-check/main.g
 `dist/` holds distribution archives; `bin/` holds executables and development
 tools. Local installation uses `./charts/arprt` after building its locked
 dependency; packaging is for distribution and archive checks.
+`chart-check` also renders optional PodMonitor/PrometheusRule combinations from
+source and packages, checks namespace/release/target labels and invalid settings,
+and passes the actual generated expressions to `promtool check rules` and
+`promtool test rules`. The Makefile pins `PROMETHEUS_VERSION`; the
+[installer](../tools/install-promtool.py) extracts only promtool from the official
+checksummed Prometheus archive into ignored `bin/`. It is development tooling,
+not a controller runtime dependency. CI's software and chart jobs run this through
+`make verify-checks`/`make chart-check`, with an exact tool cache. Rule tests cover
+thresholds, holds, recovery, never-success, resets, missing data, traffic limits
+and release/instance isolation. See the [Prometheus rule test format](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/).
+These offline checks do not establish Operator discovery or actual scraping.
+For that integration, use a disposable cluster with explicitly pinned Operator
+and Prometheus versions; verify targets, collection, rule loading and alert
+firing/recovery without sending external notifications. Operations smoke verifies
+new metrics on the real private endpoint, successful maintenance with Jobs
+enabled/disabled and identity redaction.
+
 The render matrix covers default/custom release names and namespaces, bundled
 and separate CRDs, created/existing PVCs and auth Secrets, and Jobs on/off. It
 checks namespace/name/selector references, named Secret permissions, Pod security,

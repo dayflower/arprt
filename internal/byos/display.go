@@ -114,7 +114,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 	}
 	if observed.targetErr != nil {
 		s.outcome(ctx, d, observed.seen, deliveryOutcome{assignment: assignmentUnexamined, reason: "UnknownCapabilities", message: "No resolved render target"})
-		reply(w, 200, 202)
+		writeDisplayResponse(w, DisplayResponse{Status: 202})
 		return
 	}
 
@@ -131,7 +131,7 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 			return
 		}
 		s.outcome(ctx, d, observed.seen, result)
-		reply(w, 200, 202)
+		writeDisplayResponse(w, DisplayResponse{Status: 202})
 		return
 	}
 
@@ -202,6 +202,11 @@ func (s *Server) display(w http.ResponseWriter, r *http.Request, d *api.ArprtDev
 }
 
 func writeDisplayResponse(w http.ResponseWriter, response DisplayResponse) {
+	result := response.deliveryResult
+	if response.Status == 202 {
+		result = "pending"
+	}
+	observe.Deliveries.WithLabelValues(result).Inc()
 	if response.Status == 202 {
 		reply(w, 200, 202)
 		return
@@ -212,7 +217,7 @@ func writeDisplayResponse(w http.ResponseWriter, response DisplayResponse) {
 func (s *Server) displayError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errDisplayPending):
-		reply(w, 200, 202)
+		writeDisplayResponse(w, DisplayResponse{Status: 202})
 	case errors.Is(err, errDisplayUnauthorized):
 		reply(w, 401, 401)
 	default:
@@ -303,8 +308,8 @@ func (s *Server) finishDisplay(ctx context.Context, d *api.ArprtDevice, o Observ
 	}
 	// Issuance and any new cycle turn must be durable before acknowledgement.
 	s.outcome(ctx, d, seen, result)
-	s.recordDelivery(ctx, d, selected, image, proposed, issuedAt)
-	return DisplayResponse{Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10}, nil
+	deliveryResult := s.recordDelivery(ctx, d, selected, image, proposed, issuedAt)
+	return DisplayResponse{deliveryResult: deliveryResult, Status: 0, ImageURL: s.deviceURL(d.Name) + "/images/" + image.issued.ImageDigest + ".png", Filename: image.issued.Filename, RefreshRate: s.Config.RefreshSeconds, ImageURLTimeout: 10}, nil
 }
 
 func (s *Server) selectDelivery(ctx context.Context, d *api.ArprtDevice, resolved render.ResolvedTarget) (selectedDelivery, error) {
