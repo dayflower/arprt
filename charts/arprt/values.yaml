@@ -70,6 +70,43 @@ service:
 # Container listener only; metrics are never exposed by the BYOS Service.
 metrics:
   enabled: true
+  podMonitor:
+    enabled: false
+    interval: 30s
+    additionalLabels: {}
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
+    # Empty uses this release's namespace and arprt_release target labels.
+    # A nonempty map replaces that default selector.
+    metricSelector: {}
+    labels:
+      severity: warning
+    rules:
+      maintenanceStalled:
+        enabled: true
+        threshold: 300
+        for: 5m
+      storageErrors:
+        enabled: true
+        threshold: 0
+        window: 10m
+        for: 0s
+      collectionFailures:
+        enabled: true
+        threshold: 0
+        window: 10m
+        for: 0s
+      devicesSilent:
+        enabled: false
+        threshold: 0
+        for: 10m
+      staleDeliveries:
+        enabled: false
+        threshold: 0.5
+        minimumDeliveries: 10
+        window: 15m
+        for: 0s
 
 # Operator listener only; access via Pod/Deployment port-forward, not BYOS Service.
 dashboard:

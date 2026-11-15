@@ -103,7 +103,9 @@ func TestDeliveryPersistenceFailuresHoldTurnAndRecover(t *testing.T) {
 			} else {
 				s.Repository = issueFailure
 			}
+			counts := deliveryCounts(t)
 			response := request(s, "GET", devicePath+"/api/display", auth(), nil)
+			assertDeliveries(t, counts, nil)
 			if response.Code != 503 || response.Body.String() != `{"status":503}` {
 				t.Fatal("failed persistence acknowledged delivery", response.Code, response.Body.String())
 			}

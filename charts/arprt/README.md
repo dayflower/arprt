@@ -125,6 +125,14 @@ including IANA zone availability and existing PVC topology. Defaults follow
 | `nodeSelector`, `tolerations` | `{}`, `[]` | Pod scheduling |
 | `service.type`, `service.annotations` | `ClusterIP`, `{}` | BYOS Service configuration |
 | `metrics.enabled` | `true` | Internal port 8082; never added to the BYOS Service |
+| `metrics.podMonitor.enabled` | `false` | Create a same-namespace PodMonitor |
+| `metrics.podMonitor.interval` | `30s` | Positive Prometheus scrape duration |
+| `metrics.podMonitor.additionalLabels` | `{}` | PodMonitor selection labels |
+| `metrics.prometheusRule.enabled` | `false` | Create a same-namespace PrometheusRule, independently of PodMonitor |
+| `metrics.prometheusRule.additionalLabels` | `{}` | PrometheusRule selection labels |
+| `metrics.prometheusRule.metricSelector` | `{}` | Empty uses this namespace/release; nonempty map replaces the selector |
+| `metrics.prometheusRule.labels` | `{severity: warning}` | Alert notification routing labels |
+| `metrics.prometheusRule.rules.<ruleKey>` | See monitoring below | Per-rule enablement, threshold, window and hold |
 | `dashboard.enabled` | `false` | Read-only operator UI/API on container port 8083; no Service or Ingress |
 | `dashboard.basePath` | `/` | Absolute UI/API path, such as `/dashboard/`; proxies must preserve the prefix |
 
@@ -204,3 +212,77 @@ The Job/Playlist suites included in `helm-smoke` exercise real OnDemand executio
 Skip turns and retained issued URLs across a config rollout. Cold-image startup
 and physical delivery need the separate
 [acceptance procedure](../../notes/DEVELOP.md#on-demand-job-acceptance).
+
+## Monitoring
+
+Optional monitoring requires an existing Prometheus Operator installation and
+its PodMonitor/PrometheusRule CRDs. The chart has no Operator dependency and does
+not add monitoring CRDs to `arprt-crds`. Both resources default to disabled and
+require `metrics.enabled: true` when enabled. Missing CRDs produce normal apply
+errors; templates render offline without API discovery. Metrics remain on the
+private Pod port `metrics` (8082), HTTP `/metrics`, outside the BYOS Service.
+
+Enable just collection in private values (replace the illustrative selection
+label with one matched by your Prometheus):
+
+```yaml
+metrics:
+  podMonitor:
+    enabled: true
+    interval: 30s
+    additionalLabels:
+      monitoring: platform
+```
+
+Enable just rules when an external scraper supplies the target labels below:
+
+```yaml
+metrics:
+  prometheusRule:
+    enabled: true
+    additionalLabels:
+      monitoring: platform
+    metricSelector:
+      namespace: arprt
+      arprt_release: home
+    labels:
+      severity: warning
+      team: displays
+    rules:
+      staleDeliveries:
+        enabled: true
+        threshold: 0.5
+        minimumDeliveries: 10
+        window: 15m
+        for: 0s
+```
+
+Combine both settings to enable both resources. PodMonitor selects only this
+release's Pods in its own namespace and supplies target labels `namespace` and
+`arprt_release` from Pod metadata. Metadata `additionalLabels` select monitoring
+resources; they do not change the target labels. Chart identity labels cannot be
+overridden. Label names/values are validated. A nonempty `metricSelector` map
+replaces the default namespace/release selector, so include enough labels to
+isolate controllers; PromQL label values are escaped. Reserved metric/response
+labels `__name__`, `result` and `state` cannot be selector keys. Instance labels
+are preserved by every rule, including stale ratio aggregation.
+
+| Rule key | Enabled | Threshold | Window | `for` |
+| --- | --- | --- | --- | --- |
+| `maintenanceStalled` | `true` | `300` seconds | None | `5m` |
+| `storageErrors` | `true` | `0` errors | `10m` | `0s` |
+| `collectionFailures` | `true` | `0` failures | `10m` | `0s` |
+| `devicesSilent` | `false` | `0` silent devices | None | `10m` |
+| `staleDeliveries` | `false` | `0.5` ratio | `15m` | `0s` |
+
+All rule keys accept `enabled`, nonnegative `threshold` and `for`. Counter rules
+accept a positive `window`; stale ratios are in [0, 1] and additionally require
+`minimumDeliveries` (default 10, positive integer). Durations use Prometheus units
+such as `30s`, `5m` or `1h30m`; `for: 0s` disables the hold. Disabled individual
+rules are omitted, and disabling all rules omits the PrometheusRule entirely.
+
+Configure Prometheus's PodMonitor/rule selectors and namespace selectors to
+select these resources, allow private network access and configure Alertmanager
+routing/destinations separately. Resource creation alone does not collect or
+notify. [Monitoring operations](../../notes/OPERATIONS.md#monitoring) describes
+metric semantics, limitations, alert tuning and response procedures.

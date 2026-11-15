@@ -15,7 +15,8 @@ import (
 // Recording follows all required writes under the existing device gate. It is
 // best effort: a failure (including cancellation) cannot revoke issued access,
 // undo a turn, or turn an otherwise successful display response into an error.
-func (s *Server) recordDelivery(ctx context.Context, d *api.ArprtDevice, selected selectedDelivery, image deliveryImage, proposed *api.ScreenCycleStatus, issuedAt time.Time) {
+// Return the classified result even when the observation cannot be saved.
+func (s *Server) recordDelivery(ctx context.Context, d *api.ArprtDevice, selected selectedDelivery, image deliveryImage, proposed *api.ScreenCycleStatus, issuedAt time.Time) string {
 	r := artifact.DeliveryRecord{
 		Version: 1, DeviceUID: string(d.UID), DeviceGeneration: d.Generation,
 		ScreenName: selected.screen.Name, ScreenUID: string(selected.screen.UID), ScreenGeneration: selected.screen.Generation,
@@ -59,4 +60,5 @@ func (s *Server) recordDelivery(ctx context.Context, d *api.ArprtDevice, selecte
 		// Never emit raw storage errors, paths, credentials or device identities.
 		observe.StorageErrors.WithLabelValues("delivery_record").Inc()
 	}
+	return r.Result
 }

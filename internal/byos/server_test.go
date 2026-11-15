@@ -179,6 +179,8 @@ func TestSetupDisplayPersistenceOutage(t *testing.T) {
 }
 
 func TestAuthenticationRoutingAndPending(t *testing.T) {
+	counts := deliveryCounts(t)
+	defer assertDeliveries(t, counts, map[string]float64{"pending": 1})
 	s, c, _ := newTestServer(t, "http://unused.invalid")
 	before := loadDevice(t, c)
 	for name, test := range map[string]struct {

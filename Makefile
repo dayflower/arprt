@@ -18,6 +18,8 @@ KIND_VERSION := v0.33.0
 KIND_NODE_IMAGE := kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
 HELM_SMOKE_SCOPE ?= all
 HELM_VERSION ?= v4.3.0
+PROMETHEUS_VERSION := v3.5.0
+PROMTOOL := $(CURDIR)/bin/promtool-$(PROMETHEUS_VERSION)
 CHART_OUTPUT ?= $(CURDIR)/dist/charts
 HELM := $(CURDIR)/bin/helm-$(HELM_VERSION)
 
@@ -48,6 +50,9 @@ api-docs: manifests
 api-docs-check:
 	$(GO) run ./tools/api-docs --check
 
+$(PROMTOOL): tools/install-promtool.py
+	python3 tools/install-promtool.py $(PROMETHEUS_VERSION) $@
+
 $(HELM): tools/install-helm.py
 	python3 tools/install-helm.py $(HELM_VERSION) $@
 
@@ -70,8 +75,8 @@ chart-package: chart-dependencies
 	$(HELM) package charts/arprt-crds --destination "$(CHART_OUTPUT)"
 	$(HELM) package charts/arprt --destination "$(CHART_OUTPUT)"
 
-chart-check: crd-chart-check chart-lint chart-package
-	$(GO) run ./tools/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)"
+chart-check: crd-chart-check chart-lint chart-package $(PROMTOOL)
+	$(GO) run ./tools/chart-check --helm "$(HELM)" --packages "$(CHART_OUTPUT)" --promtool "$(PROMTOOL)"
 
 # Both entrypoints own their kind cluster and kubeconfig, including failure cleanup.
 helm-smoke: chart-package

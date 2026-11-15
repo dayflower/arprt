@@ -82,6 +82,8 @@ func demandResponse(t *testing.T, done <-chan *httptest.ResponseRecorder) *httpt
 }
 
 func TestOnDemandSharedDisplayAndIndependentRequests(t *testing.T) {
+	counts := deliveryCounts(t)
+	defer assertDeliveries(t, counts, map[string]float64{"ready": 2})
 	s, c := demandServer(t)
 	bytes := pngFixture(t)
 	ready := make(chan jobrender.ExecutionRequest, 1)
@@ -132,6 +134,8 @@ func TestOnDemandSharedDisplayAndIndependentRequests(t *testing.T) {
 }
 
 func TestOnDemandFailureFallbackAndInfrastructureErrors(t *testing.T) {
+	counts := deliveryCounts(t)
+	defer assertDeliveries(t, counts, map[string]float64{"ready": 1, "pending": 1, "stale": 3})
 	s, _ := demandServer(t)
 	bytes := pngFixture(t)
 	var failure error = &jobrender.ExecutionError{Reason: "JobFailed"}
@@ -262,10 +266,14 @@ func TestOnDemandIssuanceRevalidatesChangedInputs(t *testing.T) {
 				}
 				return m, changeDemandInput(ctx, c, change)
 			})
+			counts := deliveryCounts(t)
 			w := request(s, "GET", devicePath+"/api/display", auth(), nil)
 			want := 200
 			if change == "credentials" {
 				want = 401
+				assertDeliveries(t, counts, nil)
+			} else {
+				assertDeliveries(t, counts, map[string]float64{"pending": 1})
 			}
 			if w.Code != want || decodeDisplay(t, w).ImageURL != "" {
 				t.Fatal("issued changed input", w.Code, w.Body.String())

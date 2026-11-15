@@ -89,7 +89,9 @@ func TestDeliveryRecordsAcrossSourcesAndAssignments(t *testing.T) {
 					}
 					return s.Repository.Publish(ctx, artifact.Metadata{Unit: req.Unit, ScreenGeneration: sc.Generation, InputRevision: req.Revision, Sequence: sequence, AttemptID: fmt.Sprint(sequence), RenderedAt: time.Now().UTC()}, png)
 				})
+				counts := deliveryCounts(t)
 				response := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil))
+				assertDeliveries(t, counts, map[string]float64{"ready": 1})
 				r, err := s.Repository.Delivery(t.Context(), string(d.UID))
 				if err != nil || response.Status != 0 || r.ScreenName != "screen" || r.RenderedAt == nil || r.Result != "ready" || !strings.Contains(response.ImageURL, r.ImageDigest) {
 					t.Fatal("delivery not recorded", response, r, err)
@@ -111,10 +113,12 @@ func TestDeliveryRecordsAcrossSourcesAndAssignments(t *testing.T) {
 					t.Fatal(err)
 				}
 				if mode != "single" {
+					counts = deliveryCounts(t)
 					before := calls.Load()
 					if got := decodeDisplay(t, request(restarted, "GET", devicePath+"/api/display", auth(), nil)); got != response {
 						t.Fatal("restart changed replay", got, response)
 					}
+					assertDeliveries(t, counts, map[string]float64{"ready": 1})
 					replayed, err := repo.Delivery(t.Context(), string(d.UID))
 					if err != nil || replayed.RenderedAt == nil || !replayed.RenderedAt.Equal(*r.RenderedAt) || replayed.Rendering != r.Rendering || calls.Load() != before || !artifact.EqualCycle(replayed.Cycle, r.Cycle) {
 						t.Fatal("replay lost original provenance", replayed, err)
@@ -132,9 +136,11 @@ func TestDeliveryRecordsAcrossSourcesAndAssignments(t *testing.T) {
 				if err := c.Update(t.Context(), &sc); err != nil {
 					t.Fatal(err)
 				}
+				counts = deliveryCounts(t)
 				fallback := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil))
 				last, err := repo.Delivery(t.Context(), string(d.UID))
 				if mode == "Skip" {
+					assertDeliveries(t, counts, map[string]float64{"pending": 1})
 					if fallback.Status != 202 || err != nil || last.Result != "ready" || !artifact.EqualCycle(last.Cycle, r.Cycle) {
 						t.Fatal("failed Skip changed recorded success", fallback, last, err)
 					}
@@ -142,12 +148,20 @@ func TestDeliveryRecordsAcrossSourcesAndAssignments(t *testing.T) {
 					t.Fatal("fallback lost base generation time", fallback, last, err)
 				}
 				if mode != "Skip" {
+					assertDeliveries(t, counts, map[string]float64{"stale": 1})
 					expected := "failed"
 					if source == "Scheduled" {
 						expected = "unknown"
 					}
 					if last.Rendering != expected {
 						t.Fatal("incorrect rendering evidence", source, last.Rendering)
+					}
+					if mode != "single" {
+						counts = deliveryCounts(t)
+						if replay := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil)); replay != fallback {
+							t.Fatal("stale replay changed response", replay, fallback)
+						}
+						assertDeliveries(t, counts, map[string]float64{"stale": 1})
 					}
 				}
 			})
@@ -205,9 +219,11 @@ func TestDeliveryObservationFailureAndLegacyReplay(t *testing.T) {
 	expireTurn(t, c)
 	original := s.Repository
 	s.Repository = failedDeliveryStore{original}
+	counts := deliveryCounts(t)
 	if response := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil)); response.Status != 0 {
 		t.Fatal("record failure prevented delivery", response)
 	}
+	assertDeliveries(t, counts, map[string]float64{"ready": 1})
 	if r, err := original.Delivery(t.Context(), string(d.UID)); err != nil || !r.IssuedAt.Equal(prior.IssuedAt) {
 		t.Fatal("record failure changed previous observation", r, err)
 	}
@@ -235,7 +251,9 @@ func TestDeliveryObservationFailureAndLegacyReplay(t *testing.T) {
 		}
 	}
 	s.Repository = original
+	counts = deliveryCounts(t)
 	replayed := decodeDisplay(t, request(s, "GET", devicePath+"/api/display", auth(), nil))
+	assertDeliveries(t, counts, map[string]float64{"unknown": 1})
 	r, err := original.Delivery(t.Context(), string(d.UID))
 	if replayed.Status != 0 || err != nil || r.RenderedAt != nil || r.Result != "unknown" || r.Rendering != "unknown" {
 		t.Fatal("legacy replay invented generation time", r, err)

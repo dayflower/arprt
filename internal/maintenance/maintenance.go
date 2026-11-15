@@ -24,6 +24,7 @@ type StorageMaintenance struct {
 	Repository *artifact.PVC
 	Namespace  string
 	Refresh    time.Duration
+	now        func() time.Time // Completion clock; defaults to time.Now.
 }
 
 func (m *StorageMaintenance) NeedLeaderElection() bool { return false }
@@ -31,15 +32,7 @@ func (m *StorageMaintenance) Start(ctx context.Context) error {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
-		err := m.Collect(ctx, time.Now().UTC())
-		outcome := "success"
-		if err != nil && ctx.Err() == nil {
-			outcome = "failure"
-			observe.StorageErrors.WithLabelValues("maintenance").Inc()
-			// Do not log filesystem paths or corrupt record contents.
-			ctrl.LoggerFrom(ctx).Info("Artifact maintenance failed; retained data is protected", "reason", "StorageMaintenanceFailed")
-		}
-		observe.Maintenance.WithLabelValues(outcome).Inc()
+		m.runOnce(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -47,6 +40,27 @@ func (m *StorageMaintenance) Start(ctx context.Context) error {
 		}
 	}
 }
+
+// runOnce records only completed passes. Shutdown never counts as success.
+func (m *StorageMaintenance) runOnce(ctx context.Context) {
+	now := m.now
+	if now == nil {
+		now = time.Now
+	}
+	err := m.Collect(ctx, now().UTC())
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		observe.Maintenance.WithLabelValues("failure").Inc()
+		observe.StorageErrors.WithLabelValues("maintenance").Inc()
+		// Do not log filesystem paths or corrupt record contents.
+		ctrl.LoggerFrom(ctx).Info("Artifact maintenance failed; retained data is protected", "reason", "StorageMaintenanceFailed")
+		return
+	}
+	observe.MaintenanceSucceeded(now())
+}
+
 func (m *StorageMaintenance) Collect(ctx context.Context, now time.Time) error {
 	if err := deliverycommit.RecoverAll(ctx, m.Repository, m.Reader, m.Namespace); err != nil {
 		return err

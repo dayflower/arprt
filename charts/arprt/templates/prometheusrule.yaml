@@ -1,0 +1,42 @@
+{{- include "arprt.validate" . -}}
+{{- $config := .Values.metrics.prometheusRule -}}
+{{- $selector := include "arprt.metricSelector" . -}}
+{{- $expressions := dict
+  "maintenanceStalled" (printf "time() - arprt_maintenance_last_success_timestamp_seconds{%s} > %v" $selector $config.rules.maintenanceStalled.threshold)
+  "storageErrors" (printf "increase(arprt_storage_errors_total{%s}[%s]) > %v" $selector $config.rules.storageErrors.window $config.rules.storageErrors.threshold)
+  "collectionFailures" (printf "increase(arprt_collection_failures_total{%s}[%s]) > %v" $selector $config.rules.collectionFailures.window $config.rules.collectionFailures.threshold)
+  "devicesSilent" (printf "arprt_devices{%sstate=\"silent\"} > %v" $selector $config.rules.devicesSilent.threshold)
+  "staleDeliveries" (printf "(sum without (result) (increase(arprt_deliveries_total{%sresult=\"stale\"}[%s])) / sum without (result) (increase(arprt_deliveries_total{%sresult=~\"ready|stale|unknown\"}[%s])) > %v) and (sum without (result) (increase(arprt_deliveries_total{%sresult=~\"ready|stale|unknown\"}[%s])) >= %v)" $selector $config.rules.staleDeliveries.window $selector $config.rules.staleDeliveries.window $config.rules.staleDeliveries.threshold $selector $config.rules.staleDeliveries.window $config.rules.staleDeliveries.minimumDeliveries)
+-}}
+{{- $names := dict "maintenanceStalled" "ArprtMaintenanceStalled" "storageErrors" "ArprtStorageErrors" "collectionFailures" "ArprtCollectionFailures" "devicesSilent" "ArprtDevicesSilent" "staleDeliveries" "ArprtStaleDeliveries" -}}
+{{- $summaries := dict "maintenanceStalled" "arprt maintenance has stopped completing" "storageErrors" "arprt reported storage errors" "collectionFailures" "arprt could not collect Job output" "devicesSilent" "arprt has silent devices" "staleDeliveries" "arprt frequently returns previous compatible images" -}}
+{{- $descriptions := dict
+ "maintenanceStalled" "Check controller health, PVC access and maintenance logs. Zero means no pass has succeeded since startup. Missing scrapes require separate monitoring."
+ "storageErrors" "Inspect the operation label, controller logs, PVC capacity and Ready Conditions (including StorageCapacityExceeded). Errors clear after the evaluation window, not after the next success."
+ "collectionFailures" "Inspect Job output and RenderReady Conditions; verify renderer output format and PVC access."
+ "devicesSilent" "Inspect DeviceSeen Conditions, power and connectivity. Intentional power-off also causes silence; stalled maintenance can leave counts old."
+ "staleDeliveries" "Inspect RenderReady Conditions and renderer or Job health. Pending responses are excluded; unknown is not proof of rendering success. This does not confirm physical display."
+-}}
+{{- $rules := list -}}
+{{- range $key, $rule := $config.rules -}}
+{{- if $rule.enabled -}}
+{{- $rules = append $rules (dict "alert" (get $names $key) "expr" (get $expressions $key) "for" $rule.for "labels" $config.labels "annotations" (dict "summary" (get $summaries $key) "description" (get $descriptions $key))) -}}
+{{- end -}}
+{{- end -}}
+{{- if and $config.enabled (not (empty $rules)) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "arprt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "arprt.labels" . | nindent 4 }}
+    {{- with $config.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: arprt
+      rules:
+        {{- toYaml $rules | nindent 8 }}
+{{- end }}
